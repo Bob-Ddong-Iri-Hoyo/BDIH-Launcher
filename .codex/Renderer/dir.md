@@ -130,7 +130,7 @@ Component/WindowControls.tsx
     macOS native traffic light 버튼을 숨기는 경우 MainView 상단에서 앱 종료/갱신 액션을 제공한다.
 ```
 
-`ImangeButton.tsx`, `PrgoressBar.tsx`는 기존 오타 import 호환을 위한 wrapper로 유지한다.
+`ImangeButton.tsx`는 기존 오타 import 호환을 위한 wrapper로 유지한다.
 새 코드는 `ImageButton.tsx`, `ProgressBar.tsx`를 import한다.
 
 ### Store

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useMemo, useState } from "react";
 import { PREDEFINED_WINE_VERSIONS } from "../../../Common/Constant/WineCatalog";
 import { RendererViewKey } from "../../Component/MainFrame";
+import type { Bottle } from "../../Types/Bottle";
 import { DashboardView, LauncherView } from "../../View/MainView/MainView";
 
 const wineVersions = PREDEFINED_WINE_VERSIONS.map((version, index) =>
@@ -14,6 +15,75 @@ const wineVersions = PREDEFINED_WINE_VERSIONS.map((version, index) =>
       }
     : version,
 );
+
+const bottles: Bottle[] = [
+  {
+    id: "hoyoverse",
+    name: "HoyoVerse Bottle",
+    description: "Shared launcher profile for HoyoVerse titles.",
+    wineVersionId: "ge-proton-latest",
+    path: "~/Library/Application Support/BDIH/Bottles/hoyoverse",
+    status: "ready",
+    apps: [
+      {
+        id: "genshin",
+        name: "Genshin Impact",
+        subtitle: "HoyoVerse Launcher",
+        wineVersionId: "ge-proton-latest",
+        lastPlayed: "",
+        lastPlayedKey: "main.lastPlayed.today",
+        status: "ready",
+      },
+      {
+        id: "starrail",
+        name: "Honkai: Star Rail",
+        subtitle: "DXMT profile",
+        wineVersionId: "ge-proton-latest",
+        lastPlayed: "",
+        lastPlayedKey: "main.lastPlayed.yesterday",
+        status: "ready",
+      },
+    ],
+  },
+  {
+    id: "steam",
+    name: "Steam Bottle",
+    description: "Steam and library games using a dedicated prefix.",
+    wineVersionId: "wine-9.0-stable",
+    path: "~/Library/Application Support/BDIH/Bottles/steam",
+    status: "updating",
+    apps: [
+      {
+        id: "steam",
+        name: "Steam",
+        subtitle: "Wine 9 prefix",
+        wineVersionId: "wine-9.0-stable",
+        lastPlayed: "",
+        lastPlayedKey: "main.lastPlayed.threeDaysAgo",
+        status: "updating",
+      },
+    ],
+  },
+  {
+    id: "custom-tools",
+    name: "Custom Tools",
+    description: "Manual executables and local test recipes.",
+    wineVersionId: "wine-8.0-stable",
+    path: "~/Library/Application Support/BDIH/Bottles/custom-tools",
+    status: "needs-setup",
+    apps: [
+      {
+        id: "custom",
+        name: "Custom Windows App",
+        subtitle: "Manual executable",
+        wineVersionId: "wine-8.0-stable",
+        lastPlayed: "",
+        lastPlayedKey: "main.lastPlayed.never",
+        status: "needs-prefix",
+      },
+    ],
+  },
+];
 
 const logSessions = [
   {
@@ -110,6 +180,7 @@ const meta: Meta<typeof DashboardView> = {
     selectedWineVersionId: wineVersions[0].id,
     installPath: "~/Library/Application Support/BDIH/Wine",
     isLoadingWineVersions: false,
+    bottles,
     onSelectWineVersion: () => undefined,
     onInstallWineVersion: () => undefined,
   },
@@ -179,11 +250,11 @@ function LauncherShellStory() {
       selectedWineVersionId={wineVersions[0].id}
       installPath="~/Library/Application Support/BDIH/Wine"
       isLoadingWineVersions={false}
+      bottles={bottles}
       logEntries={logEntries}
       logSessions={logSessions}
       logSources={logSources}
       onViewChange={setActiveView}
-      onRefresh={() => undefined}
       onQuit={() => undefined}
       onMinimize={() => undefined}
       onMaximize={() => undefined}

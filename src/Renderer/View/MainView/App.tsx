@@ -54,7 +54,6 @@ const App: React.FC = () => {
       activeView={activeView}
       statusText={lastStatusMessage}
       onViewChange={setActiveView}
-      onRefresh={() => void loadWineVersions()}
       onQuit={() => window.BTIH_API?.send(IPC_CHANNELS.APP.QUIT.channelName, undefined as never)}
       onMinimize={() => window.BTIH_API?.send(IPC_CHANNELS.APP.MINIMIZE.channelName, undefined as never)}
       onMaximize={() => window.BTIH_API?.send(IPC_CHANNELS.APP.MAXIMIZE.channelName, undefined as never)}

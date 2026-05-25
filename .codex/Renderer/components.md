@@ -74,6 +74,5 @@ UI 방향:
 ## 호환 wrapper
 
 - `ImangeButton.tsx`
-- `PrgoressBar.tsx`
 
 기존 오타 import 호환용 wrapper다. 새 코드에서는 가능한 `ImageButton.tsx`, `ProgressBar.tsx`를 직접 import한다.

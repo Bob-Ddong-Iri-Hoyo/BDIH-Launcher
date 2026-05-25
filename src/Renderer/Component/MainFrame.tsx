@@ -11,13 +11,14 @@ export interface NavigationItem {
 }
 
 export interface MainFrameProps {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   logoSrc?: string;
   activeView: RendererViewKey;
   statusText?: string;
   children: React.ReactNode;
   titleBar?: React.ReactNode;
+  headerLeading?: React.ReactNode;
   actions?: React.ReactNode;
   onViewChange: (viewKey: RendererViewKey) => void;
 }
@@ -49,6 +50,7 @@ export function MainFrame({
   statusText = "Renderer ready",
   children,
   titleBar,
+  headerLeading,
   actions,
   onViewChange,
 }: MainFrameProps) {
@@ -106,13 +108,20 @@ export function MainFrame({
 
       <main className="flex min-h-0 flex-col">
         <header className="flex h-20 shrink-0 items-center justify-between gap-4 border-b border-white/10 bg-[#0f172a] px-6 [-webkit-app-region:drag]">
-          <div className="min-w-0">
-            <div className="mb-1 flex items-center gap-2">
-              <MonitorPlay size={18} className="accent-text" />
-              <StatusBadge label={t("common.macosWine")} tone="info" />
+          <div className="flex min-w-0 items-center gap-3">
+            {headerLeading && <div className="shrink-0 [-webkit-app-region:no-drag]">{headerLeading}</div>}
+            <div className="min-w-0">
+              <div className="mb-1 flex items-center gap-2">
+                <MonitorPlay size={18} className="accent-text" />
+                <StatusBadge label={t("common.macosWine")} tone="info" />
+              </div>
+              {typeof title === "string" ? (
+                <h2 className="truncate text-xl font-bold text-white">{title}</h2>
+              ) : (
+                <div className="min-w-0 [-webkit-app-region:no-drag]">{title}</div>
+              )}
+              {subtitle && <p className="truncate text-sm text-slate-400">{subtitle}</p>}
             </div>
-            <h2 className="truncate text-xl font-bold text-white">{title}</h2>
-            {subtitle && <p className="truncate text-sm text-slate-400">{subtitle}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">{actions}</div>}
         </header>
