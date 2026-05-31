@@ -8,7 +8,6 @@ import { IconButton } from "../../Component/IconButton";
 import { LogEntry, LogSession, LogSourceOption, LogViewer } from "../../Component/LogViewer";
 import { MacTitleBar } from "../../Component/MacTitleBar";
 import { MainFrame, RendererViewKey } from "../../Component/MainFrame";
-import XTermTerminal from "../../Component/Terminal";
 import { ViewSurface } from "../../Component/ViewSurface";
 import { WindowControls } from "../../Component/WindowControls";
 import { SupportedLocale } from "../../I18n";
@@ -37,7 +36,6 @@ export interface DashboardViewProps {
 
 export interface LauncherViewProps extends DashboardViewProps {
   activeView: RendererViewKey;
-  statusText: string;
   onViewChange: (viewKey: RendererViewKey) => void;
   onQuit: () => void;
   onMinimize: () => void;
@@ -199,7 +197,6 @@ export function DashboardView({
 
 export function LauncherView({
   activeView,
-  statusText,
   wineVersions,
   selectedWineVersion,
   selectedWineVersionId,
@@ -257,7 +254,6 @@ export function LauncherView({
       subtitle={subtitle}
       logoSrc={LogoSquare}
       activeView={activeView}
-      statusText={statusText}
       titleBar={
         isMac ? (
           <MacTitleBar title={t("common.appName")} onQuit={onQuit} onMinimize={onMinimize} onMaximize={onMaximize} />
@@ -291,14 +287,14 @@ export function LauncherView({
           onInstallWineVersion={onInstallWineVersion}
         />
       )}
-      {activeView === "terminal" && (
-        <ViewSurface>
-          <XTermTerminal height="100%" welcomeMessage={t("main.terminalWelcome")} />
-        </ViewSurface>
-      )}
       {activeView === "logs" && (
         <ViewSurface>
-          <LogViewer entries={logEntries} sessions={logSessions} sources={logSources} className="h-full" />
+          <LogViewer
+            entries={logEntries}
+            sessions={logSessions}
+            sources={logSources}
+            className="h-full"
+          />
         </ViewSurface>
       )}
       {activeView === "preferences" && (

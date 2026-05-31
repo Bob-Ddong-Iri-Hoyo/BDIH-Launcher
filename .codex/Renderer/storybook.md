@@ -8,7 +8,7 @@ Storybook은 실제 IPC/Store 로직 연결 전 UI를 확인하는 공간으로 
 
 `src/Renderer/View/MainView/MainView.stories.tsx`
 
-- `LauncherShell`: sidebar navigation 클릭으로 dashboard, terminal, logs, preferences 전환을 확인한다.
+- `LauncherShell`: sidebar navigation 클릭으로 dashboard, logs, preferences 전환을 확인한다.
 - log entries, sessions, sources mock data를 포함한다.
 - 실제 Main process 없이 전체 shell의 시각 구조를 확인한다.
 

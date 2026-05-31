@@ -132,6 +132,9 @@ export const WINE = {
   },
 } as const;
 
+////////////////////////////////////
+// App Channel Definition
+////////////////////////////////////
 export const APP = {
   QUIT: {
     channelName: "app:quit",

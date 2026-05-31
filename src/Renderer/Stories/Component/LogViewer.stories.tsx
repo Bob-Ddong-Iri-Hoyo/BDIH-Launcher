@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   LogEntry,
   LogSession,
@@ -21,6 +21,7 @@ type Story = StoryObj<typeof LogViewer>;
 const SOURCES: LogSourceOption[] = [
   { id: "app", label: "App" },
   { id: "renderer", label: "Renderer" },
+  { id: "bottle-runner", label: "Bottle Runner" },
   { id: "wine", label: "Wine" },
   { id: "updater", label: "Updater" },
   { id: "download", label: "Download" },
@@ -31,6 +32,9 @@ const SESSIONS: LogSession[] = [
     id: "2026-05-16-2102",
     label: "Running",
     startedAt: "2026-05-16T12:02:00.000Z",
+    kind: "bottle",
+    bottleId: "hoyoverse",
+    bottleName: "HoyoVerse Bottle",
     count: 12,
     isRunning: true,
   },
@@ -38,12 +42,14 @@ const SESSIONS: LogSession[] = [
     id: "2026-05-16-1828",
     label: "2026-05-16",
     startedAt: "2026-05-16T09:28:00.000Z",
+    kind: "app",
     count: 8,
   },
   {
     id: "2026-05-15-2314",
     label: "2026-05-15",
     startedAt: "2026-05-15T14:14:00.000Z",
+    kind: "app",
     count: 10,
   },
 ];
@@ -52,6 +58,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
   "2026-05-16-2102": [
     {
       id: "1",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:12.000Z",
       level: "info",
       category: "app",
@@ -60,6 +67,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "2",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:13.000Z",
       level: "debug",
       category: "app",
@@ -69,6 +77,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "3",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:14.000Z",
       level: "info",
       category: "wine",
@@ -77,6 +86,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "4",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:15.000Z",
       level: "warn",
       category: "app",
@@ -85,6 +95,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "5",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:18.000Z",
       level: "debug",
       category: "wine",
@@ -94,24 +105,31 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "6",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:22.000Z",
       level: "info",
-      category: "wine",
-      source: "wine",
-      message: "Install request accepted for wine-ge-8-26.",
+      category: "bottle",
+      source: "bottle-runner",
+      bottleId: "hoyoverse",
+      bottleName: "HoyoVerse Bottle",
+      message: "Launch request accepted for Genshin Impact.",
     },
     {
       id: "7",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:26.000Z",
-      level: "error",
+      level: "info",
       category: "wine",
-      source: "download",
-      message: "Download failed with exit code 56.",
+      source: "wine",
+      bottleId: "hoyoverse",
+      bottleName: "HoyoVerse Bottle",
+      message: "wine64 process started.",
       detail:
-        "Error: curl failed while receiving network data\n    at DownloadManager.startDownload\n    at WineManager.installWine",
+        "WINEPREFIX=/Users/player/Library/Application Support/BDIH/Bottles/hoyoverse\nCommand=wine64 launcher.exe",
     },
     {
       id: "8",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:31.000Z",
       level: "info",
       category: "app",
@@ -120,6 +138,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "9",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:38.000Z",
       level: "warn",
       category: "app",
@@ -128,15 +147,19 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "10",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:43.000Z",
       level: "debug",
       category: "wine",
       source: "wine",
+      bottleId: "hoyoverse",
+      bottleName: "HoyoVerse Bottle",
       message: "Resolved install directory.",
       detail: "/Users/player/Library/Application Support/BDIH Launcher/wine",
     },
     {
       id: "11",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:49.000Z",
       level: "info",
       category: "app",
@@ -145,6 +168,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "12",
+      sessionId: "2026-05-16-2102",
       timestamp: "2026-05-16T12:02:55.000Z",
       level: "error",
       category: "app",
@@ -156,6 +180,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
   "2026-05-16-1828": [
     {
       id: "old-1",
+      sessionId: "2026-05-16-1828",
       timestamp: "2026-05-16T09:28:01.000Z",
       level: "info",
       category: "app",
@@ -164,6 +189,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "old-2",
+      sessionId: "2026-05-16-1828",
       timestamp: "2026-05-16T09:28:04.000Z",
       level: "info",
       category: "wine",
@@ -172,6 +198,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "old-3",
+      sessionId: "2026-05-16-1828",
       timestamp: "2026-05-16T09:28:09.000Z",
       level: "debug",
       category: "app",
@@ -180,6 +207,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "old-4",
+      sessionId: "2026-05-16-1828",
       timestamp: "2026-05-16T09:29:17.000Z",
       level: "warn",
       category: "wine",
@@ -190,6 +218,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
   "2026-05-15-2314": [
     {
       id: "yesterday-1",
+      sessionId: "2026-05-15-2314",
       timestamp: "2026-05-15T14:14:01.000Z",
       level: "info",
       category: "app",
@@ -198,6 +227,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
     },
     {
       id: "yesterday-2",
+      sessionId: "2026-05-15-2314",
       timestamp: "2026-05-15T14:14:12.000Z",
       level: "error",
       category: "app",
@@ -213,8 +243,7 @@ export const Default: Story = {
 };
 
 function LogViewerStoryContent() {
-  const [selectedSessionId, setSelectedSessionId] = useState(SESSIONS[0].id);
-  const entries = LOGS_BY_SESSION[selectedSessionId] ?? [];
+  const entries = useMemo(() => Object.values(LOGS_BY_SESSION).flat(), []);
 
   const sources = useMemo(() => {
     return SOURCES.map((source) => ({
@@ -229,8 +258,6 @@ function LogViewerStoryContent() {
         entries={entries}
         sessions={SESSIONS}
         sources={sources}
-        selectedSessionId={selectedSessionId}
-        onSessionChange={setSelectedSessionId}
         className="h-[620px]"
       />
     </div>

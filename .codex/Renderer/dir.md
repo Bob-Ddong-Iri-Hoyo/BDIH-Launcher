@@ -222,7 +222,7 @@ View/SplashView/SplashPage.stories.tsx
 
 런처의 기본 화면이다.
 
-- `LauncherView`: `MainFrame` 안에 dashboard, terminal, preferences를 조립한다.
+- `LauncherView`: `MainFrame` 안에 dashboard, logs, preferences를 조립한다.
 - `DashboardView`: 게임 라이브러리, 선택된 Wine, Wine catalog 상태를 보여준다.
 - Wine 버전 리스트는 기본 dashboard에 직접 노출하지 않는다.
   설치된 Wine 목록은 `설치 Wine 보기` 액션으로 `InstalledWinePanel`을 열어 확인한다.

@@ -32,8 +32,8 @@ const en = {
       },
       logs: {
         label: "Logs",
-        description: "Session log files",
-        subtitle: "Browse launcher logs by run date, source, and level.",
+        description: "App and bottle logs",
+        subtitle: "Browse app sessions, bottle launches, and Wine process logs.",
       },
       preferences: {
         label: "Settings",

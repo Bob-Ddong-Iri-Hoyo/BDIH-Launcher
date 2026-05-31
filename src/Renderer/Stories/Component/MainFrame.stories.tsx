@@ -11,7 +11,6 @@ const meta: Meta<typeof MainFrame> = {
   },
   args: {
     activeView: "dashboard",
-    statusText: "Wine catalog loaded from local defaults.",
     onViewChange: () => undefined,
   },
 };
@@ -52,19 +51,17 @@ function MainFrameStoryContent(args: React.ComponentProps<typeof MainFrame>) {
   );
 }
 
-export const TerminalSelected: Story = {
+export const LogsSelected: Story = {
   args: {
-    activeView: "terminal",
+    activeView: "logs",
   },
-  render: (args) => <TerminalSelectedStoryContent {...args} />,
+  render: (args) => {
+    const { t } = useTranslation();
+
+    return (
+      <MainFrame {...args} title={t("navigation.logs.label")} subtitle={t("navigation.logs.subtitle")}>
+        <div className="p-6 text-sm text-slate-300">Logs View content</div>
+      </MainFrame>
+    );
+  },
 };
-
-function TerminalSelectedStoryContent(args: React.ComponentProps<typeof MainFrame>) {
-  const { t } = useTranslation();
-
-  return (
-    <MainFrame {...args} title={t("navigation.terminal.label")} subtitle={t("navigation.terminal.subtitle")}>
-      <div className="p-6 text-sm text-slate-300">Terminal View content</div>
-    </MainFrame>
-  );
-}

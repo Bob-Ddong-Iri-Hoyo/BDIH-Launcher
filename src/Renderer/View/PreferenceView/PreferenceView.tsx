@@ -215,7 +215,6 @@ export function PreferenceView({
   );
   const shortcutItems = [
     ["preferences.shortcuts.launchTitle", "preferences.shortcuts.launchDescription", "Command + Return"],
-    ["preferences.shortcuts.terminalTitle", "preferences.shortcuts.terminalDescription", "Command + `"],
     ["preferences.shortcuts.logsTitle", "preferences.shortcuts.logsDescription", "Command + L"],
     ["preferences.shortcuts.preferencesTitle", "preferences.shortcuts.preferencesDescription", "Command + ,"],
   ] as const;

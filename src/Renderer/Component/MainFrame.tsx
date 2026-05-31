@@ -1,9 +1,9 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Activity, FileText, Home, LucideIcon, MonitorPlay, Settings, TerminalSquare, Wine } from "lucide-react";
+import { FileText, Home, LucideIcon, MonitorPlay, Settings, Wine } from "lucide-react";
 import { StatusBadge } from "./StatusBadge";
 
-export type RendererViewKey = "dashboard" | "terminal" | "logs" | "preferences";
+export type RendererViewKey = "dashboard" | "logs" | "preferences";
 
 export interface NavigationItem {
   id: RendererViewKey;
@@ -15,7 +15,6 @@ export interface MainFrameProps {
   subtitle?: string;
   logoSrc?: string;
   activeView: RendererViewKey;
-  statusText?: string;
   children: React.ReactNode;
   titleBar?: React.ReactNode;
   headerLeading?: React.ReactNode;
@@ -27,10 +26,6 @@ export const RENDERER_NAVIGATION_ITEMS: NavigationItem[] = [
   {
     id: "dashboard",
     icon: Home,
-  },
-  {
-    id: "terminal",
-    icon: TerminalSquare,
   },
   {
     id: "logs",
@@ -47,7 +42,6 @@ export function MainFrame({
   subtitle,
   logoSrc,
   activeView,
-  statusText = "Renderer ready",
   children,
   titleBar,
   headerLeading,
@@ -94,16 +88,6 @@ export function MainFrame({
             );
           })}
         </nav>
-
-        <div className="border-t border-white/10 p-4">
-          <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-300">
-              <Activity size={14} className="text-emerald-300" />
-              {t("status.title")}
-            </div>
-            <p className="line-clamp-2 text-xs leading-5 text-slate-500">{statusText}</p>
-          </div>
-        </div>
       </aside>
 
       <main className="flex min-h-0 flex-col">

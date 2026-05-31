@@ -7,7 +7,11 @@ import { Dialog } from "./Dialog";
 import { ImageButton } from "./ImageButton";
 import { InstalledWinePanel } from "./InstalledWinePanel";
 import { ProgressBar } from "./ProgressBar";
-import { StatusBadge, label_from_status, tone_from_status } from "./StatusBadge";
+import {
+  StatusBadge,
+  label_from_status,
+  tone_from_status,
+} from "./StatusBadge";
 
 const CHARACTER_BOTTLE_NAMES = [
   "Amber",
@@ -52,7 +56,9 @@ const CHARACTER_BOTTLE_NAMES = [
   "Yuki",
 ];
 
-export function tone_from_bottle_status(status: Bottle["status"]): "success" | "warning" | "info" {
+export function tone_from_bottle_status(
+  status: Bottle["status"],
+): "success" | "warning" | "info" {
   if (status === "needs-setup") {
     return "warning";
   }
@@ -93,7 +99,10 @@ export function DashboardBreadcrumb({
   const { t } = useTranslation();
 
   return (
-    <nav className="flex min-w-0 items-center gap-2 text-xl font-bold text-white" aria-label={t("main.breadcrumbLabel")}>
+    <nav
+      className="flex min-w-0 items-center gap-2 text-xl font-bold text-white"
+      aria-label={t("main.breadcrumbLabel")}
+    >
       <button
         type="button"
         onClick={onBottleHome}
@@ -125,7 +134,10 @@ export function BottleCard({
 }: {
   bottle: Bottle;
   onClick: () => void;
-  onContextMenu?: (event: React.MouseEvent<HTMLButtonElement>, bottle: Bottle) => void;
+  onContextMenu?: (
+    event: React.MouseEvent<HTMLButtonElement>,
+    bottle: Bottle,
+  ) => void;
 }) {
   const { t } = useTranslation();
 
@@ -141,10 +153,17 @@ export function BottleCard({
         <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#0b1020] ring-1 ring-white/10">
           <Layers3 size={24} className="text-slate-200" />
         </div>
-        <StatusBadge label={t(`main.bottleStatus.${bottle.status}`)} tone={tone_from_bottle_status(bottle.status)} />
+        <StatusBadge
+          label={t(`main.bottleStatus.${bottle.status}`)}
+          tone={tone_from_bottle_status(bottle.status)}
+        />
       </div>
-      <span className="line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-slate-100">{bottle.name}</span>
-      <span className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{bottle.description}</span>
+      <span className="line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-slate-100">
+        {bottle.name}
+      </span>
+      <span className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+        {bottle.description}
+      </span>
       <div className="mt-auto flex items-center justify-between gap-3 pt-4 text-xs text-slate-400">
         <span>{t("main.bottleApps", { count: bottle.apps.length })}</span>
         <span className="truncate text-slate-500">{bottle.wineVersionId}</span>
@@ -173,18 +192,40 @@ function DashboardHeroPanel({
       <div className="grid h-full grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col justify-between p-6">
           <div>
-            <StatusBadge label={isLoadingWineVersions ? t("common.syncing") : t("common.ready")} tone={isLoadingWineVersions ? "info" : "success"} />
-            <h3 className="mt-4 text-2xl font-bold tracking-normal text-white">{t("main.heroTitle")}</h3>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{t("main.heroDescription")}</p>
+            <StatusBadge
+              label={
+                isLoadingWineVersions ? t("common.syncing") : t("common.ready")
+              }
+              tone={isLoadingWineVersions ? "info" : "success"}
+            />
+            <h3 className="mt-4 text-2xl font-bold tracking-normal text-white">
+              {t("main.heroTitle")}
+            </h3>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+              {t("main.heroDescription")}
+            </p>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <Metric label={t("main.metrics.wineCatalog")} value={`${wineVersionCount}`} />
-            <Metric label={t("main.metrics.installed")} value={`${installedWineCount}`} />
-            <Metric label={t("main.metrics.bottles")} value={`${bottleCount}`} />
+            <Metric
+              label={t("main.metrics.wineCatalog")}
+              value={`${wineVersionCount}`}
+            />
+            <Metric
+              label={t("main.metrics.installed")}
+              value={`${installedWineCount}`}
+            />
+            <Metric
+              label={t("main.metrics.bottles")}
+              value={`${bottleCount}`}
+            />
           </div>
         </div>
         <div className="hidden border-l border-white/10 bg-[#101827] p-5 md:block">
-          <img src={imageSrc} alt={t("common.appName")} className="h-full w-full rounded-lg object-cover" />
+          <img
+            src={imageSrc}
+            alt={t("common.appName")}
+            className="h-full w-full rounded-lg object-cover"
+          />
         </div>
       </div>
     </div>
@@ -205,23 +246,32 @@ function SelectedWineSummaryPanel({
   return (
     <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-base font-semibold text-white">{t("main.selectedWine")}</h3>
+        <h3 className="text-base font-semibold text-white">
+          {t("main.selectedWine")}
+        </h3>
         {selectedWineVersion && (
-          <StatusBadge label={label_from_status(selectedWineVersion.status, t)} tone={tone_from_status(selectedWineVersion.status)} />
+          <StatusBadge
+            label={label_from_status(selectedWineVersion.status, t)}
+            tone={tone_from_status(selectedWineVersion.status)}
+          />
         )}
       </div>
 
       {selectedWineVersion ? (
         <div className="space-y-4">
           <div>
-            <p className="text-lg font-bold text-white">{selectedWineVersion.name}</p>
+            <p className="text-lg font-bold text-white">
+              {selectedWineVersion.name}
+            </p>
             <p className="mt-1 text-sm text-slate-500">
               {selectedWineVersion.type} · {selectedWineVersion.version}
             </p>
           </div>
           <ProgressBar
             progressValue={selectedWineVersion.progress}
-            descriptionText={isWorking ? t("main.workProgress") : t("main.installProgress")}
+            descriptionText={
+              isWorking ? t("main.workProgress") : t("main.installProgress")
+            }
             showValue
             tone={isWorking ? "blue" : "emerald"}
           />
@@ -251,7 +301,10 @@ function BottleLibraryPanel({
   installedWineCount: number;
   isInstalledWineOpen: boolean;
   onSelectBottle?: (bottleId: string) => void;
-  onBottleContextMenu: (event: React.MouseEvent<HTMLButtonElement>, bottle: Bottle) => void;
+  onBottleContextMenu: (
+    event: React.MouseEvent<HTMLButtonElement>,
+    bottle: Bottle,
+  ) => void;
   onToggleInstalledWine: () => void;
   onCreateBottle: () => void;
 }) {
@@ -261,8 +314,12 @@ function BottleLibraryPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-white">{t("main.bottleLibrary")}</h3>
-          <p className="mt-1 text-xs text-slate-500">{t("main.bottleLibraryDescription", { count: appCount })}</p>
+          <h3 className="text-base font-semibold text-white">
+            {t("main.bottleLibrary")}
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">
+            {t("main.bottleLibraryDescription", { count: appCount })}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex h-9 w-64 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-slate-500">
@@ -281,7 +338,9 @@ function BottleLibraryPanel({
           >
             <Layers3 size={15} />
             {t("main.installedWine.viewAction")}
-            <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[11px] text-slate-200">{installedWineCount}</span>
+            <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[11px] text-slate-200">
+              {installedWineCount}
+            </span>
           </button>
         </div>
       </div>
@@ -336,12 +395,23 @@ export function DashboardHomePanel({
   onToggleInstalledWine: () => void;
   onSelectWineVersion: (versionId: string) => void;
   onSelectBottle?: (bottleId: string) => void;
-  onBottleContextMenu: (event: React.MouseEvent<HTMLButtonElement>, bottle: Bottle) => void;
+  onBottleContextMenu: (
+    event: React.MouseEvent<HTMLButtonElement>,
+    bottle: Bottle,
+  ) => void;
   onCreateBottle: () => void;
 }) {
-  const installedWineCount = wineVersions.filter((version) => version.status === "installed" || version.status === "completed").length;
-  const workingVersion = wineVersions.find((version) => ["downloading", "installing", "extracting"].includes(version.status));
-  const appCount = bottles.reduce((total, bottle) => total + bottle.apps.length, 0);
+  const installedWineCount = wineVersions.filter(
+    (version) =>
+      version.status === "installed" || version.status === "completed",
+  ).length;
+  const workingVersion = wineVersions.find((version) =>
+    ["downloading", "installing", "extracting"].includes(version.status),
+  );
+  const appCount = bottles.reduce(
+    (total, bottle) => total + bottle.apps.length,
+    0,
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -360,7 +430,9 @@ export function DashboardHomePanel({
         />
       </section>
 
-      <section className={`grid gap-6 ${isInstalledWineOpen ? "xl:grid-cols-[minmax(0,1fr)_28rem]" : ""}`}>
+      <section
+        className={`grid gap-6 ${isInstalledWineOpen ? "xl:grid-cols-[minmax(0,1fr)_28rem]" : ""}`}
+      >
         <BottleLibraryPanel
           bottles={bottles}
           appCount={appCount}
@@ -406,9 +478,16 @@ export function BottleDetailPanel({
         <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <StatusBadge label={t(`main.bottleStatus.${bottle.status}`)} tone={tone_from_bottle_status(bottle.status)} />
-              <h3 className="mt-4 text-2xl font-bold tracking-normal text-white">{bottle.name}</h3>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{bottle.description}</p>
+              <StatusBadge
+                label={t(`main.bottleStatus.${bottle.status}`)}
+                tone={tone_from_bottle_status(bottle.status)}
+              />
+              <h3 className="mt-4 text-2xl font-bold tracking-normal text-white">
+                {bottle.name}
+              </h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                {bottle.description}
+              </p>
             </div>
             <button
               type="button"
@@ -422,7 +501,9 @@ export function BottleDetailPanel({
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-lg border border-white/10 bg-[#0b1020] p-3 text-xs">
               <p className="text-slate-500">{t("main.selectedWine")}</p>
-              <p className="mt-1 font-semibold text-slate-200">{bottle.wineVersionId}</p>
+              <p className="mt-1 font-semibold text-slate-200">
+                {bottle.wineVersionId}
+              </p>
             </div>
             <div className="rounded-lg border border-white/10 bg-[#0b1020] p-3 text-xs">
               <p className="text-slate-500">{t("main.bottlePath")}</p>
@@ -432,8 +513,12 @@ export function BottleDetailPanel({
         </div>
 
         <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-          <h3 className="text-base font-semibold text-white">{t("main.recipeSettings")}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-500">{t("main.recipeSettingsDescription")}</p>
+          <h3 className="text-base font-semibold text-white">
+            {t("main.recipeSettings")}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            {t("main.recipeSettingsDescription")}
+          </p>
           <button
             type="button"
             className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
@@ -446,8 +531,12 @@ export function BottleDetailPanel({
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold text-white">{t("main.bottleGames")}</h3>
-            <p className="mt-1 text-xs text-slate-500">{t("main.bottleApps", { count: bottle.apps.length })}</p>
+            <h3 className="text-base font-semibold text-white">
+              {t("main.bottleGames")}
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              {t("main.bottleApps", { count: bottle.apps.length })}
+            </p>
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -458,7 +547,11 @@ export function BottleDetailPanel({
               name={app.name}
               subtitle={`${app.subtitle} · ${app.lastPlayedKey ? t(app.lastPlayedKey) : app.lastPlayed}`}
               isActive={app.wineVersionId === selectedWineVersionId}
-              actionLabel={app.status === "needs-prefix" ? t("common.actions.createPrefix") : t("common.actions.run")}
+              actionLabel={
+                app.status === "needs-prefix"
+                  ? t("common.actions.createPrefix")
+                  : t("common.actions.run")
+              }
             />
           ))}
         </div>
@@ -488,14 +581,20 @@ export function CreateBottleDialog({
     description: "",
   });
   const installedWineVersions = React.useMemo(
-    () => wineVersions.filter((version) => version.status === "installed" || version.status === "completed"),
+    () =>
+      wineVersions.filter(
+        (version) =>
+          version.status === "installed" || version.status === "completed",
+      ),
     [wineVersions],
   );
   const selectableWineVersions = React.useMemo(
-    () => (installedWineVersions.length > 0 ? installedWineVersions : wineVersions),
+    () =>
+      installedWineVersions.length > 0 ? installedWineVersions : wineVersions,
     [installedWineVersions, wineVersions],
   );
-  const canCreateBottle = form.name.trim().length > 0 && form.wineVersionId.trim().length > 0;
+  const canCreateBottle =
+    form.name.trim().length > 0 && form.wineVersionId.trim().length > 0;
 
   React.useEffect(() => {
     if (!open) {
@@ -504,13 +603,17 @@ export function CreateBottleDialog({
 
     setForm({
       name: generate_bottle_name(),
-      wineVersionId: selectedWineVersionId || selectableWineVersions[0]?.id || "",
+      wineVersionId:
+        selectedWineVersionId || selectableWineVersions[0]?.id || "",
       path: "",
       description: "",
     });
   }, [open, selectedWineVersionId, selectableWineVersions]);
 
-  function update_form<K extends keyof CreateBottleInput>(key: K, value: CreateBottleInput[K]) {
+  function update_form<K extends keyof CreateBottleInput>(
+    key: K,
+    value: CreateBottleInput[K],
+  ) {
     setForm((currentForm) => ({
       ...currentForm,
       [key]: value,
@@ -559,7 +662,9 @@ export function CreateBottleDialog({
     >
       <div className="grid gap-4">
         <label className="grid gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("main.createBottle.nameLabel")}</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {t("main.createBottle.nameLabel")}
+          </span>
           <div className="flex gap-2">
             <input
               value={form.name}
@@ -579,10 +684,14 @@ export function CreateBottleDialog({
         </label>
 
         <label className="grid gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("main.createBottle.wineLabel")}</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {t("main.createBottle.wineLabel")}
+          </span>
           <select
             value={form.wineVersionId}
-            onChange={(event) => update_form("wineVersionId", event.target.value)}
+            onChange={(event) =>
+              update_form("wineVersionId", event.target.value)
+            }
             className="h-11 rounded-lg border border-white/10 bg-[#0b1020] px-3 text-sm text-slate-100 outline-none transition focus:border-[rgb(var(--accent-rgb)/0.55)]"
           >
             {selectableWineVersions.map((version) => (
@@ -594,7 +703,9 @@ export function CreateBottleDialog({
         </label>
 
         <label className="grid gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("main.createBottle.pathLabel")}</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {t("main.createBottle.pathLabel")}
+          </span>
           <input
             value={form.path}
             onChange={(event) => update_form("path", event.target.value)}
@@ -604,7 +715,9 @@ export function CreateBottleDialog({
         </label>
 
         <label className="grid gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("main.createBottle.descriptionLabel")}</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {t("main.createBottle.descriptionLabel")}
+          </span>
           <textarea
             value={form.description}
             onChange={(event) => update_form("description", event.target.value)}

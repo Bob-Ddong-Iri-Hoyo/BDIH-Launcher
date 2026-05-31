@@ -13,10 +13,10 @@ Renderer는 `View/*/App.tsx`를 container로, 실제 화면은 View 컴포넌트
 구성:
 
 - `MainFrame`을 shell로 사용한다.
-- sidebar navigation에 dashboard, terminal, logs, preferences가 있다.
+- sidebar navigation에 dashboard, logs, preferences가 있다.
 - Dashboard 안에는 Wine catalog, bottle/game list, installed Wine panel이 있다.
 - Logs 선택 시 `LogViewer`를 렌더링한다.
-- Terminal 선택 시 `XTermTerminal`을 렌더링한다.
+- Terminal은 MainView navigation에서 제외했고, 추후 bottle별 작업 화면에서 직접 열리는 방향으로 둔다.
 - Preferences 선택 시 `PreferenceView`를 렌더링한다.
 
 Storybook의 `LauncherShell`은 sidebar 클릭으로 view 전환이 가능하게 구성했다.

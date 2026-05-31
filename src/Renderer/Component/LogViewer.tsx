@@ -1,18 +1,31 @@
 import React, { useMemo, useState } from "react";
-import { CalendarDays, Search } from "lucide-react";
+import { CalendarDays, FileText, Search } from "lucide-react";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogLevelFilter = "all" | LogLevel;
-export type LogFileCategory = "app" | "wine";
+export type LogFileCategory = "app" | "bottle" | "wine";
 export type LogCategoryFilter = "all" | LogFileCategory;
 export type LogSourceFilter = "all" | string;
+export type LogSessionKind = "app" | "bottle";
+type LogTargetKind = "app" | "bottle";
+
+export interface LogTarget {
+  id: string;
+  label: string;
+  kind: LogTargetKind;
+  bottleId?: string;
+  count: number;
+}
 
 export interface LogEntry {
   id: string;
+  sessionId?: string;
   timestamp: string;
   level: LogLevel;
   category?: LogFileCategory;
   source: string;
+  bottleId?: string;
+  bottleName?: string;
   message: string;
   detail?: string;
 }
@@ -21,6 +34,9 @@ export interface LogSession {
   id: string;
   label: string;
   startedAt: string;
+  kind?: LogSessionKind;
+  bottleId?: string;
+  bottleName?: string;
   count?: number;
   isRunning?: boolean;
 }
@@ -41,7 +57,6 @@ export interface LogViewerProps {
   selectedLevel?: LogLevelFilter;
   searchValue?: string;
   onSessionChange?: (sessionId: string) => void;
-  onCategoryChange?: (category: LogCategoryFilter) => void;
   onSourceChange?: (sourceId: LogSourceFilter) => void;
   onLevelChange?: (level: LogLevelFilter) => void;
   onSearchChange?: (value: string) => void;
@@ -56,12 +71,6 @@ const LEVEL_LABEL: Record<LogLevelFilter, string> = {
   error: "Error",
 };
 
-const CATEGORY_LABEL: Record<LogCategoryFilter, string> = {
-  all: "All logs",
-  app: "App",
-  wine: "Wine",
-};
-
 export function LogViewer({
   entries,
   sessions,
@@ -72,28 +81,71 @@ export function LogViewer({
   selectedLevel,
   searchValue,
   onSessionChange,
-  onCategoryChange,
   onSourceChange,
   onLevelChange,
   onSearchChange,
   className = "",
 }: LogViewerProps) {
-  const [internalSessionId, setInternalSessionId] = useState(sessions[0]?.id ?? "");
-  const [internalCategory, setInternalCategory] = useState<LogCategoryFilter>("all");
+  const sortedSessions = useMemo(() => sort_sessions_by_latest(sessions), [sessions]);
+  const targets = useMemo(() => build_log_targets(sortedSessions), [sortedSessions]);
+  const [internalTargetId, setInternalTargetId] = useState(get_default_target_id(targets));
+  const targetSessions = useMemo(
+    () => filter_sessions_by_target(sortedSessions, internalTargetId),
+    [internalTargetId, sortedSessions],
+  );
+  const [internalSessionId, setInternalSessionId] = useState(targetSessions[0]?.id ?? "");
   const [internalSourceId, setInternalSourceId] = useState<LogSourceFilter>("all");
   const [internalLevel, setInternalLevel] = useState<LogLevelFilter>("all");
   const [internalSearch, setInternalSearch] = useState("");
 
+  const activeTargetId = internalTargetId || get_default_target_id(targets);
   const activeSessionId = selectedSessionId ?? internalSessionId;
-  const activeCategory = selectedCategory ?? internalCategory;
+  const activeCategory = selectedCategory ?? "all";
   const activeSourceId = selectedSourceId ?? internalSourceId;
   const activeLevel = selectedLevel ?? internalLevel;
   const activeSearch = searchValue ?? internalSearch;
 
+  React.useEffect(() => {
+    if (targets.length === 0) {
+      return;
+    }
+
+    const targetStillExists = targets.some((target) => target.id === activeTargetId);
+
+    if (!activeTargetId || !targetStillExists) {
+      setInternalTargetId(get_default_target_id(targets));
+    }
+  }, [activeTargetId, targets]);
+
+  React.useEffect(() => {
+    if (targetSessions.length === 0) {
+      if (!selectedSessionId) {
+        setInternalSessionId("");
+      }
+      return;
+    }
+
+    const selectedStillExists = targetSessions.some((session) => session.id === activeSessionId);
+
+    if (!activeSessionId || !selectedStillExists) {
+      handleSessionChange(targetSessions[0].id);
+    }
+  }, [activeSessionId, selectedSessionId, targetSessions]);
+
+  const sessionScopedEntries = useMemo(() => {
+    const entriesHaveSessionIds = entries.some((entry) => entry.sessionId);
+
+    if (!entriesHaveSessionIds || !activeSessionId) {
+      return entries;
+    }
+
+    return entries.filter((entry) => entry.sessionId === activeSessionId);
+  }, [activeSessionId, entries]);
+
   const filteredEntries = useMemo(() => {
     const normalizedSearch = activeSearch.trim().toLowerCase();
 
-    return entries.filter((entry) => {
+    return sessionScopedEntries.filter((entry) => {
       const matchesCategory = activeCategory === "all" || entry.category === activeCategory;
       const matchesSource = activeSourceId === "all" || entry.source === activeSourceId;
       const matchesLevel = activeLevel === "all" || entry.level === activeLevel;
@@ -101,11 +153,12 @@ export function LogViewer({
         normalizedSearch.length === 0 ||
         entry.message.toLowerCase().includes(normalizedSearch) ||
         entry.source.toLowerCase().includes(normalizedSearch) ||
+        entry.bottleName?.toLowerCase().includes(normalizedSearch) ||
         entry.detail?.toLowerCase().includes(normalizedSearch);
 
       return matchesCategory && matchesSource && matchesLevel && matchesSearch;
     });
-  }, [activeCategory, activeLevel, activeSearch, activeSourceId, entries]);
+  }, [activeCategory, activeLevel, activeSearch, activeSourceId, sessionScopedEntries]);
 
   const logText = useMemo(() => filteredEntries.map(formatLogLine).join("\n"), [filteredEntries]);
 
@@ -114,9 +167,13 @@ export function LogViewer({
     onSessionChange?.(sessionId);
   }
 
-  function handleCategoryChange(category: LogCategoryFilter) {
-    setInternalCategory(category);
-    onCategoryChange?.(category);
+  function handleTargetChange(targetId: string) {
+    setInternalTargetId(targetId);
+    const nextSession = filter_sessions_by_target(sortedSessions, targetId)[0];
+
+    if (nextSession) {
+      handleSessionChange(nextSession.id);
+    }
   }
 
   function handleSourceChange(sourceId: LogSourceFilter) {
@@ -136,28 +193,106 @@ export function LogViewer({
 
   return (
     <section
-      className={`flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0f172a] text-slate-100 shadow-2xl shadow-black/20 ${className}`}
+      className={`grid min-h-0 w-full grid-cols-[18rem_minmax(0,1fr)] overflow-hidden rounded-lg border border-white/10 bg-[#0f172a] text-slate-100 shadow-2xl shadow-black/20 ${className}`}
     >
-      <LogSessionList
-        sessions={sessions}
+      <LogListPane
+        targets={targets}
+        sessions={targetSessions}
+        selectedTargetId={activeTargetId}
         selectedSessionId={activeSessionId}
+        onTargetChange={handleTargetChange}
         onSessionChange={handleSessionChange}
       />
-      <LogFilterBar
-        sources={sources}
-        selectedCategory={activeCategory}
-        selectedSourceId={activeSourceId}
-        selectedLevel={activeLevel}
-        searchValue={activeSearch}
-        visibleCount={filteredEntries.length}
-        totalCount={entries.length}
-        onCategoryChange={handleCategoryChange}
-        onSourceChange={handleSourceChange}
-        onLevelChange={handleLevelChange}
-        onSearchChange={handleSearchChange}
-      />
-      <LogTextPanel text={logText} />
+      <div className="flex min-w-0 min-h-0 flex-col">
+        <LogFilterBar
+          sources={sources}
+          selectedSourceId={activeSourceId}
+          selectedLevel={activeLevel}
+          searchValue={activeSearch}
+          visibleCount={filteredEntries.length}
+          totalCount={sessionScopedEntries.length}
+          onSourceChange={handleSourceChange}
+          onLevelChange={handleLevelChange}
+          onSearchChange={handleSearchChange}
+        />
+        <LogTextPanel text={logText} />
+      </div>
     </section>
+  );
+}
+
+export interface LogListPaneProps {
+  targets: LogTarget[];
+  sessions: LogSession[];
+  selectedTargetId: string;
+  selectedSessionId: string;
+  onTargetChange: (targetId: string) => void;
+  onSessionChange: (sessionId: string) => void;
+}
+
+function LogListPane({
+  targets,
+  sessions,
+  selectedTargetId,
+  selectedSessionId,
+  onTargetChange,
+  onSessionChange,
+}: LogListPaneProps) {
+  return (
+    <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#0b1020]">
+      <LogTargetList
+        targets={targets}
+        selectedTargetId={selectedTargetId}
+        onTargetChange={onTargetChange}
+      />
+      <LogSessionList
+        sessions={sessions}
+        selectedSessionId={selectedSessionId}
+        onSessionChange={onSessionChange}
+      />
+    </aside>
+  );
+}
+
+export interface LogTargetListProps {
+  targets: LogTarget[];
+  selectedTargetId: string;
+  onTargetChange: (targetId: string) => void;
+}
+
+function LogTargetList({
+  targets,
+  selectedTargetId,
+  onTargetChange,
+}: LogTargetListProps) {
+  return (
+    <div className="border-b border-white/10 p-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
+        <FileText className="h-4 w-4 text-slate-400" />
+        Logs
+      </div>
+      <div className="space-y-1">
+        {targets.map((target) => {
+          const selected = target.id === selectedTargetId;
+
+          return (
+            <button
+              key={target.id}
+              type="button"
+              onClick={() => onTargetChange(target.id)}
+              className={`flex h-10 w-full items-center justify-between gap-2 rounded-md px-2 text-left transition ${
+                selected
+                  ? "accent-selection text-white"
+                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+              }`}
+            >
+              <span className="min-w-0 truncate text-sm font-medium">{target.label}</span>
+              <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-slate-300">{target.count}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -173,12 +308,12 @@ export function LogSessionList({
   onSessionChange,
 }: LogSessionListProps) {
   return (
-    <div className="border-b border-white/10 bg-[#0b1020] px-3 py-3">
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
         <CalendarDays className="h-4 w-4 text-slate-400" />
-        Run Logs
+        History
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="space-y-1">
         {sessions.map((session) => {
           const selected = session.id === selectedSessionId;
 
@@ -187,7 +322,7 @@ export function LogSessionList({
               key={session.id}
               type="button"
               onClick={() => onSessionChange(session.id)}
-              className={`grid h-16 min-w-48 content-center rounded-md border px-3 text-left transition ${
+              className={`grid min-h-14 w-full content-center rounded-md border px-3 py-2 text-left transition ${
                 selected
                   ? "accent-selection text-white"
                   : "border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/[0.06] hover:text-slate-200"
@@ -198,7 +333,7 @@ export function LogSessionList({
                 <span className="truncate">{session.label}</span>
               </span>
               <span className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500">
-                <span>{formatSessionTime(session.startedAt)}</span>
+                <span className="truncate">{formatSessionMetaLabel(session)}</span>
                 {session.count !== undefined && <span>{session.count} lines</span>}
               </span>
             </button>
@@ -211,13 +346,11 @@ export function LogSessionList({
 
 export interface LogFilterBarProps {
   sources: LogSourceOption[];
-  selectedCategory: LogCategoryFilter;
   selectedSourceId: LogSourceFilter;
   selectedLevel: LogLevelFilter;
   searchValue: string;
   visibleCount: number;
   totalCount: number;
-  onCategoryChange: (category: LogCategoryFilter) => void;
   onSourceChange: (sourceId: LogSourceFilter) => void;
   onLevelChange: (level: LogLevelFilter) => void;
   onSearchChange: (value: string) => void;
@@ -225,19 +358,16 @@ export interface LogFilterBarProps {
 
 export function LogFilterBar({
   sources,
-  selectedCategory,
   selectedSourceId,
   selectedLevel,
   searchValue,
   visibleCount,
   totalCount,
-  onCategoryChange,
   onSourceChange,
   onLevelChange,
   onSearchChange,
 }: LogFilterBarProps) {
   const levels: LogLevelFilter[] = ["all", "debug", "info", "warn", "error"];
-  const categories: LogCategoryFilter[] = ["all", "app", "wine"];
 
   return (
     <header className="border-b border-white/10 bg-[#111827] px-3 py-3">
@@ -251,17 +381,6 @@ export function LogFilterBar({
             className="h-9 w-full rounded-md border border-white/10 bg-[#0b1020] pl-9 pr-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[rgb(var(--accent-rgb))] focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.22)]"
           />
         </div>
-        <select
-          value={selectedCategory}
-          onChange={(event) => onCategoryChange(event.target.value as LogCategoryFilter)}
-          className="h-9 w-28 rounded-md border border-white/10 bg-[#0b1020] px-2 text-sm text-slate-200 outline-none focus:border-[rgb(var(--accent-rgb))] focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.22)]"
-        >
-          {categories.map((category) => (
-            <option key={category} value={category}>
-              {CATEGORY_LABEL[category]}
-            </option>
-          ))}
-        </select>
         <select
           value={selectedSourceId}
           onChange={(event) => onSourceChange(event.target.value)}
@@ -317,13 +436,80 @@ export function LogTextPanel({ text }: LogTextPanelProps) {
 
 function formatLogLine(entry: LogEntry): string {
   const category = entry.category ? `${entry.category}:` : "";
-  const base = `${formatLogTime(entry.timestamp)} [${entry.level.toUpperCase()}] [${category}${entry.source}] ${entry.message}`;
+  const bottle = entry.bottleName ? ` [${entry.bottleName}]` : "";
+  const base = `${formatLogTime(entry.timestamp)} [${entry.level.toUpperCase()}] [${category}${entry.source}]${bottle} ${entry.message}`;
 
   if (!entry.detail) {
     return base;
   }
 
   return `${base}\n${entry.detail}`;
+}
+
+function sort_sessions_by_latest(sessions: LogSession[]) {
+  return [...sessions].sort((left, right) => {
+    const leftTime = new Date(left.startedAt).getTime();
+    const rightTime = new Date(right.startedAt).getTime();
+
+    return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+  });
+}
+
+function build_log_targets(sessions: LogSession[]): LogTarget[] {
+  const appSessions = sessions.filter((session) => session.kind !== "bottle");
+  const targets: LogTarget[] = [];
+
+  if (appSessions.length > 0) {
+    targets.push({
+      id: "app",
+      label: "App Logs",
+      kind: "app",
+      count: appSessions.length,
+    });
+  }
+
+  const bottleTargets = new Map<string, LogTarget>();
+
+  sessions.forEach((session) => {
+    if (session.kind !== "bottle") {
+      return;
+    }
+
+    const bottleId = session.bottleId ?? session.bottleName ?? "unknown-bottle";
+    const existingTarget = bottleTargets.get(bottleId);
+
+    if (existingTarget) {
+      existingTarget.count += 1;
+      return;
+    }
+
+    bottleTargets.set(bottleId, {
+      id: `bottle:${bottleId}`,
+      label: session.bottleName ?? session.label,
+      kind: "bottle",
+      bottleId,
+      count: 1,
+    });
+  });
+
+  return [...targets, ...bottleTargets.values()];
+}
+
+function get_default_target_id(targets: LogTarget[]) {
+  return targets.find((target) => target.kind === "app")?.id ?? targets[0]?.id ?? "";
+}
+
+function filter_sessions_by_target(sessions: LogSession[], targetId: string) {
+  if (targetId === "app") {
+    return sessions.filter((session) => session.kind !== "bottle");
+  }
+
+  if (targetId.startsWith("bottle:")) {
+    const bottleId = targetId.slice("bottle:".length);
+    return sessions.filter((session) => session.kind === "bottle" && (session.bottleId ?? session.bottleName ?? "unknown-bottle") === bottleId);
+  }
+
+  return sessions;
 }
 
 function formatLogTime(timestamp: string): string {
@@ -356,4 +542,18 @@ function formatSessionTime(timestamp: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatSessionMetaLabel(session: LogSession): string {
+  const time = formatSessionTime(session.startedAt);
+
+  if (session.bottleName) {
+    return `${time} - ${session.bottleName}`;
+  }
+
+  if (session.kind === "app") {
+    return `${time} - App`;
+  }
+
+  return time;
 }

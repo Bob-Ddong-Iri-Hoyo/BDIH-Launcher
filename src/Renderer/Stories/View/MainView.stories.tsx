@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { PREDEFINED_WINE_VERSIONS } from "../../../Common/Constant/WineCatalog";
 import { RendererViewKey } from "../../Component/MainFrame";
 import type { Bottle } from "../../Types/Bottle";
@@ -88,21 +88,26 @@ const bottles: Bottle[] = [
 const logSessions = [
   {
     id: "2026-05-16-2102",
-    label: "Running",
+    label: "HoyoVerse Bottle",
     startedAt: "2026-05-16T12:02:00.000Z",
+    kind: "bottle" as const,
+    bottleId: "hoyoverse",
+    bottleName: "HoyoVerse Bottle",
     count: 8,
     isRunning: true,
   },
   {
     id: "2026-05-16-1828",
-    label: "2026-05-16",
+    label: "App session",
     startedAt: "2026-05-16T09:28:00.000Z",
+    kind: "app" as const,
     count: 4,
   },
   {
     id: "2026-05-15-2314",
-    label: "2026-05-15",
+    label: "App session",
     startedAt: "2026-05-15T14:14:00.000Z",
+    kind: "app" as const,
     count: 2,
   },
 ];
@@ -110,6 +115,7 @@ const logSessions = [
 const logEntries = [
   {
     id: "1",
+    sessionId: "2026-05-16-2102",
     timestamp: "2026-05-16T12:02:12.000Z",
     level: "info" as const,
     category: "app" as const,
@@ -118,6 +124,7 @@ const logEntries = [
   },
   {
     id: "2",
+    sessionId: "2026-05-16-2102",
     timestamp: "2026-05-16T12:02:13.000Z",
     level: "debug" as const,
     category: "app" as const,
@@ -127,6 +134,7 @@ const logEntries = [
   },
   {
     id: "3",
+    sessionId: "2026-05-16-2102",
     timestamp: "2026-05-16T12:02:14.000Z",
     level: "info" as const,
     category: "wine" as const,
@@ -135,6 +143,7 @@ const logEntries = [
   },
   {
     id: "4",
+    sessionId: "2026-05-16-2102",
     timestamp: "2026-05-16T12:02:15.000Z",
     level: "warn" as const,
     category: "app" as const,
@@ -143,26 +152,59 @@ const logEntries = [
   },
   {
     id: "5",
+    sessionId: "2026-05-16-2102",
     timestamp: "2026-05-16T12:02:18.000Z",
     level: "debug" as const,
-    category: "wine" as const,
-    source: "download",
-    message: "curl progress event received.",
-    detail: "progress=34.2 url=https://example.invalid/wine.tar.gz",
+    category: "bottle" as const,
+    source: "bottle-runner",
+    bottleId: "hoyoverse",
+    bottleName: "HoyoVerse Bottle",
+    message: "Launch request accepted for Genshin Impact.",
+    detail: "Recipe=hoyoverse-genshin wine=GE-Proton Latest",
   },
   {
     id: "6",
+    sessionId: "2026-05-16-2102",
     timestamp: "2026-05-16T12:02:26.000Z",
-    level: "error" as const,
+    level: "info" as const,
     category: "wine" as const,
-    source: "download",
-    message: "Download failed with exit code 56.",
+    source: "wine",
+    bottleId: "hoyoverse",
+    bottleName: "HoyoVerse Bottle",
+    message: "wine64 process started.",
     detail:
-      "Error: curl failed while receiving network data\n    at DownloadManager.startDownload\n    at WineManager.installWine",
+      "WINEPREFIX=~/Library/Application Support/BDIH/Bottles/hoyoverse\nCommand=wine64 launcher.exe",
+  },
+  {
+    id: "app-session-1",
+    sessionId: "2026-05-16-1828",
+    timestamp: "2026-05-16T09:28:01.000Z",
+    level: "info" as const,
+    category: "app" as const,
+    source: "app",
+    message: "Application boot sequence started.",
+  },
+  {
+    id: "app-session-2",
+    sessionId: "2026-05-16-1828",
+    timestamp: "2026-05-16T09:28:09.000Z",
+    level: "debug" as const,
+    category: "app" as const,
+    source: "renderer",
+    message: "Renderer resources initialized.",
+  },
+  {
+    id: "app-session-yesterday",
+    sessionId: "2026-05-15-2314",
+    timestamp: "2026-05-15T14:14:12.000Z",
+    level: "warn" as const,
+    category: "app" as const,
+    source: "updater",
+    message: "Update feed was not configured for this build.",
   },
 ];
 
-const logSources = ["app", "renderer", "wine", "updater", "download"].map((source) => ({
+const logSources = ["app", "renderer", "bottle-runner", "wine", "updater", "download"].map((source) => ({
   id: source,
   label: source[0].toUpperCase() + source.slice(1),
   count: logEntries.filter((entry) => entry.source === source).length,
@@ -229,22 +271,10 @@ export const LauncherShell: StoryObj<typeof LauncherView> = {
 
 function LauncherShellStory() {
   const [activeView, setActiveView] = useState<RendererViewKey>("dashboard");
-  const statusText = useMemo(() => {
-    if (activeView === "logs") {
-      return "Viewing launcher log session from Storybook.";
-    }
-
-    if (activeView === "terminal") {
-      return "Terminal preview is open.";
-    }
-
-    return "Wine catalog loaded from local defaults.";
-  }, [activeView]);
 
   return (
     <LauncherView
       activeView={activeView}
-      statusText={statusText}
       wineVersions={wineVersions}
       selectedWineVersion={wineVersions[0]}
       selectedWineVersionId={wineVersions[0].id}

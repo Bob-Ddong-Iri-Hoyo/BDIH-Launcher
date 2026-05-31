@@ -18,7 +18,6 @@ const App: React.FC = () => {
     selectedWineVersionId,
     installPath,
     isLoadingWineVersions,
-    lastStatusMessage,
     loadWineVersions,
     installWineVersion,
     selectWineVersion,
@@ -52,7 +51,6 @@ const App: React.FC = () => {
   return (
     <LauncherView
       activeView={activeView}
-      statusText={lastStatusMessage}
       onViewChange={setActiveView}
       onQuit={() => window.BTIH_API?.send(IPC_CHANNELS.APP.QUIT.channelName, undefined as never)}
       onMinimize={() => window.BTIH_API?.send(IPC_CHANNELS.APP.MINIMIZE.channelName, undefined as never)}
