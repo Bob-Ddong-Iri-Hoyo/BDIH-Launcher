@@ -23,11 +23,9 @@ __쓰다가 영정거나 랭크에서 튕기더라도 나는 죄가 없어요(�
 
 
 
-
 ## 설치
 
 Release 들어가서 설치
-
 
 
 ## 신선한 와인과 안주 제공 단체
@@ -37,10 +35,6 @@ Release 들어가서 설치
 
 [DXMT](https://github.com/3Shain/dxmt)
 :Metal Layer를 바로 이용하는 DX11 Layering(강함)
-
-
-[Jedite](https://codeberg.org/mkrsym1/jadeite)
-: 안티치트 패치
 
 
 # 참조 자료들

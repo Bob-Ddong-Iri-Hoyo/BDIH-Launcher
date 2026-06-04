@@ -34,6 +34,7 @@ export interface LogSession {
   id: string;
   label: string;
   startedAt: string;
+  logFileName?: string;
   kind?: LogSessionKind;
   bottleId?: string;
   bottleName?: string;
@@ -193,58 +194,51 @@ export function LogViewer({
 
   return (
     <section
-      className={`grid min-h-0 w-full grid-cols-[18rem_minmax(0,1fr)] overflow-hidden rounded-lg border border-white/10 bg-[#0f172a] text-slate-100 shadow-2xl shadow-black/20 ${className}`}
+      className={`flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0f172a] text-slate-100 shadow-2xl shadow-black/20 ${className}`}
     >
-      <LogListPane
+      <LogTargetBar
         targets={targets}
-        sessions={targetSessions}
         selectedTargetId={activeTargetId}
-        selectedSessionId={activeSessionId}
         onTargetChange={handleTargetChange}
-        onSessionChange={handleSessionChange}
       />
-      <div className="flex min-w-0 min-h-0 flex-col">
-        <LogFilterBar
-          sources={sources}
-          selectedSourceId={activeSourceId}
-          selectedLevel={activeLevel}
-          searchValue={activeSearch}
-          visibleCount={filteredEntries.length}
-          totalCount={sessionScopedEntries.length}
-          onSourceChange={handleSourceChange}
-          onLevelChange={handleLevelChange}
-          onSearchChange={handleSearchChange}
+      <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
+        <LogListPane
+          sessions={targetSessions}
+          selectedSessionId={activeSessionId}
+          onSessionChange={handleSessionChange}
         />
-        <LogTextPanel text={logText} />
+        <div className="flex min-h-0 min-w-0 flex-col">
+          <LogFilterBar
+            sources={sources}
+            selectedSourceId={activeSourceId}
+            selectedLevel={activeLevel}
+            searchValue={activeSearch}
+            visibleCount={filteredEntries.length}
+            totalCount={sessionScopedEntries.length}
+            onSourceChange={handleSourceChange}
+            onLevelChange={handleLevelChange}
+            onSearchChange={handleSearchChange}
+          />
+          <LogTextPanel text={logText} />
+        </div>
       </div>
     </section>
   );
 }
 
 export interface LogListPaneProps {
-  targets: LogTarget[];
   sessions: LogSession[];
-  selectedTargetId: string;
   selectedSessionId: string;
-  onTargetChange: (targetId: string) => void;
   onSessionChange: (sessionId: string) => void;
 }
 
 function LogListPane({
-  targets,
   sessions,
-  selectedTargetId,
   selectedSessionId,
-  onTargetChange,
   onSessionChange,
 }: LogListPaneProps) {
   return (
     <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#0b1020]">
-      <LogTargetList
-        targets={targets}
-        selectedTargetId={selectedTargetId}
-        onTargetChange={onTargetChange}
-      />
       <LogSessionList
         sessions={sessions}
         selectedSessionId={selectedSessionId}
@@ -254,24 +248,24 @@ function LogListPane({
   );
 }
 
-export interface LogTargetListProps {
+export interface LogTargetBarProps {
   targets: LogTarget[];
   selectedTargetId: string;
   onTargetChange: (targetId: string) => void;
 }
 
-function LogTargetList({
+function LogTargetBar({
   targets,
   selectedTargetId,
   onTargetChange,
-}: LogTargetListProps) {
+}: LogTargetBarProps) {
   return (
-    <div className="border-b border-white/10 p-3">
+    <div className="border-b border-white/10 bg-[#0b1020] px-3 py-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
         <FileText className="h-4 w-4 text-slate-400" />
-        Logs
+        Log target
       </div>
-      <div className="space-y-1">
+      <div className="flex min-w-0 gap-2 overflow-x-auto">
         {targets.map((target) => {
           const selected = target.id === selectedTargetId;
 
@@ -280,10 +274,10 @@ function LogTargetList({
               key={target.id}
               type="button"
               onClick={() => onTargetChange(target.id)}
-              className={`flex h-10 w-full items-center justify-between gap-2 rounded-md px-2 text-left transition ${
+              className={`flex h-10 min-w-40 items-center justify-between gap-3 rounded-md border px-3 text-left transition ${
                 selected
                   ? "accent-selection text-white"
-                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                  : "border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/[0.06] hover:text-slate-200"
               }`}
             >
               <span className="min-w-0 truncate text-sm font-medium">{target.label}</span>
@@ -322,6 +316,7 @@ export function LogSessionList({
               key={session.id}
               type="button"
               onClick={() => onSessionChange(session.id)}
+              title={formatSessionMetaLabel(session)}
               className={`grid min-h-14 w-full content-center rounded-md border px-3 py-2 text-left transition ${
                 selected
                   ? "accent-selection text-white"
@@ -333,7 +328,7 @@ export function LogSessionList({
                 <span className="truncate">{session.label}</span>
               </span>
               <span className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500">
-                <span className="truncate">{formatSessionMetaLabel(session)}</span>
+                <span className="truncate">{formatLogFileName(session)}</span>
                 {session.count !== undefined && <span>{session.count} lines</span>}
               </span>
             </button>
@@ -556,4 +551,22 @@ function formatSessionMetaLabel(session: LogSession): string {
   }
 
   return time;
+}
+
+function formatLogFileName(session: LogSession): string {
+  if (session.logFileName) {
+    return session.logFileName;
+  }
+
+  const date = new Date(session.startedAt);
+  const datePart = Number.isNaN(date.getTime())
+    ? session.startedAt
+    : [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+      ].join("-");
+  const owner = session.kind === "bottle" ? session.bottleName ?? session.label : "App";
+
+  return `${owner}-${datePart}.log`;
 }
