@@ -1,11 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useMemo } from "react";
+import type { ReactNode } from "react";
+import { useMemo, useState } from "react";
+import { FileText, Play, ScrollText } from "lucide-react";
 import {
   LogEntry,
   LogSession,
   LogSourceOption,
   LogViewer,
 } from "../../Component/LogViewer";
+import { Dialog, DialogHost } from "../../Component/Dialog";
 
 const meta: Meta<typeof LogViewer> = {
   title: "Component/LogViewer",
@@ -32,6 +35,7 @@ const SESSIONS: LogSession[] = [
     id: "2026-05-16-2102",
     label: "Running",
     startedAt: "2026-05-16T12:02:00.000Z",
+    logFileName: "2026-05-16_21-02-00_genshin.log",
     kind: "bottle",
     bottleId: "hoyoverse",
     bottleName: "HoyoVerse Bottle",
@@ -42,6 +46,7 @@ const SESSIONS: LogSession[] = [
     id: "2026-05-16-2107",
     label: "Running",
     startedAt: "2026-05-16T12:07:00.000Z",
+    logFileName: "2026-05-16_21-07-00_eternal-return.log",
     kind: "bottle",
     bottleId: "eternal-return",
     bottleName: "Eternal Return",
@@ -52,6 +57,7 @@ const SESSIONS: LogSession[] = [
     id: "2026-05-16-1828",
     label: "2026-05-16",
     startedAt: "2026-05-16T09:28:00.000Z",
+    logFileName: "2026-05-16_18-28-00.log",
     kind: "app",
     count: 8,
   },
@@ -59,6 +65,7 @@ const SESSIONS: LogSession[] = [
     id: "2026-05-15-2314",
     label: "2026-05-15",
     startedAt: "2026-05-15T14:14:00.000Z",
+    logFileName: "2026-05-15_23-14-00.log",
     kind: "app",
     count: 10,
   },
@@ -296,10 +303,97 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
 };
 
 export const Default: Story = {
-  render: () => <LogViewerStoryContent />,
+  name: "Default full",
+  render: () => (
+    <StorySurface>
+      <LogViewerExample className="h-[620px]" />
+    </StorySurface>
+  ),
 };
 
-function LogViewerStoryContent() {
+export const CompactDialog: Story = {
+  name: "Compact dialog",
+  render: () => (
+    <DialogHost
+      dialog={
+        <Dialog
+          open
+          title="HoyoVerse Bottle logs"
+          description="Running bottle session"
+          tone="neutral"
+          icon={ScrollText}
+          placement="center"
+          widthClassName="max-w-5xl"
+          closeOnBackdrop={false}
+          showCloseButton={false}
+        >
+          <LogViewerExample
+            initialTargetId="bottle:hoyoverse"
+            targetDisplayMode="label"
+            targetLabel="HoyoVerse Bottle"
+            className="h-[500px]"
+          />
+        </Dialog>
+      }
+    >
+      <BottleDetailSurface />
+    </DialogHost>
+  ),
+};
+
+export const CompactDialogInteraction: Story = {
+  name: "Compact dialog interaction",
+  render: () => <CompactDialogInteractionExample />,
+};
+
+function CompactDialogInteractionExample() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <DialogHost
+      dialog={
+        <Dialog
+          open={open}
+          title="HoyoVerse Bottle logs"
+          description="Running bottle session"
+          tone="neutral"
+          icon={ScrollText}
+          placement="center"
+          widthClassName="max-w-5xl"
+          onClose={() => setOpen(false)}
+          actions={[
+            {
+              label: "Close",
+              onClick: () => setOpen(false),
+            },
+          ]}
+        >
+          <LogViewerExample
+            initialTargetId="bottle:hoyoverse"
+            targetDisplayMode="label"
+            targetLabel="HoyoVerse Bottle"
+            className="h-[500px]"
+          />
+        </Dialog>
+      }
+    >
+      <BottleDetailSurface onOpenLogs={() => setOpen(true)} />
+    </DialogHost>
+  );
+}
+
+function LogViewerExample({
+  initialTargetId,
+  targetDisplayMode,
+  targetLabel,
+  className,
+}: {
+  initialTargetId?: string;
+  targetDisplayMode?: "picker" | "label";
+  targetLabel?: string;
+  className?: string;
+}) {
+  const [targetId, setTargetId] = useState(initialTargetId);
   const entries = useMemo(() => Object.values(LOGS_BY_SESSION).flat(), []);
 
   const sources = useMemo(() => {
@@ -310,26 +404,83 @@ function LogViewerStoryContent() {
   }, [entries]);
 
   return (
-    <div className="min-h-dvh bg-[#070b16] p-6">
-      <LogViewer
-        entries={entries}
-        sessions={SESSIONS}
-        sources={sources}
-        className="h-[620px]"
-      />
-    </div>
+    <LogViewer
+      entries={entries}
+      sessions={SESSIONS}
+      sources={sources}
+      selectedTargetId={targetId}
+      favoriteTargetIds={["bottle:hoyoverse"]}
+      targetDisplayMode={targetDisplayMode}
+      targetLabel={targetLabel}
+      onTargetChange={setTargetId}
+      className={className}
+    />
   );
 }
 
-export const Empty: Story = {
-  render: () => (
-    <div className="min-h-dvh bg-[#070b16] p-6">
-      <LogViewer
-        entries={[]}
-        sessions={SESSIONS.map((session) => ({ ...session, count: 0 }))}
-        sources={SOURCES.map((source) => ({ ...source, count: 0 }))}
-        className="h-[420px]"
-      />
-    </div>
-  ),
-};
+function StorySurface({ children }: { children: ReactNode }) {
+  return <div className="min-h-dvh bg-[#070b16] p-6">{children}</div>;
+}
+
+function BottleDetailSurface({
+  onOpenLogs,
+}: {
+  onOpenLogs?: () => void;
+}) {
+  return (
+    <StorySurface>
+      <main className="mx-auto flex max-w-5xl flex-col gap-4 text-slate-100">
+        <header className="flex min-w-0 items-center justify-between gap-4 rounded-lg border border-white/10 bg-[#0b1020] p-5">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-white/10 bg-white/[0.04]">
+                <Play size={18} className="text-emerald-200" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-semibold text-white">
+                  HoyoVerse Bottle
+                </h1>
+                <p className="mt-1 truncate text-sm text-slate-500">
+                  Running / wine64 launcher.exe
+                </p>
+              </div>
+            </div>
+          </div>
+          {onOpenLogs ? (
+            <button
+              type="button"
+              onClick={onOpenLogs}
+              className="accent-primary inline-flex h-10 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-semibold transition"
+            >
+              <ScrollText size={16} />
+              View logs
+            </button>
+          ) : (
+            <span className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-sm font-medium text-emerald-100">
+              Running
+            </span>
+          )}
+        </header>
+
+        <section className="grid gap-3 md:grid-cols-3">
+          {[
+            ["Game", "Genshin Impact"],
+            ["Prefix", "hoyoverse"],
+            ["Wine", "wine-staging 9.22"],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-lg border border-white/10 bg-[#0b1020] p-4"
+            >
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+                <FileText size={15} className="text-slate-500" />
+                <span>{label}</span>
+              </div>
+              <p className="mt-2 truncate text-sm text-slate-500">{value}</p>
+            </div>
+          ))}
+        </section>
+      </main>
+    </StorySurface>
+  );
+}
