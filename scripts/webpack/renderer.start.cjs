@@ -1,15 +1,16 @@
-import path from "path";
-import HtmlWebpackPlugin from "html-webpack-plugin";
-import webpack, { Configuration } from "webpack";
+const path = require("path");
+const webpack = require("webpack");
+const HtmlWebpackPlugin = require("html-webpack-plugin");
 
-const commonConfig: Configuration = {
+module.exports = {
   mode: "development",
   target: "electron-renderer",
+  devtool: false,
   entry: {
-    MainView: path.resolve(__dirname, "View/MainView/App.tsx"),
-    SplashView: path.resolve(__dirname, "View/SplashView/App.tsx"),
-    PreferenceView: path.resolve(__dirname, "View/PreferenceView/App.tsx"),
-    TerminalView: path.resolve(__dirname, "View/TerminalView/App.tsx"),
+    MainView: path.resolve(__dirname, "../../src/Renderer/View/MainView/App.tsx"),
+    SplashView: path.resolve(__dirname, "../../src/Renderer/View/SplashView/App.tsx"),
+    PreferenceView: path.resolve(__dirname, "../../src/Renderer/View/PreferenceView/App.tsx"),
+    TerminalView: path.resolve(__dirname, "../../src/Renderer/View/TerminalView/App.tsx"),
   },
   output: {
     path: path.resolve(__dirname, "../../dist/renderer/View"),
@@ -24,7 +25,7 @@ const commonConfig: Configuration = {
         exclude: /node_modules/,
         loader: "ts-loader",
         options: {
-          configFile: path.resolve(__dirname, "tsconfig.json"),
+          configFile: path.resolve(__dirname, "../../src/Renderer/tsconfig.json"),
           transpileOnly: true,
         },
       },
@@ -81,5 +82,3 @@ const commonConfig: Configuration = {
     }),
   ],
 };
-
-export default commonConfig;

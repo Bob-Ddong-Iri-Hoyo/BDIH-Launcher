@@ -40,7 +40,11 @@ function TrafficLightButton({ action, label, onClick }: TrafficLightButtonProps)
       title={label}
       aria-label={label}
       onClick={onClick}
-      className="group flex h-5 w-5 items-center justify-center rounded-full [-webkit-app-region:no-drag]"
+      onMouseDown={(event) => {
+        event.stopPropagation();
+        event.currentTarget.focus();
+      }}
+      className="group flex h-8 w-8 items-center justify-center rounded-full outline-none transition [-webkit-app-region:no-drag] focus-visible:ring-2 focus-visible:ring-white/25"
     >
       <span className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border ${TRAFFIC_LIGHT_STYLE[action]}`}>
         <Icon size={8} strokeWidth={3} className="opacity-0 transition group-hover:opacity-80" />
@@ -58,7 +62,7 @@ export function MacTitleBar({ title, rightSlot, className = "", onQuit, onMinimi
       aria-label={t("titleBar.label")}
       className={`grid h-11 shrink-0 grid-cols-[12rem_minmax(0,1fr)_12rem] items-center border-b border-white/10 bg-[#0b1020]/95 text-slate-300 [-webkit-app-region:drag] ${className}`}
     >
-      <div className="flex items-center gap-1.5 px-4">
+      <div className="flex items-center gap-0.5 px-2">
         <TrafficLightButton action="quit" label={t("titleBar.quit")} onClick={onQuit} />
         <TrafficLightButton action="minimize" label={t("titleBar.minimize")} onClick={onMinimize} />
         <TrafficLightButton action="maximize" label={t("titleBar.maximize")} onClick={onMaximize} />

@@ -3,7 +3,17 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish, e.g. v1.2.3 or v1.2.3-beta.1"
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -20,6 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -35,23 +47,33 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve release channel
+      - name: Validate release tag and resolve channel
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
+          TAG="${RELEASE_TAG}"
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must look like v1.2.3 or v1.2.3-beta.1. Got: $TAG" >&2
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
 
           if [[ "$PACKAGE_VERSION" != "$VERSION" ]]; then
             echo "Tag version ($VERSION) must match package.json version ($PACKAGE_VERSION)." >&2
             exit 1
           fi
 
-          if [[ "$VERSION" == *"-alpha"* ]]; then
-            echo "UPDATE_CHANNEL=alpha" >> "$GITHUB_ENV"
-            echo "RELEASE_TYPE=prerelease" >> "$GITHUB_ENV"
-          elif [[ "$VERSION" == *"-beta"* ]]; then
-            echo "UPDATE_CHANNEL=beta" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          if [[ "$VERSION" == *"-"* ]]; then
+            PRERELEASE_PART="${VERSION#*-}"
+            UPDATE_CHANNEL="${PRERELEASE_PART%%.*}"
+            echo "UPDATE_CHANNEL=$UPDATE_CHANNEL" >> "$GITHUB_ENV"
             echo "RELEASE_TYPE=prerelease" >> "$GITHUB_ENV"
           else
             echo "UPDATE_CHANNEL=latest" >> "$GITHUB_ENV"
@@ -61,4 +83,5 @@ jobs:
       - name: Build and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm build && pnpm exec electron-builder --publish always --config electron-builder.config.cjs
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: pnpm build && pnpm exec electron-builder --mac --publish always --config electron-builder.config.cjs

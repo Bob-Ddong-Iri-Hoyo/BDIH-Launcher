@@ -1,4 +1,5 @@
 export * from "./DownloadManager";
+export * from "./BottleManager";
 export * from "./IPCManager";
 export * from "./LogManager";
 export * from "./PluginManager";

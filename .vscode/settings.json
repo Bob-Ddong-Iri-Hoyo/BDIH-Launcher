@@ -1,0 +1,27 @@
+{
+  "search.followSymlinks": false,
+  "search.exclude": {
+    "**/Bottles/**": true,
+    "**/dosdevices/**": true,
+    "**/tmp_test_resource/**": true,
+    "**/.pnpm/**": true,
+    "**/dist/**": true,
+    "**/build/**": true
+  },
+  "files.watcherExclude": {
+    "**/Bottles/**": true,
+    "**/dosdevices/**": true,
+    "**/tmp_test_resource/**": true,
+    "**/.pnpm/**": true,
+    "**/dist/**": true,
+    "**/build/**": true
+  },
+  "tailwindCSS.files.exclude": [
+    "**/Bottles/**",
+    "**/dosdevices/**",
+    "**/tmp_test_resource/**",
+    "**/.pnpm/**",
+    "**/dist/**",
+    "**/build/**"
+  ]
+}

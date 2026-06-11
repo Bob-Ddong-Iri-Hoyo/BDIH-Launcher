@@ -21,6 +21,11 @@ export interface WineChannelSchema {
   readonly GET_VERSION_LIST: IpcChannelUnit<void>;
 }
 
+export interface DxmtInstallPayload {
+  versionId: string;
+  installPath: string;
+}
+
 type WineStatus =
   | "installed"
   | "downloading"
@@ -34,7 +39,10 @@ export interface WineStatusPayload {
   status: WineStatus;
   progress: number;
   message?: string;
+  path?: string;
 }
+
+export type DxmtStatusPayload = WineStatusPayload;
 
 export type AppUpdateStatus =
   | "disabled"
@@ -53,15 +61,253 @@ export interface AppUpdateStatusPayload {
   error?: string;
 }
 
+export const LAUNCHER_LOG_LEVELS = ["off", "error", "warn", "info", "debug", "all"] as const;
+export type LauncherLogLevel = (typeof LAUNCHER_LOG_LEVELS)[number];
+export const DEBUG_FLAG_MODES = ["preset", "wineDebug"] as const;
+export type DebugFlagMode = (typeof DEBUG_FLAG_MODES)[number];
+export const RENDERER_THEME_MODES = ["dark", "light", "system"] as const;
+export type RendererThemeMode = (typeof RENDERER_THEME_MODES)[number];
+export const LAUNCHER_SHORTCUT_ACTIONS = ["launch", "logs", "preferences"] as const;
+export type LauncherShortcutAction = (typeof LAUNCHER_SHORTCUT_ACTIONS)[number];
+export type LauncherShortcutMap = Record<LauncherShortcutAction, string>;
+
 export interface LauncherPreferencePayload {
   language: string;
   wineInstallPath: string;
+  bottlePrefixPath: string;
+  dxmtCachePath: string;
   gameInstallPath: string;
   autoCheckUpdates: boolean;
   closeToTray: boolean;
+  themeMode: RendererThemeMode;
+  appLoggingLevel: LauncherLogLevel;
+  debugFlagMode: DebugFlagMode;
+  loggingLevel: LauncherLogLevel;
+  wineDebugArgs: string;
+  shortcuts: LauncherShortcutMap;
 }
 
 export type LauncherPreferencePatch = Partial<LauncherPreferencePayload>;
+
+export interface SelectDirectoryPayload {
+  title?: string;
+  defaultPath?: string;
+}
+
+export interface SelectDirectoryResultPayload {
+  canceled: boolean;
+  path?: string;
+}
+
+export interface SelectFilePayload {
+  title?: string;
+  defaultPath?: string;
+  filters?: Array<{
+    name: string;
+    extensions: string[];
+  }>;
+}
+
+export interface SelectFileResultPayload {
+  canceled: boolean;
+  path?: string;
+}
+
+export type LauncherDataDeleteTarget = "wineRuntime" | "bottlePrefixes" | "dxmtCache" | "settings" | "logs" | "all";
+
+export interface DeleteLauncherDataPayload {
+  targets?: LauncherDataDeleteTarget[];
+  wineInstallPath?: string;
+  bottlePrefixPath?: string;
+  dxmtCachePath?: string;
+}
+
+export interface DeleteLauncherDataResultPayload {
+  deletedPaths: string[];
+  skippedPaths: Array<{
+    path: string;
+    reason: string;
+  }>;
+  failedPaths: Array<{
+    path: string;
+    error: string;
+  }>;
+}
+
+export interface OpenPathPayload {
+  path?: string;
+}
+
+export interface OpenExternalUrlPayload {
+  url: string;
+}
+
+export type LauncherLogEntryLevel = "debug" | "info" | "warn" | "error";
+export type LauncherLogEntryCategory = "app" | "wine";
+
+export interface LauncherLogEntryPayload {
+  id: string;
+  sessionId: string;
+  timestamp: string;
+  level: LauncherLogEntryLevel;
+  category: LauncherLogEntryCategory;
+  source: string;
+  message: string;
+  bottleId?: string;
+  bottleName?: string;
+}
+
+export interface LauncherLogSessionPayload {
+  id: string;
+  label: string;
+  startedAt: string;
+  logFileName?: string;
+  logFilePath?: string;
+  logDirectoryPath?: string;
+  kind: "app" | "bottle";
+  bottleId?: string;
+  bottleName?: string;
+  count: number;
+  isRunning: boolean;
+}
+
+export interface LauncherLogSourcePayload {
+  id: string;
+  label: string;
+  count: number;
+}
+
+export interface LauncherLogSnapshotPayload {
+  entries: LauncherLogEntryPayload[];
+  sessions: LauncherLogSessionPayload[];
+  sources: LauncherLogSourcePayload[];
+}
+
+export interface RunBottleExecutablePayload {
+  bottleId: string;
+  bottleName: string;
+  bottlePath: string;
+  wineVersionId: string;
+  wineRuntimePath?: string;
+  appId?: string;
+  appName?: string;
+  executablePath: string;
+  executableArgs?: string[];
+}
+
+export interface StopBottleProcessPayload {
+  processId: string;
+}
+
+export interface DeleteBottlePayload {
+  bottleId: string;
+  bottlePath: string;
+}
+
+export interface DeleteBottleResultPayload {
+  ok: boolean;
+  deletedPath?: string;
+  error?: string;
+}
+
+export interface BottleProcessExitPayload {
+  processId: string;
+  code?: number;
+  error?: string;
+}
+
+export type BottleLauncherKind = "steam" | "hoyoplay";
+export type BottleTaskStage =
+  | "setup"
+  | "dxmt"
+  | "download"
+  | "install"
+  | "ready"
+  | "error";
+
+export interface SetupBottlePrefixPayload {
+  bottleId: string;
+  bottleName: string;
+  bottlePath: string;
+  wineVersionId: string;
+  wineRuntimePath?: string;
+  dxmtVersionId?: string;
+  dxmtPackagePath?: string;
+}
+
+export interface InstallBottleLauncherPayload extends SetupBottlePrefixPayload {
+  launcher: BottleLauncherKind;
+}
+
+export interface BottleTaskStatusPayload {
+  bottleId: string;
+  launcher?: BottleLauncherKind;
+  stage: BottleTaskStage;
+  progress: number;
+  message?: string;
+}
+
+export interface BottleTaskStatePayload {
+  stage: BottleTaskStage;
+  progress: number;
+  message?: string;
+}
+
+export interface InstalledBottleAppPayload {
+  id: string;
+  name: string;
+  subtitle: string;
+  wineVersionId: string;
+  executablePath?: string;
+  executableArgs?: string[];
+  iconSrc?: string;
+  source?: "launcher" | "steam" | "game" | "manual";
+  steamAppId?: string;
+  lastPlayed: string;
+  lastPlayedKey?: string;
+  status: "ready" | "needs-prefix" | "updating";
+  processId?: string;
+  launchError?: string;
+}
+
+export interface BottleMetadataPayload {
+  id: string;
+  name: string;
+  description: string;
+  wineVersionId: string;
+  dxmtVersionId?: string;
+  path: string;
+  prefixPath?: string;
+  status: "ready" | "needs-setup" | "updating";
+  setupTask?: BottleTaskStatePayload;
+  launcherTasks?: Partial<Record<BottleLauncherKind, BottleTaskStatePayload>>;
+  loggingLevelOverride?: LauncherLogLevel;
+  wineDebugArgsOverride?: string;
+  apps: InstalledBottleAppPayload[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BottleListPayload {
+  bottles: BottleMetadataPayload[];
+}
+
+export interface OpenPathResultPayload {
+  ok: boolean;
+  path?: string;
+  error?: string;
+}
+
+export interface RunBottleExecutableResultPayload {
+  ok: boolean;
+  processId?: string;
+  error?: string;
+}
+
+export interface BottleTaskResultPayload {
+  ok: boolean;
+  error?: string;
+}
 
 export interface YouTubeLiveStatusRequest {
   channelId?: string;
@@ -87,10 +333,37 @@ export interface AppChannelSchema {
   readonly UPDATE_STATUS: IpcChannelUnit<AppUpdateStatusPayload>;
   readonly GET_PREFERENCE: IpcChannelUnit<void>;
   readonly UPDATE_PREFERENCE: IpcChannelUnit<LauncherPreferencePatch>;
+  readonly SELECT_DIRECTORY: IpcChannelUnit<SelectDirectoryPayload>;
+  readonly SELECT_FILE: IpcChannelUnit<SelectFilePayload>;
+  readonly DELETE_LAUNCHER_DATA: IpcChannelUnit<DeleteLauncherDataPayload>;
+  readonly OPEN_LOG_FOLDER: IpcChannelUnit<void>;
+  readonly GET_LOG_SNAPSHOT: IpcChannelUnit<void>;
+  readonly LOG_UPDATE: IpcChannelUnit<LauncherLogEntryPayload>;
+  readonly OPEN_PATH: IpcChannelUnit<OpenPathPayload>;
+  readonly REVEAL_PATH: IpcChannelUnit<OpenPathPayload>;
+  readonly OPEN_EXTERNAL_URL: IpcChannelUnit<OpenExternalUrlPayload>;
 }
 
 export interface YouTubeChannelSchema {
   readonly GET_LIVE_STATUS: IpcChannelUnit<YouTubeLiveStatusRequest>;
+}
+
+export interface BottleChannelSchema {
+  readonly GET_LIST: IpcChannelUnit<void>;
+  readonly SAVE_LIST: IpcChannelUnit<BottleListPayload>;
+  readonly DELETE: IpcChannelUnit<DeleteBottlePayload>;
+  readonly RUN_EXECUTABLE: IpcChannelUnit<RunBottleExecutablePayload>;
+  readonly STOP_PROCESS: IpcChannelUnit<StopBottleProcessPayload>;
+  readonly SETUP_PREFIX: IpcChannelUnit<SetupBottlePrefixPayload>;
+  readonly INSTALL_LAUNCHER: IpcChannelUnit<InstallBottleLauncherPayload>;
+  readonly STATUS_UPDATE: IpcChannelUnit<BottleTaskStatusPayload>;
+  readonly PROCESS_EXIT: IpcChannelUnit<BottleProcessExitPayload>;
+}
+
+export interface DxmtChannelSchema {
+  readonly INSTALL: IpcChannelUnit<DxmtInstallPayload>;
+  readonly STATUS_UPDATE: IpcChannelUnit<DxmtStatusPayload>;
+  readonly GET_VERSION_LIST: IpcChannelUnit<void>;
 }
 
 // 2. 요청/응답 페이로드 타입
@@ -129,6 +402,84 @@ export const WINE = {
     method: "invoke",
     direction: "MAIN_TO_RENDERER",
     payload: {} as never,
+  },
+} as const;
+
+export const DXMT = {
+  INSTALL: {
+    channelName: "dxmt:install",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as DxmtInstallPayload,
+  },
+  STATUS_UPDATE: {
+    channelName: "dxmt:status-update",
+    method: "on",
+    direction: "MAIN_TO_RENDERER",
+    payload: {} as DxmtStatusPayload,
+  },
+  GET_VERSION_LIST: {
+    channelName: "dxmt:get-list",
+    method: "invoke",
+    direction: "MAIN_TO_RENDERER",
+    payload: {} as never,
+  },
+} as const;
+
+export const BOTTLE = {
+  GET_LIST: {
+    channelName: "bottle:get-list",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as never,
+  },
+  SAVE_LIST: {
+    channelName: "bottle:save-list",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as BottleListPayload,
+  },
+  DELETE: {
+    channelName: "bottle:delete",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as DeleteBottlePayload,
+  },
+  RUN_EXECUTABLE: {
+    channelName: "bottle:run-executable",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as RunBottleExecutablePayload,
+  },
+  STOP_PROCESS: {
+    channelName: "bottle:stop-process",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as StopBottleProcessPayload,
+  },
+  SETUP_PREFIX: {
+    channelName: "bottle:setup-prefix",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as SetupBottlePrefixPayload,
+  },
+  INSTALL_LAUNCHER: {
+    channelName: "bottle:install-launcher",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as InstallBottleLauncherPayload,
+  },
+  STATUS_UPDATE: {
+    channelName: "bottle:status-update",
+    method: "on",
+    direction: "MAIN_TO_RENDERER",
+    payload: {} as BottleTaskStatusPayload,
+  },
+  PROCESS_EXIT: {
+    channelName: "bottle:process-exit",
+    method: "on",
+    direction: "MAIN_TO_RENDERER",
+    payload: {} as BottleProcessExitPayload,
   },
 } as const;
 
@@ -184,6 +535,60 @@ export const APP = {
     method: "invoke",
     payload: {} as LauncherPreferencePatch,
   },
+  SELECT_DIRECTORY: {
+    channelName: "app:select-directory",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as SelectDirectoryPayload,
+  },
+  SELECT_FILE: {
+    channelName: "app:select-file",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as SelectFilePayload,
+  },
+  DELETE_LAUNCHER_DATA: {
+    channelName: "app:delete-launcher-data",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as DeleteLauncherDataPayload,
+  },
+  OPEN_LOG_FOLDER: {
+    channelName: "app:open-log-folder",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as never,
+  },
+  GET_LOG_SNAPSHOT: {
+    channelName: "app:get-log-snapshot",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as never,
+  },
+  LOG_UPDATE: {
+    channelName: "app:log-update",
+    direction: "MAIN_TO_RENDERER",
+    method: "on",
+    payload: {} as LauncherLogEntryPayload,
+  },
+  OPEN_PATH: {
+    channelName: "app:open-path",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as OpenPathPayload,
+  },
+  REVEAL_PATH: {
+    channelName: "app:reveal-path",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as OpenPathPayload,
+  },
+  OPEN_EXTERNAL_URL: {
+    channelName: "app:open-external-url",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as OpenExternalUrlPayload,
+  },
 } as const;
 
 export const YOUTUBE = {
@@ -197,32 +602,22 @@ export const YOUTUBE = {
 
 export const IPC_CHANNELS = {
   WINE,
+  DXMT,
+  BOTTLE,
   APP,
   YOUTUBE,
 } as const;
 
 /////////
 
-type AllDomains = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
+type ChannelUnitUnion = {
+  [Domain in keyof typeof IPC_CHANNELS]: (typeof IPC_CHANNELS)[Domain][keyof (typeof IPC_CHANNELS)[Domain]];
+}[keyof typeof IPC_CHANNELS];
 
-// Flatten complicated Nested Union Types like ... {A} | {B} to  A | B
-// I Used Function argument Inference
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (
-  k: infer I,
-) => void
-  ? I
-  : never;
-
-type DomainUnionKeyType = UnionToIntersection<AllDomains>;
-type AnyDomainUint = DomainUnionKeyType extends any
-  ? DomainUnionKeyType[keyof DomainUnionKeyType]
-  : never;
-
-type FindChannelNameByMethodType<M extends MethodType> = {
-  [K in keyof DomainUnionKeyType]: DomainUnionKeyType[K] extends { method: M }
-    ? DomainUnionKeyType[K]["channelName"]
-    : never;
-}[keyof DomainUnionKeyType];
+type FindChannelNameByMethodType<M extends MethodType> = Extract<
+  ChannelUnitUnion,
+  { method: M }
+>["channelName"];
 
 /**
  * Alias Helper Types
@@ -231,10 +626,7 @@ export type InvokeChannelNames = FindChannelNameByMethodType<"invoke">;
 export type SendChannelNames = FindChannelNameByMethodType<"send">;
 export type OnChannelNames = FindChannelNameByMethodType<"on">;
 
-type FindChannelInfoByName<C extends string> = Extract<
-  AnyDomainUint,
-  { channelName: C }
->;
+type FindChannelInfoByName<C extends string> = Extract<ChannelUnitUnion, { channelName: C }>;
 
 export type PayloadOf<T extends string> =
   FindChannelInfoByName<T> extends { payload: infer P } ? P : never;

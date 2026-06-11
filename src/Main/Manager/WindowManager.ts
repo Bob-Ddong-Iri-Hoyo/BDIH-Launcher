@@ -46,7 +46,8 @@ export class WindowManager {
       minWidth: 960,
       minHeight: 640,
       frame: false,
-      titleBarStyle: "hidden",
+      acceptFirstMouse: true,
+      autoHideMenuBar: true,
       backgroundColor: "#0b1020",
       show: false,
       webPreferences: {

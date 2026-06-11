@@ -6,12 +6,13 @@ const releaseType = process.env.RELEASE_TYPE || "release";
 
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
-  appId: "day.faby.bdih-launcher",
+  appId: "com.fabyday.bdih-launcher",
   productName: "BDIH Launcher",
   directories: {
     output: "release",
   },
   files: ["dist/**/*", "package.json"],
+  detectUpdateChannel: true,
   generateUpdatesFilesForAllChannels: true,
   publish: [
     {

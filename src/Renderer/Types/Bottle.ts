@@ -1,26 +1,13 @@
-export interface InstalledApp {
-  id: string;
-  name: string;
-  subtitle: string;
-  wineVersionId: string;
-  lastPlayed: string;
-  lastPlayedKey?: string;
-  status: "ready" | "needs-prefix" | "updating";
-}
+import type { BottleMetadataPayload, InstalledBottleAppPayload } from "../../Common/Types/IPC";
 
-export interface Bottle {
-  id: string;
-  name: string;
-  description: string;
-  wineVersionId: string;
-  path: string;
-  status: "ready" | "needs-setup" | "updating";
-  apps: InstalledApp[];
-}
+export interface InstalledApp extends InstalledBottleAppPayload {}
+
+export interface Bottle extends BottleMetadataPayload {}
 
 export interface CreateBottleInput {
   name: string;
   wineVersionId: string;
-  path: string;
+  dxmtVersionId: string;
+  prefixPath: string;
   description: string;
 }

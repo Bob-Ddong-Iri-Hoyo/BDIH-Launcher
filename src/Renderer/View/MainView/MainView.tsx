@@ -1,37 +1,52 @@
 ﻿import React from "react";
-import { ChevronLeft, Copy, FolderOpen, Pencil, Play, Settings, Trash2 } from "lucide-react";
+import { Copy, FolderOpen, Pencil, Play, Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { WineVersion } from "../../../Common/Types/Wine";
+import type { AppUpdateStatusPayload, BottleLauncherKind, DebugFlagMode, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, RendererThemeMode } from "../../../Common/Types/IPC";
+import type { DxmtVersion, WineVersion } from "../../../Common/Types/Wine";
 import { BottleDetailPanel, CreateBottleDialog, DashboardBreadcrumb, DashboardHomePanel } from "../../Component/BottleDashboard";
 import { ContextMenu, ContextMenuItem, ContextMenuPosition } from "../../Component/ContextMenu";
-import { IconButton } from "../../Component/IconButton";
-import { LogEntry, LogSession, LogSourceOption, LogViewer } from "../../Component/LogViewer";
+import { LogEntry, log_session_file_path, log_session_reveal_path, LogSession, LogSourceOption, LogViewer } from "../../Component/LogViewer";
 import { MacTitleBar } from "../../Component/MacTitleBar";
 import { MainFrame, RendererViewKey } from "../../Component/MainFrame";
 import { ViewSurface } from "../../Component/ViewSurface";
-import { WindowControls } from "../../Component/WindowControls";
 import { SupportedLocale } from "../../I18n";
 import { AccentColor } from "../../Theme";
 import type { Bottle, CreateBottleInput } from "../../Types/Bottle";
 import { PreferenceView } from "../PreferenceView/PreferenceView";
+import type { PreferencePathKey } from "../PreferenceView/PreferenceView";
 import LogoSquare from "../../../../resouces/bobtongirihoyo.png";
-import LogoWide from "../../../../resouces/bobtongirihoyo_wide.png";
 
 export type { Bottle, CreateBottleInput, InstalledApp } from "../../Types/Bottle";
 
 export interface DashboardViewProps {
   wineVersions: WineVersion[];
+  dxmtVersions?: DxmtVersion[];
   selectedWineVersion?: WineVersion;
   selectedWineVersionId: string;
+  selectedDxmtVersionId?: string;
   installPath: string;
+  bottlePrefixPath?: string;
   isLoadingWineVersions: boolean;
+  isLoadingDxmtVersions?: boolean;
   bottles?: Bottle[];
   selectedBottleId?: string;
   onSelectBottle?: (bottleId: string) => void;
   onBottleHome?: () => void;
   onCreateBottle?: (input: CreateBottleInput) => void;
+  onRenameBottle?: (bottleId: string, name: string) => void;
+  onRevealBottle?: (path: string) => void;
+  onDeleteBottle?: (bottleId: string) => void;
+  onSelectBottlePrefixPath?: (currentPath: string) => Promise<string | undefined>;
+  onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
+  onLaunchBottleApp?: (bottleId: string, appId: string) => void;
+  onLaunchBottleAppWithArgs?: (bottleId: string, appId: string, executableArgs: string[]) => void;
+  onStopBottleApp?: (bottleId: string, appId: string) => void;
+  onDeleteBottleApp?: (bottleId: string, appId: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
   onSelectWineVersion: (versionId: string) => void;
   onInstallWineVersion: (versionId: string) => void;
+  onSelectDxmtVersion?: (versionId: string) => void;
+  onInstallDxmtVersion?: (versionId: string) => void;
 }
 
 export interface LauncherViewProps extends DashboardViewProps {
@@ -43,13 +58,41 @@ export interface LauncherViewProps extends DashboardViewProps {
   isMac?: boolean;
   locale?: SupportedLocale;
   accentColor?: AccentColor;
+  themeMode?: RendererThemeMode;
+  appLoggingLevel?: LauncherLogLevel;
+  debugFlagMode?: DebugFlagMode;
+  loggingLevel?: LauncherLogLevel;
+  wineDebugArgs?: string;
+  shortcuts?: LauncherShortcutMap;
+  autoUpdateEnabled?: boolean;
+  appUpdateStatus?: AppUpdateStatusPayload;
+  bottlePrefixPath?: string;
+  dxmtCachePath?: string;
+  isDeveloperOnAir?: boolean;
   logEntries?: LogEntry[];
   logSessions?: LogSession[];
   logSources?: LogSourceOption[];
+  onOpenLogFolder?: () => void;
+  onOpenLogFile?: (path?: string) => void;
+  onRevealLogFile?: (path?: string) => void;
   onInstallPathChange: (installPath: string) => void;
+  onBottlePrefixPathChange?: (bottlePrefixPath: string) => void;
+  onDxmtCachePathChange?: (dxmtCachePath: string) => void;
   onLocaleChange: (locale: SupportedLocale) => void;
   onAccentColorChange: (accentColor: AccentColor) => void;
+  onThemeModeChange?: (themeMode: RendererThemeMode) => void;
+  onAppLoggingLevelChange?: (appLoggingLevel: LauncherLogLevel) => void;
+  onDebugFlagModeChange?: (debugFlagMode: DebugFlagMode) => void;
+  onLoggingLevelChange?: (loggingLevel: LauncherLogLevel) => void;
+  onWineDebugArgsChange?: (wineDebugArgs: string) => void;
+  onShortcutChange?: (action: LauncherShortcutAction, shortcut: string) => void;
+  onAutoUpdateEnabledChange?: (enabled: boolean) => void;
+  onCheckForUpdates?: () => void;
   onResetInstallPath: () => void;
+  onBrowsePath?: (pathKey: PreferencePathKey) => void;
+  onResetPath?: (pathKey: PreferencePathKey) => void;
+  onDeleteLauncherData?: (targets: LauncherDataDeleteTarget[]) => void;
+  onSavePreference?: () => void;
 }
 
 function get_view_title(viewKey: RendererViewKey, translate: (key: string) => string) {
@@ -62,16 +105,33 @@ function get_view_subtitle(viewKey: RendererViewKey, translate: (key: string) =>
 
 export function DashboardView({
   wineVersions,
+  dxmtVersions = [],
   selectedWineVersion,
   selectedWineVersionId,
+  selectedDxmtVersionId = "",
   installPath,
+  bottlePrefixPath = "",
   isLoadingWineVersions,
+  isLoadingDxmtVersions = false,
   bottles = [],
   selectedBottleId,
   onSelectBottle,
   onBottleHome,
   onCreateBottle,
+  onRenameBottle,
+  onRevealBottle,
+  onDeleteBottle,
+  onSelectBottlePrefixPath,
+  onInstallBottleLauncher,
+  onLaunchBottleApp,
+  onLaunchBottleAppWithArgs,
+  onStopBottleApp,
+  onDeleteBottleApp,
+  onRegisterBottleExecutable,
   onSelectWineVersion,
+  onInstallWineVersion,
+  onSelectDxmtVersion,
+  onInstallDxmtVersion,
 }: DashboardViewProps) {
   const { t } = useTranslation();
   const [isInstalledWineOpen, setIsInstalledWineOpen] = React.useState(false);
@@ -101,8 +161,8 @@ export function DashboardView({
         onSelect: () => onSelectBottle?.(contextBottle.id),
       },
       {
-        id: "recipe",
-        label: t("main.contextMenu.recipeSettings"),
+        id: "launch-options",
+        label: t("main.contextMenu.launchOptions"),
         icon: Settings,
         onSelect: () => onSelectBottle?.(contextBottle.id),
       },
@@ -110,8 +170,13 @@ export function DashboardView({
         id: "rename",
         label: t("main.contextMenu.rename"),
         icon: Pencil,
-        disabled: true,
-        onSelect: () => undefined,
+        onSelect: () => {
+          const nextName = window.prompt(t("main.contextMenu.rename"), contextBottle.name);
+
+          if (nextName?.trim()) {
+            onRenameBottle?.(contextBottle.id, nextName.trim());
+          }
+        },
       },
       {
         id: "copy-path",
@@ -123,20 +188,22 @@ export function DashboardView({
         id: "reveal",
         label: t("main.contextMenu.revealFolder"),
         icon: FolderOpen,
-        disabled: true,
-        onSelect: () => undefined,
+        onSelect: () => onRevealBottle?.(contextBottle.path),
       },
       {
         id: "delete",
         label: t("main.contextMenu.deleteBottle"),
         icon: Trash2,
         danger: true,
-        disabled: true,
         separatorBefore: true,
-        onSelect: () => undefined,
+        onSelect: () => {
+          if (window.confirm(t("main.contextMenu.deleteBottleConfirm", { name: contextBottle.name }))) {
+            onDeleteBottle?.(contextBottle.id);
+          }
+        },
       },
     ];
-  }, [contextBottle, onSelectBottle, t]);
+  }, [contextBottle, onDeleteBottle, onRenameBottle, onRevealBottle, onSelectBottle, t]);
 
   function handle_bottle_context_menu(event: React.MouseEvent<HTMLButtonElement>, bottle: Bottle) {
     event.preventDefault();
@@ -151,12 +218,21 @@ export function DashboardView({
   }
 
   if (selectedBottle) {
+    const selectedBottleWineRuntimePath = wineVersions.find((version) => version.id === selectedBottle.wineVersionId)?.path;
+
     return (
       <BottleDetailPanel
         bottle={selectedBottle}
         selectedWineVersionId={selectedWineVersionId}
+        wineRuntimePath={selectedBottleWineRuntimePath}
         appLogoSrc={LogoSquare}
-        onBottleHome={onBottleHome}
+        onRevealBottle={onRevealBottle}
+        onInstallBottleLauncher={onInstallBottleLauncher}
+        onLaunchBottleApp={onLaunchBottleApp}
+        onLaunchBottleAppWithArgs={onLaunchBottleAppWithArgs}
+        onStopBottleApp={onStopBottleApp}
+        onDeleteBottleApp={onDeleteBottleApp}
+        onRegisterBottleExecutable={onRegisterBottleExecutable}
       />
     );
   }
@@ -165,15 +241,19 @@ export function DashboardView({
     <>
       <DashboardHomePanel
         wineVersions={wineVersions}
-        selectedWineVersion={selectedWineVersion}
-        selectedWineVersionId={selectedWineVersionId}
-        installPath={installPath}
-        isLoadingWineVersions={isLoadingWineVersions}
+        dxmtVersions={dxmtVersions}
+          selectedWineVersionId={selectedWineVersionId}
+          selectedDxmtVersionId={selectedDxmtVersionId}
+          installPath={installPath}
+          isLoadingWineVersions={isLoadingWineVersions}
+        isLoadingDxmtVersions={isLoadingDxmtVersions}
         bottles={bottles}
-        heroImageSrc={LogoWide}
         isInstalledWineOpen={isInstalledWineOpen}
         onToggleInstalledWine={() => setIsInstalledWineOpen((isOpen) => !isOpen)}
         onSelectWineVersion={onSelectWineVersion}
+        onInstallWineVersion={onInstallWineVersion}
+        onSelectDxmtVersion={onSelectDxmtVersion}
+        onInstallDxmtVersion={onInstallDxmtVersion}
         onSelectBottle={onSelectBottle}
         onBottleContextMenu={handle_bottle_context_menu}
         onCreateBottle={open_create_bottle_dialog}
@@ -187,7 +267,11 @@ export function DashboardView({
       <CreateBottleDialog
         open={isCreateBottleOpen}
         wineVersions={wineVersions}
+        dxmtVersions={dxmtVersions}
         selectedWineVersionId={selectedWineVersionId}
+        selectedDxmtVersionId={selectedDxmtVersionId}
+        bottlePrefixPath={bottlePrefixPath}
+        onSelectBottlePrefixPath={onSelectBottlePrefixPath}
         onClose={() => setIsCreateBottleOpen(false)}
         onCreateBottle={onCreateBottle}
       />
@@ -198,10 +282,13 @@ export function DashboardView({
 export function LauncherView({
   activeView,
   wineVersions,
+  dxmtVersions,
   selectedWineVersion,
   selectedWineVersionId,
+  selectedDxmtVersionId,
   installPath,
   isLoadingWineVersions,
+  isLoadingDxmtVersions,
   bottles,
   onViewChange,
   onQuit,
@@ -210,15 +297,56 @@ export function LauncherView({
   isMac = false,
   locale,
   accentColor,
+  themeMode,
+  appLoggingLevel,
+  debugFlagMode,
+  loggingLevel,
+  wineDebugArgs,
+  shortcuts,
+  autoUpdateEnabled,
+  appUpdateStatus,
+  bottlePrefixPath,
+  dxmtCachePath,
+  isDeveloperOnAir,
   logEntries = [],
   logSessions = [],
   logSources = [],
+  onOpenLogFolder,
+  onOpenLogFile,
+  onRevealLogFile,
+  onCreateBottle,
+  onRenameBottle,
+  onRevealBottle,
+  onDeleteBottle,
+  onSelectBottlePrefixPath,
+  onInstallBottleLauncher,
+  onLaunchBottleApp,
+  onLaunchBottleAppWithArgs,
+  onStopBottleApp,
+  onDeleteBottleApp,
+  onRegisterBottleExecutable,
   onSelectWineVersion,
   onInstallWineVersion,
+  onSelectDxmtVersion,
+  onInstallDxmtVersion,
   onInstallPathChange,
+  onBottlePrefixPathChange,
+  onDxmtCachePathChange,
   onLocaleChange,
   onAccentColorChange,
+  onThemeModeChange,
+  onAppLoggingLevelChange,
+  onDebugFlagModeChange,
+  onLoggingLevelChange,
+  onWineDebugArgsChange,
+  onShortcutChange,
+  onAutoUpdateEnabledChange,
+  onCheckForUpdates,
   onResetInstallPath,
+  onBrowsePath,
+  onResetPath,
+  onDeleteLauncherData,
+  onSavePreference,
 }: LauncherViewProps) {
   const { t } = useTranslation();
   const [selectedBottleId, setSelectedBottleId] = React.useState<string | undefined>();
@@ -259,32 +387,44 @@ export function LauncherView({
           <MacTitleBar title={t("common.appName")} onQuit={onQuit} onMinimize={onMinimize} onMaximize={onMaximize} />
         ) : undefined
       }
-      headerLeading={
-        activeView === "dashboard" && selectedBottle ? (
-          <IconButton
-            icon={ChevronLeft}
-            label={t("main.backToBottleHome")}
-            onClick={() => setSelectedBottleId(undefined)}
-          />
-        ) : undefined
-      }
-      actions={!isMac ? <WindowControls onMinimize={onMinimize} onMaximize={onMaximize} onQuit={onQuit} /> : undefined}
       onViewChange={handle_view_change}
     >
       {activeView === "dashboard" && (
         <DashboardView
           wineVersions={wineVersions}
+          dxmtVersions={dxmtVersions}
           selectedWineVersion={selectedWineVersion}
           selectedWineVersionId={selectedWineVersionId}
+          selectedDxmtVersionId={selectedDxmtVersionId}
           installPath={installPath}
+          bottlePrefixPath={bottlePrefixPath}
           isLoadingWineVersions={isLoadingWineVersions}
+          isLoadingDxmtVersions={isLoadingDxmtVersions}
           bottles={activeBottles}
           selectedBottleId={selectedBottleId}
           onSelectBottle={setSelectedBottleId}
           onBottleHome={() => setSelectedBottleId(undefined)}
-          onCreateBottle={() => undefined}
+          onCreateBottle={onCreateBottle}
+          onRenameBottle={onRenameBottle}
+          onRevealBottle={onRevealBottle}
+          onDeleteBottle={(bottleId) => {
+            if (selectedBottleId === bottleId) {
+              setSelectedBottleId(undefined);
+            }
+
+            onDeleteBottle?.(bottleId);
+          }}
+          onSelectBottlePrefixPath={onSelectBottlePrefixPath}
+          onInstallBottleLauncher={onInstallBottleLauncher}
+          onLaunchBottleApp={onLaunchBottleApp}
+          onLaunchBottleAppWithArgs={onLaunchBottleAppWithArgs}
+          onStopBottleApp={onStopBottleApp}
+          onDeleteBottleApp={onDeleteBottleApp}
+          onRegisterBottleExecutable={onRegisterBottleExecutable}
           onSelectWineVersion={onSelectWineVersion}
           onInstallWineVersion={onInstallWineVersion}
+          onSelectDxmtVersion={onSelectDxmtVersion}
+          onInstallDxmtVersion={onInstallDxmtVersion}
         />
       )}
       {activeView === "logs" && (
@@ -294,22 +434,48 @@ export function LauncherView({
             sessions={logSessions}
             sources={logSources}
             className="h-full"
+            onOpenLogFolder={onOpenLogFolder}
+            onOpenLogFile={(session) => onOpenLogFile?.(log_session_file_path(session))}
+            onRevealLogFile={(session) => onRevealLogFile?.(log_session_reveal_path(session))}
           />
         </ViewSurface>
       )}
       {activeView === "preferences" && (
         <PreferenceView
           installPath={installPath}
+          bottlePrefixPath={bottlePrefixPath}
+          dxmtCachePath={dxmtCachePath}
           locale={locale}
           accentColor={accentColor}
+          themeMode={themeMode}
+          appLoggingLevel={appLoggingLevel}
+          debugFlagMode={debugFlagMode}
+          loggingLevel={loggingLevel}
+          wineDebugArgs={wineDebugArgs}
+          shortcuts={shortcuts}
+          autoUpdateEnabled={autoUpdateEnabled}
+          appUpdateStatus={appUpdateStatus}
+          isDeveloperOnAir={isDeveloperOnAir}
           onInstallPathChange={onInstallPathChange}
+          onBottlePrefixPathChange={onBottlePrefixPathChange}
+          onDxmtCachePathChange={onDxmtCachePathChange}
           onLocaleChange={onLocaleChange}
           onAccentColorChange={onAccentColorChange}
+          onThemeModeChange={onThemeModeChange}
+          onAppLoggingLevelChange={onAppLoggingLevelChange}
+          onDebugFlagModeChange={onDebugFlagModeChange}
+          onLoggingLevelChange={onLoggingLevelChange}
+          onWineDebugArgsChange={onWineDebugArgsChange}
+          onShortcutChange={onShortcutChange}
+          onAutoUpdateEnabledChange={onAutoUpdateEnabledChange}
+          onCheckForUpdates={onCheckForUpdates}
+          onBrowsePath={onBrowsePath}
+          onResetPath={onResetPath}
+          onDeleteLauncherData={onDeleteLauncherData}
           onReset={onResetInstallPath}
+          onSave={onSavePreference}
         />
       )}
     </MainFrame>
   );
 }
-
-

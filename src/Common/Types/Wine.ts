@@ -21,6 +21,16 @@ export interface WineVersion {
   downloadUrl?: string;
 }
 
+export interface DxmtVersion {
+  id: string;
+  name: string;
+  version: string;
+  status: InstallStatus;
+  progress: number;
+  downloadUrl?: string;
+  path?: string;
+}
+
 export interface WineError {
   code: string;
   message: string;

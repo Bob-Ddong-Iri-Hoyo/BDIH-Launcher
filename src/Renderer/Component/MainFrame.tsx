@@ -53,7 +53,7 @@ export function MainFrame({
   return (
     <div className="flex h-dvh min-h-[600px] w-full flex-col overflow-hidden bg-[#0b1020] text-slate-100">
       {titleBar}
-      <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)]">
       <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#111827]">
         <div className="flex h-20 items-center gap-3 border-b border-white/10 px-5 [-webkit-app-region:drag]">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10">

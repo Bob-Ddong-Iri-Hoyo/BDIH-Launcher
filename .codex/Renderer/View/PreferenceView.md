@@ -11,10 +11,10 @@ Story: `src/Renderer/Stories/View/PreferenceView.stories.tsx`
 현재 UI:
 
 - 상단 우측에 site, github, youtube developer links.
-- 카테고리 tabs/cards: general, wine, shortcut.
-- General: language, accent color, app update panel.
-- Wine: install path, execution options.
-- Shortcut: shortcut preview/edit buttons.
+- 카테고리 tabs/cards: general, wine, shortcut, Developer Info.
+- General: language, theme(Dark, Light, system settings), app update panel.
+- Wine: install path, execution options. wine prefix 저장 위치, DXMT버전별 저장 위치
+- Shortcut: shortcut preview/edit buttons.(open log, open settings만 있음. 내가 키보드 입력하면 입력되게해야함 meta+B뭐 이런식으로 )
 - 변경사항이 있으면 하단 fixed save bar가 나타난다.
 
 주요 props:

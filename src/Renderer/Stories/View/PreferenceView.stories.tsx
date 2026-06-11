@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
 import { DeveloperYouTubeLink, PreferenceView } from "../../View/PreferenceView/PreferenceView";
 
 const meta: Meta<typeof PreferenceView> = {
@@ -8,17 +9,40 @@ const meta: Meta<typeof PreferenceView> = {
     layout: "fullscreen",
   },
   args: {
-    installPath: "~/Library/Application Support/BDIH/Wine",
+    installPath: "~/Library/Application Support/BDIH Launcher/Wine",
+    bottlePrefixPath: "~/Library/Application Support/BDIH Launcher/Bottles",
+    dxmtCachePath: "~/Library/Application Support/BDIH Launcher/DXMT",
+    themeMode: "system",
+    appLoggingLevel: "off",
+    debugFlagMode: "preset",
+    loggingLevel: "off",
+    wineDebugArgs: "-all,+seh,+tid",
+    shortcuts: {
+      launch: "Command + Return",
+      logs: "Command + L",
+      preferences: "Command + ,",
+    },
     accentColor: "rose",
     autoUpdateEnabled: true,
-    developerSiteUrl: "https://molera.dev",
-    developerGitHubUrl: "https://github.com/molera1708",
-    developerYouTubeUrl: "https://www.youtube.com/@molera1708/videos",
+    developerSiteUrl: BDIH_SITE_URL,
+    developerGitHubUrl: BDIH_GITHUB_URL,
+    developerYouTubeUrl: BDIH_YOUTUBE_URL,
     onInstallPathChange: () => undefined,
+    onBottlePrefixPathChange: () => undefined,
+    onDxmtCachePathChange: () => undefined,
     onLocaleChange: () => undefined,
     onAccentColorChange: () => undefined,
+    onThemeModeChange: () => undefined,
+    onAppLoggingLevelChange: () => undefined,
+    onDebugFlagModeChange: () => undefined,
+    onLoggingLevelChange: () => undefined,
+    onWineDebugArgsChange: () => undefined,
+    onShortcutChange: () => undefined,
     onAutoUpdateEnabledChange: () => undefined,
     onCheckForUpdates: () => undefined,
+    onBrowsePath: () => undefined,
+    onResetPath: () => undefined,
+    onDeleteLauncherData: () => undefined,
     onReset: () => undefined,
     onSave: () => undefined,
   },
@@ -94,11 +118,11 @@ export const DeveloperYouTubeBadgeStates: Story = {
       <div className="mx-auto grid max-w-2xl gap-8 md:grid-cols-2">
         <div className="space-y-3">
           <p className="text-xs font-semibold uppercase text-slate-500">OFFLINE</p>
-          <DeveloperYouTubeLink url="https://www.youtube.com/@molera1708/videos" isOnAir={false} />
+          <DeveloperYouTubeLink url={BDIH_YOUTUBE_URL} isOnAir={false} />
         </div>
         <div className="space-y-3">
           <p className="text-xs font-semibold uppercase text-red-300">ON AIR Glow</p>
-          <DeveloperYouTubeLink url="https://www.youtube.com/@molera1708/videos" isOnAir />
+          <DeveloperYouTubeLink url={BDIH_YOUTUBE_URL} isOnAir />
         </div>
       </div>
     </div>

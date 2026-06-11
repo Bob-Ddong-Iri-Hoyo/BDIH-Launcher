@@ -29,3 +29,21 @@ export const Default: Story = {
     </div>
   ),
 };
+
+export const WithFavorites: Story = {
+  args: {
+    enableFavorites: true,
+    searchPlaceholder: "Search colors",
+    options: [
+      { value: "rose", label: "Rose", description: "Warm accent", swatchColor: "rgb(244 63 94)" },
+      { value: "sky", label: "Sky", description: "Cool accent", swatchColor: "rgb(14 165 233)" },
+      { value: "emerald", label: "Emerald", description: "Fresh accent", swatchColor: "rgb(16 185 129)" },
+      { value: "amber", label: "Amber", description: "Bright accent", swatchColor: "rgb(245 158 11)" },
+    ],
+  },
+  render: (args) => (
+    <div className="w-96 bg-[#0b1020] p-4 text-slate-100">
+      <SelectMenu {...args} />
+    </div>
+  ),
+};

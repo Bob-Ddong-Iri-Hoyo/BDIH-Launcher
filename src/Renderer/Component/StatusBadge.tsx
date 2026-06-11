@@ -7,6 +7,7 @@ export type StatusTone = "neutral" | "info" | "success" | "warning" | "danger";
 export interface StatusBadgeProps {
   label: string;
   tone?: StatusTone;
+  animated?: boolean;
   className?: string;
 }
 
@@ -55,10 +56,10 @@ export function label_from_status(status: InstallStatus, translate: Translate = 
   return translate(keyMap[status]);
 }
 
-export function StatusBadge({ label, tone = "neutral", className = "" }: StatusBadgeProps) {
+export function StatusBadge({ label, tone = "neutral", animated = false, className = "" }: StatusBadgeProps) {
   return (
     <span
-      className={`inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-xs font-medium ${TONE_CLASS_MAP[tone]} ${className}`}
+      className={`inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-xs font-medium ${animated ? "badge-ripple" : ""} ${TONE_CLASS_MAP[tone]} ${className}`}
     >
       {label}
     </span>

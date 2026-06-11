@@ -11,6 +11,7 @@ export interface ProgressBarProps extends ProtoComponentProps {
   showValue?: boolean;
   size?: "sm" | "md";
   tone?: "blue" | "emerald" | "amber" | "rose";
+  animated?: boolean;
   className?: string;
 }
 
@@ -31,6 +32,7 @@ export function ProgressBar({
   showValue = false,
   size = "md",
   tone = "blue",
+  animated = false,
   bgColor,
   className = "",
 }: ProgressBarProps) {
@@ -65,7 +67,7 @@ export function ProgressBar({
         aria-valuenow={clampedValue}
       >
         <div
-          className={`h-full rounded-full transition-[width] duration-300 ${FILL_CLASS_MAP[tone]}`}
+          className={`h-full rounded-full transition-[width] duration-300 ${animated ? "progress-wave" : ""} ${FILL_CLASS_MAP[tone]}`}
           style={{ width: `${percentage}%` }}
         />
       </div>

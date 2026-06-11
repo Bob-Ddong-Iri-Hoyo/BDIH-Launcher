@@ -1,6 +1,19 @@
-import { app, BrowserWindow, ipcMain } from "electron";
-import { IPC_CHANNELS, InstallRequest, LauncherPreferencePatch } from "../../Common/Types/IPC";
+import { app, BrowserWindow, dialog, ipcMain, OpenDialogOptions, shell } from "electron";
+import { rm } from "fs/promises";
+import os from "os";
+import path from "path";
+import { DeleteBottlePayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, LauncherDataDeleteTarget, LauncherPreferencePatch, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload } from "../../Common/Types/IPC";
+import {
+  get_bottle_registry_path,
+  get_default_log_dir,
+  get_legacy_settings_dir,
+  get_settings_path,
+} from "../Environment/AppPaths";
 import { preferenceManager, PreferenceManager } from "./PreferenceManager";
+import { bottleManager, BottleManager } from "./BottleManager";
+import { bottleExecutionManager, BottleExecutionManager } from "./BottleExecutionManager";
+import { dxmtManager, DxmtManager } from "./DxmtManager";
+import { logManager } from "./LogManager";
 import { updateManager, UpdateManager } from "./UpdateManager";
 import { windowManager, WindowManager } from "./WindowManager";
 import { wineManager, WineManager } from "./WineManager";
@@ -12,6 +25,9 @@ export class IPCManager {
   constructor(
     private readonly windows: WindowManager,
     private readonly wines: WineManager,
+    private readonly dxmts: DxmtManager,
+    private readonly bottles: BottleManager,
+    private readonly bottleExecutions: BottleExecutionManager,
     private readonly updates: UpdateManager,
     private readonly preferences: PreferenceManager,
     private readonly youtube: YouTubeManager,
@@ -23,7 +39,10 @@ export class IPCManager {
     }
 
     this.initWineIPC();
+    this.initDxmtIPC();
+    this.initBottleIPC();
     this.initAppIPC();
+    this.initLogIPC();
     this.initPreferenceIPC();
     this.initYouTubeIPC();
     this.initialized = true;
@@ -40,6 +59,77 @@ export class IPCManager {
       IPC_CHANNELS.WINE.INSTALL.channelName,
       async (event, request: InstallRequest) => {
         await this.wines.installWine(request, event.sender);
+      },
+    );
+  }
+
+  private initDxmtIPC(): void {
+    ipcMain.removeHandler(IPC_CHANNELS.DXMT.GET_VERSION_LIST.channelName);
+    ipcMain.handle(IPC_CHANNELS.DXMT.GET_VERSION_LIST.channelName, async () => {
+      return this.dxmts.getVersionList();
+    });
+
+    ipcMain.removeHandler(IPC_CHANNELS.DXMT.INSTALL.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.DXMT.INSTALL.channelName,
+      async (event, request) => {
+        await this.dxmts.installDxmt(request, event.sender);
+      },
+    );
+  }
+
+  private initBottleIPC(): void {
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.GET_LIST.channelName);
+    ipcMain.handle(IPC_CHANNELS.BOTTLE.GET_LIST.channelName, async () => {
+      return this.bottles.getBottleList();
+    });
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.SAVE_LIST.channelName);
+    ipcMain.handle(IPC_CHANNELS.BOTTLE.SAVE_LIST.channelName, async (_event, request) => {
+      return this.bottles.saveBottleList(request);
+    });
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.DELETE.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.DELETE.channelName,
+      async (_event, request: DeleteBottlePayload): Promise<DeleteBottleResultPayload> => {
+        return this.bottles.deleteBottle(request);
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.RUN_EXECUTABLE.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.RUN_EXECUTABLE.channelName,
+      async (event, request: RunBottleExecutablePayload): Promise<RunBottleExecutableResultPayload> => {
+        return this.bottleExecutions.runExecutable(request, event.sender);
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.STOP_PROCESS.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.STOP_PROCESS.channelName,
+      async (_event, request: StopBottleProcessPayload) => {
+        await this.bottleExecutions.stopProcess(request.processId);
+        return { ok: true };
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.SETUP_PREFIX.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.SETUP_PREFIX.channelName,
+      async (event, request: SetupBottlePrefixPayload) => {
+        return this.bottleExecutions.setupPrefix(request, event.sender);
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.INSTALL_LAUNCHER.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.INSTALL_LAUNCHER.channelName,
+      async (event, request: InstallBottleLauncherPayload) => {
+        const result = await this.bottleExecutions.installLauncher(request, event.sender);
+
+        this.bottles.clearCache();
+        return result;
       },
     );
   }
@@ -72,13 +162,59 @@ export class IPCManager {
 
     this.onAppEvent(IPC_CHANNELS.APP.RESTART.channelName, () => {
       app.relaunch();
-      app.exit(0);
+      app.quit();
     });
 
     this.onAppEvent(IPC_CHANNELS.APP.UPDATE.channelName, async (event) => {
       const window =
         BrowserWindow.fromWebContents(event.sender) ?? this.windows.getMainWindow();
       await this.updates.checkForUpdatesAndNotify(window ?? undefined);
+    });
+
+    ipcMain.removeHandler(IPC_CHANNELS.APP.OPEN_LOG_FOLDER.channelName);
+    ipcMain.handle(IPC_CHANNELS.APP.OPEN_LOG_FOLDER.channelName, async (): Promise<OpenPathResultPayload> => {
+      return this.openPath(get_default_log_dir());
+    });
+
+    ipcMain.removeHandler(IPC_CHANNELS.APP.OPEN_PATH.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.APP.OPEN_PATH.channelName,
+      async (_event, request: OpenPathPayload = {}): Promise<OpenPathResultPayload> => {
+        return this.openPath(request.path);
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.APP.REVEAL_PATH.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.APP.REVEAL_PATH.channelName,
+      async (_event, request: OpenPathPayload = {}): Promise<OpenPathResultPayload> => {
+        return this.revealPath(request.path);
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.APP.OPEN_EXTERNAL_URL.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.APP.OPEN_EXTERNAL_URL.channelName,
+      async (_event, request: OpenExternalUrlPayload): Promise<OpenPathResultPayload> => {
+        return this.openExternalUrl(request.url);
+      },
+    );
+  }
+
+  private initLogIPC(): void {
+    ipcMain.removeHandler(IPC_CHANNELS.APP.GET_LOG_SNAPSHOT.channelName);
+    ipcMain.handle(IPC_CHANNELS.APP.GET_LOG_SNAPSHOT.channelName, async () => {
+      return logManager.getSnapshot();
+    });
+
+    logManager.onEntry((entry) => {
+      const window = this.windows.getMainWindow();
+
+      if (!window || window.isDestroyed()) {
+        return;
+      }
+
+      window.webContents.send(IPC_CHANNELS.APP.LOG_UPDATE.channelName, entry);
     });
   }
 
@@ -92,7 +228,107 @@ export class IPCManager {
     ipcMain.handle(
       IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName,
       async (_event, patch: LauncherPreferencePatch) => {
-        return this.preferences.updatePreference(patch);
+        const preference = await this.preferences.updatePreference(patch);
+        logManager.setMinLevel(
+          preference.appLoggingLevel === "all"
+            ? "debug"
+            : preference.appLoggingLevel === "off"
+              ? "info"
+              : preference.appLoggingLevel,
+        );
+        return preference;
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.APP.SELECT_DIRECTORY.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.APP.SELECT_DIRECTORY.channelName,
+      async (event, request: SelectDirectoryPayload) => {
+        const window =
+          BrowserWindow.fromWebContents(event.sender) ?? this.windows.getMainWindow();
+        const defaultPath = request?.defaultPath
+          ? this.expandUserHomePath(request.defaultPath)
+          : undefined;
+        const options: OpenDialogOptions = {
+          title: request?.title,
+          defaultPath,
+          properties: ["openDirectory", "createDirectory"],
+        };
+        const result = window
+          ? await dialog.showOpenDialog(window, options)
+          : await dialog.showOpenDialog(options);
+
+        return {
+          canceled: result.canceled,
+          path: result.filePaths[0],
+        };
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.APP.SELECT_FILE.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.APP.SELECT_FILE.channelName,
+      async (event, request: SelectFilePayload = {}) => {
+        const window =
+          BrowserWindow.fromWebContents(event.sender) ?? this.windows.getMainWindow();
+        const defaultPath = request?.defaultPath
+          ? this.expandUserHomePath(request.defaultPath)
+          : undefined;
+        const options: OpenDialogOptions = {
+          title: request?.title,
+          defaultPath,
+          filters: request?.filters,
+          properties: ["openFile"],
+        };
+        const result = window
+          ? await dialog.showOpenDialog(window, options)
+          : await dialog.showOpenDialog(options);
+
+        return {
+          canceled: result.canceled,
+          path: result.filePaths[0],
+        };
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.APP.DELETE_LAUNCHER_DATA.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.APP.DELETE_LAUNCHER_DATA.channelName,
+      async (_event, request: DeleteLauncherDataPayload = {}): Promise<DeleteLauncherDataResultPayload> => {
+        const preference = await this.preferences.getPreference();
+        const targets = this.resolveDeleteTargets(request.targets);
+        const candidatePaths = this.getLauncherDataDeletePaths(targets, request, preference);
+        const uniquePaths = [...new Set(candidatePaths.filter((candidate): candidate is string => typeof candidate === "string" && candidate.trim().length > 0))];
+        const result: DeleteLauncherDataResultPayload = {
+          deletedPaths: [],
+          skippedPaths: [],
+          failedPaths: [],
+        };
+
+        for (const candidatePath of uniquePaths) {
+          const resolvedPath = path.resolve(this.expandUserHomePath(candidatePath));
+
+          if (!this.isSafeLauncherDataDeletePath(resolvedPath)) {
+            result.skippedPaths.push({
+              path: resolvedPath,
+              reason: "Unsafe delete target",
+            });
+            continue;
+          }
+
+          try {
+            await rm(resolvedPath, { recursive: true, force: true });
+            result.deletedPaths.push(resolvedPath);
+          } catch (error) {
+            result.failedPaths.push({
+              path: resolvedPath,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        this.preferences.clearCache();
+        return result;
       },
     );
   }
@@ -114,11 +350,126 @@ export class IPCManager {
     ipcMain.removeAllListeners(channel);
     ipcMain.on(channel, listener);
   }
+
+  private isSafeLauncherDataDeletePath(targetPath: string): boolean {
+    const homePath = path.resolve(os.homedir());
+    const rootPath = path.parse(targetPath).root;
+
+    if (targetPath === rootPath || targetPath === homePath) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private resolveDeleteTargets(targets?: LauncherDataDeleteTarget[]): LauncherDataDeleteTarget[] {
+    if (!targets || targets.length === 0 || targets.includes("all")) {
+      return ["wineRuntime", "bottlePrefixes", "dxmtCache", "settings", "logs"];
+    }
+
+    return [...new Set(targets)];
+  }
+
+  private getLauncherDataDeletePaths(
+    targets: LauncherDataDeleteTarget[],
+    request: DeleteLauncherDataPayload,
+    preference: Awaited<ReturnType<PreferenceManager["getPreference"]>>,
+  ): string[] {
+    const paths: string[] = [];
+
+    if (targets.includes("wineRuntime")) {
+      paths.push(request.wineInstallPath || preference.wineInstallPath);
+    }
+
+    if (targets.includes("bottlePrefixes")) {
+      paths.push(request.bottlePrefixPath || preference.bottlePrefixPath);
+    }
+
+    if (targets.includes("dxmtCache")) {
+      paths.push(request.dxmtCachePath || preference.dxmtCachePath);
+    }
+
+    if (targets.includes("settings")) {
+      paths.push(get_settings_path(), get_bottle_registry_path(), get_legacy_settings_dir());
+    }
+
+    if (targets.includes("logs")) {
+      paths.push(get_default_log_dir());
+    }
+
+    return paths;
+  }
+
+  private expandUserHomePath(targetPath: string): string {
+    if (targetPath === "~") {
+      return os.homedir();
+    }
+
+    if (targetPath.startsWith("~/")) {
+      return path.join(os.homedir(), targetPath.slice(2));
+    }
+
+    return targetPath;
+  }
+
+  private resolveLauncherPath(targetPath?: string): string {
+    if (!targetPath || targetPath.trim().length === 0) {
+      return get_default_log_dir();
+    }
+
+    const expandedPath = this.expandUserHomePath(targetPath);
+
+    if (path.isAbsolute(expandedPath)) {
+      return path.resolve(expandedPath);
+    }
+
+    return path.resolve(get_default_log_dir(), expandedPath);
+  }
+
+  private async openPath(targetPath?: string): Promise<OpenPathResultPayload> {
+    const resolvedPath = this.resolveLauncherPath(targetPath);
+    const error = await shell.openPath(resolvedPath);
+
+    return {
+      ok: error.length === 0,
+      path: resolvedPath,
+      error: error || undefined,
+    };
+  }
+
+  private async revealPath(targetPath?: string): Promise<OpenPathResultPayload> {
+    const resolvedPath = this.resolveLauncherPath(targetPath);
+    shell.showItemInFolder(resolvedPath);
+
+    return {
+      ok: true,
+      path: resolvedPath,
+    };
+  }
+
+  private async openExternalUrl(url: string): Promise<OpenPathResultPayload> {
+    if (!/^https?:\/\//i.test(url)) {
+      return {
+        ok: false,
+        error: "Only http and https URLs can be opened externally.",
+      };
+    }
+
+    await shell.openExternal(url);
+
+    return {
+      ok: true,
+      path: url,
+    };
+  }
 }
 
 export const ipcManager = new IPCManager(
   windowManager,
   wineManager,
+  dxmtManager,
+  bottleManager,
+  bottleExecutionManager,
   updateManager,
   preferenceManager,
   youtubeManager,

@@ -1,11 +1,13 @@
 import React, { useMemo, useState } from "react";
 import {
   CalendarDays,
+  ExternalLink,
   FileText,
-  Pin,
+  FolderOpen,
   Search,
   ScrollText,
 } from "lucide-react";
+import { SelectMenu, SelectMenuOption } from "./SelectMenu";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogLevelFilter = "all" | LogLevel;
@@ -43,6 +45,8 @@ export interface LogSession {
   label: string;
   startedAt: string;
   logFileName?: string;
+  logFilePath?: string;
+  logDirectoryPath?: string;
   kind?: LogSessionKind;
   bottleId?: string;
   bottleName?: string;
@@ -70,10 +74,14 @@ export interface LogViewerProps {
   targetDisplayMode?: LogTargetDisplayMode;
   targetLabel?: string;
   onTargetChange?: (targetId: string) => void;
+  onFavoriteTargetIdsChange?: (targetIds: string[]) => void;
   onSessionChange?: (sessionId: string) => void;
   onSourceChange?: (sourceId: LogSourceFilter) => void;
   onLevelChange?: (level: LogLevelFilter) => void;
   onSearchChange?: (value: string) => void;
+  onOpenLogFolder?: () => void;
+  onOpenLogFile?: (session: LogSession) => void;
+  onRevealLogFile?: (session: LogSession) => void;
   className?: string;
 }
 
@@ -86,6 +94,7 @@ const LEVEL_LABEL: Record<LogLevelFilter, string> = {
 };
 
 const LEVELS: LogLevelFilter[] = ["all", "debug", "info", "warn", "error"];
+const LOG_BOTTOM_STICKY_THRESHOLD = 32;
 
 export function LogViewer({
   entries,
@@ -97,14 +106,18 @@ export function LogViewer({
   selectedSourceId,
   selectedLevel,
   searchValue,
-  favoriteTargetIds = [],
+  favoriteTargetIds,
   targetDisplayMode = "picker",
   targetLabel,
   onTargetChange,
+  onFavoriteTargetIdsChange,
   onSessionChange,
   onSourceChange,
   onLevelChange,
   onSearchChange,
+  onOpenLogFolder,
+  onOpenLogFile,
+  onRevealLogFile,
   className = "",
 }: LogViewerProps) {
   const sortedSessions = useMemo(() => sort_sessions(sessions), [sessions]);
@@ -117,6 +130,12 @@ export function LogViewer({
   const [localSourceId, setLocalSourceId] = useState<LogSourceFilter>("all");
   const [localLevel, setLocalLevel] = useState<LogLevelFilter>("all");
   const [localSearch, setLocalSearch] = useState("");
+  const [localFavoriteTargetIds, setLocalFavoriteTargetIds] = useState<string[]>(favoriteTargetIds ?? []);
+  const [contextMenuState, setContextMenuState] = useState<{
+    x: number;
+    y: number;
+    session: LogSession;
+  } | null>(null);
 
   const targetId = resolve_target_id(
     targets,
@@ -162,6 +181,19 @@ export function LogViewer({
     () => filteredEntries.map(format_log_line).join("\n"),
     [filteredEntries],
   );
+
+  const activeFavoriteTargetIds =
+    favoriteTargetIds !== undefined && onFavoriteTargetIdsChange
+      ? favoriteTargetIds
+      : localFavoriteTargetIds;
+
+  function change_favorite_target_ids(nextTargetIds: string[]) {
+    if (favoriteTargetIds === undefined || !onFavoriteTargetIdsChange) {
+      setLocalFavoriteTargetIds(nextTargetIds);
+    }
+
+    onFavoriteTargetIdsChange?.(nextTargetIds);
+  }
 
   function change_target(nextTargetId: string) {
     const nextSessions = sessions_for_target(sortedSessions, nextTargetId);
@@ -213,24 +245,35 @@ export function LogViewer({
     onSearchChange?.(nextSearch);
   }
 
+  function open_session_context_menu(event: React.MouseEvent, nextSession: LogSession) {
+    event.preventDefault();
+    setContextMenuState({
+      x: event.clientX,
+      y: event.clientY,
+      session: nextSession,
+    });
+  }
+
   return (
     <section
       className={`flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0b1020] text-slate-100 shadow-2xl shadow-black/20 ${className}`}
     >
       <LogTargetHeader
         targets={targets}
-        favoriteTargetIds={favoriteTargetIds}
         selectedTarget={target}
         selectedTargetId={targetId}
         displayMode={targetDisplayMode}
         label={targetLabel}
         onTargetChange={change_target}
+        favoriteTargetIds={activeFavoriteTargetIds}
+        onFavoriteTargetIdsChange={change_favorite_target_ids}
       />
       <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
         <LogHistoryPane
           sessions={targetSessions}
           selectedSessionId={sessionId}
           onSessionChange={change_session}
+          onSessionContextMenu={open_session_context_menu}
         />
         <LogContent
           entries={filteredEntries}
@@ -245,20 +288,30 @@ export function LogViewer({
           onSourceChange={change_source}
           onLevelChange={change_level}
           onSearchChange={change_search}
+          onOpenLogFolder={onOpenLogFolder}
+          onOpenLogFile={onOpenLogFile}
+          onRevealLogFile={onRevealLogFile}
         />
       </div>
+      <LogSessionContextMenu
+        state={contextMenuState}
+        onClose={() => setContextMenuState(null)}
+        onOpenLogFile={onOpenLogFile}
+        onRevealLogFile={onRevealLogFile}
+      />
     </section>
   );
 }
 
 function LogTargetHeader({
   targets,
-  favoriteTargetIds,
   selectedTarget,
   selectedTargetId,
   displayMode,
   label,
   onTargetChange,
+  favoriteTargetIds,
+  onFavoriteTargetIdsChange,
 }: {
   targets: LogTarget[];
   favoriteTargetIds: string[];
@@ -267,10 +320,9 @@ function LogTargetHeader({
   displayMode: LogTargetDisplayMode;
   label?: string;
   onTargetChange: (targetId: string) => void;
+  onFavoriteTargetIdsChange: (targetIds: string[]) => void;
 }) {
-  const favoriteTargets = favoriteTargetIds
-    .map((targetId) => targets.find((target) => target.id === targetId))
-    .filter((target): target is LogTarget => Boolean(target));
+  const targetOptions = targets.map(target_to_select_option);
 
   if (displayMode === "label") {
     return (
@@ -302,84 +354,22 @@ function LogTargetHeader({
           <FileText className="h-4 w-4 shrink-0 text-slate-400" />
           <span className="truncate">Log targets</span>
         </div>
-        <span className="rounded bg-white/[0.05] px-2 py-1 text-xs text-slate-500">
+        <span className="inline-flex min-w-[5.5rem] justify-center rounded bg-white/[0.05] px-2 py-1 text-center text-xs tabular-nums text-slate-500">
           {targets.length} targets
         </span>
       </div>
 
-      <div
-        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
-          favoriteTargets.length > 0 ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        }`}
-      >
-        <div className="overflow-hidden">
-          <div className="mb-2 flex min-w-0 items-center gap-2">
-            <Pin className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-            <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
-              {favoriteTargets.map((target) => (
-                <TargetChip
-                  key={`favorite-${target.id}`}
-                  target={target}
-                  selected={target.id === selectedTargetId}
-                  compact
-                  onClick={() => onTargetChange(target.id)}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex min-w-0 gap-2 overflow-x-auto">
-        {targets.map((target) => (
-          <TargetChip
-            key={target.id}
-            target={target}
-            selected={target.id === selectedTargetId}
-            onClick={() => onTargetChange(target.id)}
-          />
-        ))}
-      </div>
+      <SelectMenu
+        value={selectedTargetId}
+        options={targetOptions}
+        label="Log target"
+        enableFavorites
+        favoriteValues={favoriteTargetIds}
+        onFavoriteValuesChange={onFavoriteTargetIdsChange}
+        searchPlaceholder="Search log targets"
+        onChange={onTargetChange}
+      />
     </header>
-  );
-}
-
-function TargetChip({
-  target,
-  selected,
-  compact = false,
-  onClick,
-}: {
-  target: LogTarget;
-  selected: boolean;
-  compact?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3 text-left transition ${
-        compact ? "h-9 min-w-36" : "h-11 min-w-44"
-      } ${
-        selected
-          ? "accent-selection text-white"
-          : "border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/[0.06] hover:text-slate-200"
-      }`}
-    >
-      <span className="min-w-0">
-        <span className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-          {target.runningCount > 0 && <LiveDot />}
-          <span className="truncate">{target.label}</span>
-        </span>
-        {!compact && (
-          <span className="mt-0.5 block truncate text-xs text-slate-500">
-            {target.kind === "app" ? "Application logs" : "Bottle logs"}
-          </span>
-        )}
-      </span>
-      <CountPill value={target.count} />
-    </button>
   );
 }
 
@@ -387,10 +377,12 @@ function LogHistoryPane({
   sessions,
   selectedSessionId,
   onSessionChange,
+  onSessionContextMenu,
 }: {
   sessions: LogSession[];
   selectedSessionId: string;
   onSessionChange: (sessionId: string) => void;
+  onSessionContextMenu: (event: React.MouseEvent, session: LogSession) => void;
 }) {
   return (
     <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#08101f] p-3">
@@ -408,6 +400,7 @@ function LogHistoryPane({
             session={session}
             selected={session.id === selectedSessionId}
             onClick={() => onSessionChange(session.id)}
+            onContextMenu={(event) => onSessionContextMenu(event, session)}
           />
         ))}
       </div>
@@ -419,15 +412,18 @@ function SessionButton({
   session,
   selected,
   onClick,
+  onContextMenu,
 }: {
   session: LogSession;
   selected: boolean;
   onClick: () => void;
+  onContextMenu: (event: React.MouseEvent) => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      onContextMenu={onContextMenu}
       title={session_title(session)}
       className={`grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3 py-2 text-left transition ${
         selected
@@ -467,6 +463,9 @@ function LogContent({
   onSourceChange,
   onLevelChange,
   onSearchChange,
+  onOpenLogFolder,
+  onOpenLogFile,
+  onRevealLogFile,
 }: {
   entries: LogEntry[];
   logText: string;
@@ -480,6 +479,9 @@ function LogContent({
   onSourceChange: (sourceId: LogSourceFilter) => void;
   onLevelChange: (level: LogLevelFilter) => void;
   onSearchChange: (value: string) => void;
+  onOpenLogFolder?: () => void;
+  onOpenLogFile?: (session: LogSession) => void;
+  onRevealLogFile?: (session: LogSession) => void;
 }) {
   return (
     <main className="flex min-h-0 min-w-0 flex-col bg-[#0b1020]">
@@ -494,10 +496,14 @@ function LogContent({
         onSourceChange={onSourceChange}
         onLevelChange={onLevelChange}
         onSearchChange={onSearchChange}
+        onOpenLogFolder={onOpenLogFolder}
+        onOpenLogFile={onOpenLogFile}
+        onRevealLogFile={onRevealLogFile}
       />
       <LogTextPanel
         entries={entries}
         text={logText}
+        scrollScopeKey={selectedSession?.id ?? "no-session"}
         placeholder={
           selectedSession
             ? "No logs match the current filters."
@@ -519,6 +525,9 @@ function LogToolbar({
   onSourceChange,
   onLevelChange,
   onSearchChange,
+  onOpenLogFolder,
+  onOpenLogFile,
+  onRevealLogFile,
 }: {
   selectedSession?: LogSession;
   sources: LogSourceOption[];
@@ -530,7 +539,13 @@ function LogToolbar({
   onSourceChange: (sourceId: LogSourceFilter) => void;
   onLevelChange: (level: LogLevelFilter) => void;
   onSearchChange: (value: string) => void;
+  onOpenLogFolder?: () => void;
+  onOpenLogFile?: (session: LogSession) => void;
+  onRevealLogFile?: (session: LogSession) => void;
 }) {
+  const hasSelectedSessionFile = Boolean(selectedSession && log_session_file_target(selectedSession));
+  const hasSelectedSessionFolder = Boolean(selectedSession && log_session_reveal_target(selectedSession));
+
   return (
     <header className="border-b border-white/10 bg-[#101827] p-3">
       <div className="mb-3 flex min-w-0 items-start justify-between gap-4">
@@ -547,12 +562,40 @@ function LogToolbar({
               : "Select a target and history item"}
           </div>
         </div>
-        <span className="shrink-0 rounded-md bg-white/[0.05] px-2 py-1 text-xs text-slate-400">
-          {visibleCount} / {totalCount}
-        </span>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.07] hover:text-white"
+            onClick={onOpenLogFolder}
+          >
+            <FolderOpen size={14} />
+            Log folder
+          </button>
+          <button
+            type="button"
+            disabled={!hasSelectedSessionFolder}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={() => selectedSession && onOpenLogFile?.(selectedSession)}
+          >
+            <FileText size={14} />
+            Open file
+          </button>
+          <button
+            type="button"
+            disabled={!hasSelectedSessionFile}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={() => selectedSession && onRevealLogFile?.(selectedSession)}
+          >
+            <ExternalLink size={14} />
+            Show in folder
+          </button>
+          <span className="inline-flex min-w-[5.75rem] justify-center rounded-md bg-white/[0.05] px-2 py-1 text-center text-xs tabular-nums text-slate-400">
+            {visibleCount} / {totalCount}
+          </span>
+        </div>
       </div>
-      <div className="grid min-w-0 grid-cols-[minmax(14rem,1fr)_10rem_auto] gap-2">
-        <label className="relative min-w-0">
+      <div className="flex min-w-0 flex-wrap gap-2">
+        <label className="relative min-w-52 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <input
             value={searchValue}
@@ -564,7 +607,7 @@ function LogToolbar({
         <select
           value={selectedSourceId}
           onChange={(event) => onSourceChange(event.target.value)}
-          className="h-9 min-w-0 rounded-md border border-white/10 bg-[#0b1020] px-2 text-sm text-slate-200 outline-none focus:border-[rgb(var(--accent-rgb))] focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.22)]"
+          className="h-9 min-w-36 flex-1 rounded-md border border-white/10 bg-[#0b1020] px-2 text-sm text-slate-200 outline-none focus:border-[rgb(var(--accent-rgb))] focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.22)]"
         >
           <option value="all">All sources</option>
           {sources.map((source) => (
@@ -595,22 +638,119 @@ function LogToolbar({
   );
 }
 
+function LogSessionContextMenu({
+  state,
+  onClose,
+  onOpenLogFile,
+  onRevealLogFile,
+}: {
+  state: { x: number; y: number; session: LogSession } | null;
+  onClose: () => void;
+  onOpenLogFile?: (session: LogSession) => void;
+  onRevealLogFile?: (session: LogSession) => void;
+}) {
+  React.useEffect(() => {
+    if (!state) {
+      return undefined;
+    }
+
+    const close_menu = () => onClose();
+    window.addEventListener("click", close_menu);
+    window.addEventListener("keydown", close_menu);
+    return () => {
+      window.removeEventListener("click", close_menu);
+      window.removeEventListener("keydown", close_menu);
+    };
+  }, [onClose, state]);
+
+  if (!state) {
+    return null;
+  }
+
+  const hasSessionFile = Boolean(log_session_file_target(state.session));
+  const hasSessionFolder = Boolean(log_session_reveal_target(state.session));
+
+  return (
+    <div
+      className="fixed z-50 min-w-44 overflow-hidden rounded-lg border border-white/10 bg-[#0f172a] p-1 text-sm text-slate-200 shadow-2xl shadow-black/45"
+      style={{ left: state.x, top: state.y }}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <button
+        type="button"
+        disabled={!hasSessionFile}
+        className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-45"
+        onClick={() => {
+          onOpenLogFile?.(state.session);
+          onClose();
+        }}
+      >
+        <FileText size={15} />
+        Open log file
+      </button>
+      <button
+        type="button"
+        disabled={!hasSessionFolder}
+        className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-45"
+        onClick={() => {
+          onRevealLogFile?.(state.session);
+          onClose();
+        }}
+      >
+        <FolderOpen size={15} />
+        Open containing folder
+      </button>
+    </div>
+  );
+}
+
 export interface LogTextPanelProps {
   text: string;
   entries?: LogEntry[];
   placeholder?: string;
+  scrollScopeKey?: string;
 }
 
 export function LogTextPanel({
   text,
   entries = [],
   placeholder = "No logs match the current filters.",
+  scrollScopeKey = "default",
 }: LogTextPanelProps) {
+  const textPanelRef = React.useRef<HTMLPreElement>(null);
+  const shouldStickToBottomRef = React.useRef(true);
+  const lastScrollScopeKeyRef = React.useRef(scrollScopeKey);
+
+  React.useLayoutEffect(() => {
+    const textPanel = textPanelRef.current;
+
+    if (!textPanel) {
+      return;
+    }
+
+    const scopeChanged = lastScrollScopeKeyRef.current !== scrollScopeKey;
+
+    if (scopeChanged) {
+      shouldStickToBottomRef.current = true;
+      lastScrollScopeKeyRef.current = scrollScopeKey;
+    }
+
+    if (shouldStickToBottomRef.current) {
+      textPanel.scrollTop = textPanel.scrollHeight;
+    }
+  }, [scrollScopeKey, text]);
+
+  function remember_scroll_position(event: React.UIEvent<HTMLPreElement>) {
+    shouldStickToBottomRef.current = is_log_panel_at_bottom(event.currentTarget);
+  }
+
   return (
     <div className="min-h-0 flex-1 bg-[#0b1020] p-3">
       <pre
+        ref={textPanelRef}
         aria-label="Selected log content"
         className="h-full select-text overflow-auto rounded-md border border-white/10 bg-[#050914] p-3 font-mono text-xs leading-5 text-slate-200 selection:bg-[rgb(var(--accent-rgb)/0.32)] selection:text-white"
+        onScroll={remember_scroll_position}
       >
         <code>{text || placeholder}</code>
       </pre>
@@ -638,10 +778,14 @@ function LiveDot() {
 
 function CountPill({ value, suffix }: { value: number; suffix?: string }) {
   return (
-    <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-slate-300">
+    <span className={`inline-flex shrink-0 justify-center rounded bg-white/10 px-1.5 py-0.5 text-center text-[11px] tabular-nums text-slate-300 ${suffix ? "min-w-[4.25rem]" : "min-w-8"}`}>
       {suffix ? `${value} ${suffix}` : value}
     </span>
   );
+}
+
+function is_log_panel_at_bottom(element: HTMLElement) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= LOG_BOTTOM_STICKY_THRESHOLD;
 }
 
 function sort_sessions(sessions: LogSession[]) {
@@ -694,6 +838,22 @@ function create_log_targets(sessions: LogSession[]): LogTarget[] {
   ];
 }
 
+function target_to_select_option(target: LogTarget): SelectMenuOption {
+  const description =
+    target.kind === "app"
+      ? `${target.count} app log sessions`
+      : `${target.count} bottle log sessions`;
+
+  return {
+    value: target.id,
+    label: target.label,
+    description:
+      target.runningCount > 0
+        ? `${description} - ${target.runningCount} running`
+        : description,
+  };
+}
+
 function resolve_target_id(targets: LogTarget[], requestedTargetId: string) {
   if (targets.some((target) => target.id === requestedTargetId)) {
     return requestedTargetId;
@@ -711,7 +871,11 @@ function resolve_session_id(sessions: LogSession[], requestedSessionId: string) 
     return requestedSessionId;
   }
 
-  return sessions[0]?.id ?? "";
+  return (
+    sessions.find((session) => (session.count ?? 0) > 0)?.id ??
+    sessions[0]?.id ??
+    ""
+  );
 }
 
 function resolve_source_id(
@@ -852,6 +1016,22 @@ function log_file_name(session: LogSession) {
     session.kind === "bottle" ? session.bottleName ?? session.label : "App";
 
   return `${owner}-${datePart}.log`;
+}
+
+export function log_session_file_path(session: LogSession): string | undefined {
+  return log_session_file_target(session);
+}
+
+export function log_session_reveal_path(session: LogSession): string | undefined {
+  return log_session_reveal_target(session);
+}
+
+function log_session_file_target(session: LogSession): string | undefined {
+  return session.logFilePath ?? session.logFileName;
+}
+
+function log_session_reveal_target(session: LogSession): string | undefined {
+  return session.logFilePath ?? session.logDirectoryPath ?? session.logFileName;
 }
 
 function bottle_target_key(session: LogSession) {

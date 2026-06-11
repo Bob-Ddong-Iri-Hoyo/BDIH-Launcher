@@ -1,14 +1,36 @@
 import { readUserSettings, writeUserSettings } from "../FileIO/IO";
-import { LauncherPreferencePayload } from "../../Common/Types/IPC";
+import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LauncherLogLevel, LAUNCHER_SHORTCUT_ACTIONS, LauncherPreferencePayload, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
+import {
+  get_default_bottle_prefix_path,
+  get_default_dxmt_cache_path,
+  get_default_wine_install_path,
+} from "../Environment/AppPaths";
 
 export type LauncherPreference = LauncherPreferencePayload;
 
+const DEFAULT_WINE_INSTALL_PATH = get_default_wine_install_path();
+const DEFAULT_BOTTLE_PREFIX_PATH = get_default_bottle_prefix_path();
+const DEFAULT_DXMT_CACHE_PATH = get_default_dxmt_cache_path();
+const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
+  launch: "Command + Return",
+  logs: "Command + L",
+  preferences: "Command + ,",
+};
+
 export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   language: "ko",
-  wineInstallPath: "",
+  wineInstallPath: DEFAULT_WINE_INSTALL_PATH,
+  bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
+  dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
   gameInstallPath: "",
   autoCheckUpdates: true,
   closeToTray: false,
+  themeMode: "system",
+  appLoggingLevel: "off",
+  debugFlagMode: "preset",
+  loggingLevel: "off",
+  wineDebugArgs: "",
+  shortcuts: DEFAULT_SHORTCUTS,
 };
 
 export class PreferenceManager {
@@ -38,6 +60,10 @@ export class PreferenceManager {
     return next;
   }
 
+  clearCache(): void {
+    this.cache = null;
+  }
+
   private async loadPreference(): Promise<LauncherPreference> {
     try {
       const data = await readUserSettings();
@@ -56,10 +82,18 @@ export class PreferenceManager {
 
     return {
       language: this.stringOrDefault(record.language, "ko"),
-      wineInstallPath: this.stringOrDefault(record.wineInstallPath, ""),
+      wineInstallPath: this.stringOrDefault(record.wineInstallPath, DEFAULT_WINE_INSTALL_PATH),
+      bottlePrefixPath: this.stringOrDefault(record.bottlePrefixPath, DEFAULT_BOTTLE_PREFIX_PATH),
+      dxmtCachePath: this.stringOrDefault(record.dxmtCachePath, DEFAULT_DXMT_CACHE_PATH),
       gameInstallPath: this.stringOrDefault(record.gameInstallPath, ""),
       autoCheckUpdates: this.booleanOrDefault(record.autoCheckUpdates, true),
       closeToTray: this.booleanOrDefault(record.closeToTray, false),
+      themeMode: this.themeModeOrDefault(record.themeMode, "system"),
+      appLoggingLevel: this.loggingLevelOrDefault(record.appLoggingLevel, "off"),
+      debugFlagMode: this.debugFlagModeOrDefault(record.debugFlagMode, "preset"),
+      loggingLevel: this.loggingLevelOrDefault(record.loggingLevel, "off"),
+      wineDebugArgs: this.stringOrDefault(record.wineDebugArgs, ""),
+      shortcuts: this.shortcutsOrDefault(record.shortcuts),
     };
   }
 
@@ -73,6 +107,33 @@ export class PreferenceManager {
 
   private booleanOrDefault(value: unknown, fallback: boolean): boolean {
     return typeof value === "boolean" ? value : fallback;
+  }
+
+  private loggingLevelOrDefault(value: unknown, fallback: LauncherLogLevel): LauncherLogLevel {
+    return typeof value === "string" && LAUNCHER_LOG_LEVELS.includes(value as LauncherLogLevel)
+      ? (value as LauncherLogLevel)
+      : fallback;
+  }
+
+  private debugFlagModeOrDefault(value: unknown, fallback: DebugFlagMode): DebugFlagMode {
+    return typeof value === "string" && DEBUG_FLAG_MODES.includes(value as DebugFlagMode)
+      ? (value as DebugFlagMode)
+      : fallback;
+  }
+
+  private themeModeOrDefault(value: unknown, fallback: RendererThemeMode): RendererThemeMode {
+    return typeof value === "string" && RENDERER_THEME_MODES.includes(value as RendererThemeMode)
+      ? (value as RendererThemeMode)
+      : fallback;
+  }
+
+  private shortcutsOrDefault(value: unknown): LauncherShortcutMap {
+    const record = this.isRecord(value) ? value : {};
+
+    return LAUNCHER_SHORTCUT_ACTIONS.reduce<LauncherShortcutMap>((shortcuts, action) => {
+      shortcuts[action] = this.stringOrDefault(record[action], DEFAULT_SHORTCUTS[action]);
+      return shortcuts;
+    }, { ...DEFAULT_SHORTCUTS });
   }
 
   private isMissingFileError(error: unknown): boolean {

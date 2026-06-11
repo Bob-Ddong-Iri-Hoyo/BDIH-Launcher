@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { PREDEFINED_WINE_VERSIONS } from "../../Common/Constant/WineCatalog";
 import { IPC_CHANNELS, WineStatusPayload } from "../../Common/Types/IPC";
-import { WineVersion } from "../../Common/Types/Wine";
+import { DxmtVersion, WineVersion } from "../../Common/Types/Wine";
 import i18n from "../I18n/I18n";
 
 export interface SystemSummary {
@@ -12,19 +12,28 @@ export interface SystemSummary {
 
 export interface SystemStoreState {
   wineVersions: WineVersion[];
+  dxmtVersions: DxmtVersion[];
   selectedWineVersionId: string;
+  selectedDxmtVersionId: string;
   installPath: string;
+  dxmtCachePath: string;
   isLoadingWineVersions: boolean;
+  isLoadingDxmtVersions: boolean;
   lastStatusMessage: string;
   systemSummary: SystemSummary;
   loadWineVersions: () => Promise<void>;
+  loadDxmtVersions: () => Promise<void>;
   installWineVersion: (versionId: string) => Promise<void>;
+  installDxmtVersion: (versionId: string) => Promise<void>;
   selectWineVersion: (versionId: string) => void;
+  selectDxmtVersion: (versionId: string) => void;
   setInstallPath: (installPath: string) => void;
+  setDxmtCachePath: (dxmtCachePath: string) => void;
   subscribeWineStatus: () => () => void;
 }
 
-const DEFAULT_INSTALL_PATH = "~/Library/Application Support/BDIH/Wine";
+const DEFAULT_WINE_INSTALL_PATH = "~/Library/Application Support/BDIH Launcher/Wine";
+const DEFAULT_DXMT_CACHE_PATH = "~/Library/Application Support/BDIH Launcher/DXMT";
 
 function get_bith_api() {
   if (typeof window === "undefined") {
@@ -58,7 +67,11 @@ function normalize_wine_versions(versions: unknown): WineVersion[] {
   return versions as WineVersion[];
 }
 
-function update_wine_status(versions: WineVersion[], payload: WineStatusPayload): WineVersion[] {
+function normalize_dxmt_versions(versions: unknown): DxmtVersion[] {
+  return Array.isArray(versions) ? (versions as DxmtVersion[]) : [];
+}
+
+function update_runtime_status<T extends WineVersion | DxmtVersion>(versions: T[], payload: WineStatusPayload): T[] {
   return versions.map((version) => {
     if (version.id !== payload.versionId) {
       return version;
@@ -68,15 +81,20 @@ function update_wine_status(versions: WineVersion[], payload: WineStatusPayload)
       ...version,
       status: payload.status,
       progress: payload.progress,
-    };
+      path: payload.path ?? version.path,
+    } as T;
   });
 }
 
 export const useSystemStore = create<SystemStoreState>((set, get) => ({
   wineVersions: PREDEFINED_WINE_VERSIONS,
+  dxmtVersions: [],
   selectedWineVersionId: PREDEFINED_WINE_VERSIONS[0]?.id ?? "",
-  installPath: DEFAULT_INSTALL_PATH,
+  selectedDxmtVersionId: "",
+  installPath: DEFAULT_WINE_INSTALL_PATH,
+  dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
   isLoadingWineVersions: false,
+  isLoadingDxmtVersions: false,
   lastStatusMessage: i18n.t("store.catalogLocal"),
   systemSummary: create_system_summary(),
 
@@ -102,6 +120,30 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
         selectedWineVersionId: PREDEFINED_WINE_VERSIONS[0]?.id ?? "",
         isLoadingWineVersions: false,
         lastStatusMessage: error instanceof Error ? error.message : i18n.t("store.catalogFailed"),
+      });
+    }
+  },
+
+  loadDxmtVersions: async () => {
+    set({ isLoadingDxmtVersions: true });
+
+    try {
+      const api = get_bith_api();
+      const versions = api
+        ? await api.invoke(IPC_CHANNELS.DXMT.GET_VERSION_LIST.channelName, undefined as never)
+        : [];
+      const dxmtVersions = normalize_dxmt_versions(versions);
+
+      set({
+        dxmtVersions,
+        selectedDxmtVersionId: dxmtVersions[0]?.id ?? "",
+        isLoadingDxmtVersions: false,
+      });
+    } catch {
+      set({
+        dxmtVersions: [],
+        selectedDxmtVersionId: "",
+        isLoadingDxmtVersions: false,
       });
     }
   },
@@ -142,12 +184,49 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
     }
   },
 
+  installDxmtVersion: async (versionId: string) => {
+    const { dxmtCachePath } = get();
+
+    set((state) => ({
+      dxmtVersions: state.dxmtVersions.map((version) =>
+        version.id === versionId ? { ...version, status: "installing", progress: Math.max(version.progress, 5) } : version,
+      ),
+      lastStatusMessage: i18n.t("store.installRequested", { versionId }),
+    }));
+
+    try {
+      const api = get_bith_api();
+
+      if (api) {
+        await api.invoke(IPC_CHANNELS.DXMT.INSTALL.channelName, {
+          versionId,
+          installPath: dxmtCachePath,
+        });
+      }
+    } catch (error) {
+      set((state) => ({
+        dxmtVersions: state.dxmtVersions.map((version) =>
+          version.id === versionId ? { ...version, status: "error", progress: version.progress } : version,
+        ),
+        lastStatusMessage: error instanceof Error ? error.message : i18n.t("store.installFailed"),
+      }));
+    }
+  },
+
   selectWineVersion: (versionId: string) => {
     set({ selectedWineVersionId: versionId });
   },
 
+  selectDxmtVersion: (versionId: string) => {
+    set({ selectedDxmtVersionId: versionId });
+  },
+
   setInstallPath: (installPath: string) => {
     set({ installPath });
+  },
+
+  setDxmtCachePath: (dxmtCachePath: string) => {
+    set({ dxmtCachePath });
   },
 
   subscribeWineStatus: () => {
@@ -157,11 +236,22 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
       return () => undefined;
     }
 
-    return api.on(IPC_CHANNELS.WINE.STATUS_UPDATE.channelName, (_event, payload) => {
+    const unsubscribeWine = api.on(IPC_CHANNELS.WINE.STATUS_UPDATE.channelName, (_event, payload) => {
       set((state) => ({
-        wineVersions: update_wine_status(state.wineVersions, payload),
+        wineVersions: update_runtime_status(state.wineVersions, payload),
         lastStatusMessage: payload.message ?? `${payload.versionId}: ${payload.status}`,
       }));
     });
+    const unsubscribeDxmt = api.on(IPC_CHANNELS.DXMT.STATUS_UPDATE.channelName, (_event, payload) => {
+      set((state) => ({
+        dxmtVersions: update_runtime_status(state.dxmtVersions, payload),
+        lastStatusMessage: payload.message ?? `${payload.versionId}: ${payload.status}`,
+      }));
+    });
+
+    return () => {
+      unsubscribeWine?.();
+      unsubscribeDxmt?.();
+    };
   },
 }));
