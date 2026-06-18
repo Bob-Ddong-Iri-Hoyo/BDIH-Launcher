@@ -529,6 +529,12 @@ export function BottleDetailPanel({
   const isBottleWorking = bottle.status === "updating" || Boolean(
     bottle.setupTask && ["setup", "dxmt", "download", "install"].includes(bottle.setupTask.stage),
   );
+  const isBottleSetupComplete = Boolean(
+    bottle.setupTask &&
+      !isBottleWorking &&
+      bottle.setupTask.stage !== "error" &&
+      bottle.setupTask.progress >= 100,
+  );
 
   return (
     <Stack className="gap-4 p-6">
@@ -584,7 +590,7 @@ export function BottleDetailPanel({
           />
         </Box>
 
-        {bottle.setupTask ? (
+        {bottle.setupTask && !isBottleSetupComplete ? (
           <Stack className="mt-3 gap-2 rounded-lg border border-white/10 bg-[#0b1020] p-3">
             <Inline className="flex-wrap items-center justify-between gap-3">
               <Text className="min-w-0 truncate text-xs text-slate-500">

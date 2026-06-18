@@ -1,38 +1,19 @@
 import React from "react";
-import { join_classes } from "../../../Common/Util/ClassName";
 
-/** Visual tone for text inputs. */
-export type InputTone = "default" | "mono";
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
 
-/**
- * Props for the primitive text input.
- *
- * Extends native input props and adds a small `tone` switch. Use `mono` for
- * paths, commands, arguments, or other literal values.
- */
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  tone?: InputTone;
-}
+const DEFAULT_INPUT_CLASS = "h-10 w-full rounded-lg border border-white/10 bg-[#0b1020] px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]";
 
 /**
- * Base text input primitive.
+ * Primitive one-line input.
  *
- * Components should prefer this over raw `<input>` for consistent focus rings,
- * placeholder color, sizing, and font treatment.
+ * With no `className`, Input uses the standard launcher field styling. When a
+ * caller passes a custom `className`, the custom class is used as-is so form
+ * Components can control exact height, width, and spacing without fighting the
+ * preset.
  */
-export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
-  { tone = "default", className, ...props },
-  ref,
-) {
-  return (
-    <input
-      ref={ref}
-      className={join_classes(
-        "h-11 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]",
-        tone === "mono" && "font-mono",
-        className,
-      )}
-      {...props}
-    />
-  );
-});
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, ...props }, ref) => <input ref={ref} className={className ?? DEFAULT_INPUT_CLASS} {...props} />,
+);
+
+Input.displayName = "Input";

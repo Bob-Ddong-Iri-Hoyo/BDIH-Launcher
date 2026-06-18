@@ -1,122 +1,103 @@
 import React from "react";
-import { join_classes } from "../../../Common/Util/ClassName";
 
-/**
- * Primitive image element with launcher defaults.
- *
- * Use this instead of raw `<img>` in components so object-fit and draggable
- * behavior stay consistent. The element remains intentionally thin and accepts
- * all native image attributes.
- */
-export function PrimitiveImage({
-  className,
-  alt = "",
-  draggable = false,
-  ...props
-}: React.ImgHTMLAttributes<HTMLImageElement>) {
-  return (
-    <img
-      className={join_classes("h-full w-full object-cover", className)}
-      alt={alt}
-      draggable={draggable}
-      {...props}
-    />
-  );
+export interface PrimitiveImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {}
+
+export type ImageFrameSize = "xs" | "sm" | "md" | "lg";
+
+export interface ImageFrameProps extends React.HTMLAttributes<HTMLDivElement> {
+  size?: ImageFrameSize;
+}
+
+const IMAGE_FRAME_SIZE_CLASSES: Record<ImageFrameSize, string> = {
+  xs: "h-6 w-6",
+  sm: "h-8 w-8",
+  md: "h-10 w-10",
+  lg: "h-12 w-12",
+};
+
+function join_class_names(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function has_explicit_dimension_class(className: string | undefined) {
+  if (!className) {
+    return false;
+  }
+
+  return className
+    .split(/\s+/)
+    .some((token) => token.startsWith("h-") || token.startsWith("w-") || token.startsWith("size-"));
 }
 
 /**
- * Common frame for icons, app artwork, or square/circular image treatments.
+ * Primitive image element.
  *
- * `ImageFrame` owns only sizing, shape, clipping, and positioning. It should be
- * combined with `PrimitiveImage`, `IconSlot`, and overlay primitives to build
- * higher-level components such as app cards.
+ * Use `PrimitiveImage` instead of raw `<img>` in Component files. It keeps the
+ * element intentionally thin so sizing and object-fit can be supplied by the
+ * caller or by `ImageFrame`.
  */
-export function ImageFrame({
-  size = "md",
-  shape = "rounded",
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement> & {
-  size?: "xs" | "sm" | "md" | "lg";
-  shape?: "rounded" | "circle";
-}) {
-  const sizeClass = {
-    xs: "h-7 w-7",
-    sm: "h-12 w-12",
-    md: "h-20 w-20",
-    lg: "h-24 w-24",
-  }[size];
-  const shapeClass = shape === "circle" ? "rounded-full" : "rounded-2xl";
+export const PrimitiveImage = React.forwardRef<HTMLImageElement, PrimitiveImageProps>(
+  ({ className = "", alt = "", ...props }, ref) => <img ref={ref} alt={alt} className={className} {...props} />,
+);
 
-  return (
-    <div
-      className={join_classes(
-        "relative flex shrink-0 items-center justify-center overflow-hidden ring-1 transition",
-        sizeClass,
-        shapeClass,
-        className,
-      )}
-      {...props}
-    >
+PrimitiveImage.displayName = "PrimitiveImage";
+
+/**
+ * Primitive image/icon frame.
+ *
+ * The `size` preset is useful for common square frames. If the caller provides
+ * explicit height/width classes, the preset size is skipped so custom layouts
+ * keep their exact dimensions.
+ */
+export const ImageFrame = React.forwardRef<HTMLDivElement, ImageFrameProps>(
+  ({ size = "md", className = "", children, ...props }, ref) => {
+    const sizeClassName = has_explicit_dimension_class(className) ? "" : IMAGE_FRAME_SIZE_CLASSES[size];
+
+    return (
+      <div ref={ref} className={join_class_names("overflow-hidden", sizeClassName, className)} {...props}>
+        {children}
+      </div>
+    );
+  },
+);
+
+ImageFrame.displayName = "ImageFrame";
+
+/**
+ * Primitive icon slot for SVG or image children.
+ */
+export const IconSlot = React.forwardRef<HTMLSpanElement, React.HTMLAttributes<HTMLSpanElement>>(
+  ({ className = "", children, ...props }, ref) => (
+    <span ref={ref} className={className} {...props}>
+      {children}
+    </span>
+  ),
+);
+
+IconSlot.displayName = "IconSlot";
+
+/**
+ * Primitive overlay layer for media thumbnails.
+ */
+export const MediaOverlay = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className = "", children, ...props }, ref) => (
+    <div ref={ref} className={join_class_names("absolute inset-0", className)} {...props}>
       {children}
     </div>
-  );
-}
+  ),
+);
+
+MediaOverlay.displayName = "MediaOverlay";
 
 /**
- * Fallback visual slot for icon-only artwork.
- *
- * Use this when image data is missing and a caller wants to render an icon in the
- * same space that would normally contain an image.
+ * Primitive centered overlay layer.
  */
-export function IconSlot({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={join_classes("flex h-full w-full items-center justify-center bg-slate-900", className)}
-      {...props}
-    >
+export const CenterOverlay = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className = "", children, ...props }, ref) => (
+    <div ref={ref} className={join_class_names("absolute inset-0 grid place-items-center", className)} {...props}>
       {children}
     </div>
-  );
-}
+  ),
+);
 
-/**
- * Absolute overlay that covers the image frame.
- *
- * Use this for gradients, state effects, or visual layers that should span the
- * full frame. Interactivity should generally remain on the parent component.
- */
-export function MediaOverlay({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={join_classes("absolute inset-0", className)} {...props}>
-      {children}
-    </div>
-  );
-}
-
-/**
- * Centered absolute overlay for foreground image actions.
- *
- * Use this when a play icon, loading indicator, or short label needs to sit in
- * the center of an `ImageFrame`.
- */
-export function CenterOverlay({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={join_classes("absolute inset-0 flex items-center justify-center", className)} {...props}>
-      {children}
-    </div>
-  );
-}
+CenterOverlay.displayName = "CenterOverlay";

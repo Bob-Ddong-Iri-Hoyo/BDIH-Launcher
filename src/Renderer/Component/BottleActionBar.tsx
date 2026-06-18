@@ -65,6 +65,7 @@ function LauncherInstallIconButton({
   const { t } = useTranslation();
   const task = bottle.launcherTasks?.[launcher];
   const isWorking = task ? ["setup", "dxmt", "download", "install"].includes(task.stage) : false;
+  const isTaskComplete = Boolean(task && !isWorking && task.stage !== "error" && task.progress >= 100);
   const progress = Math.max(0, Math.min(100, task?.progress ?? 0));
 
   return (
@@ -80,7 +81,7 @@ function LauncherInstallIconButton({
       <InlineText className="pointer-events-none absolute inset-x-2 bottom-1 translate-y-3 rounded-md bg-black/75 px-2 py-1 text-center text-[10px] font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-y-0 group-hover:opacity-100">
         {isWorking ? t("main.installers.installing") : actionLabel}
       </InlineText>
-      {task ? (
+      {task && !isTaskComplete ? (
         <Box className="absolute inset-x-2 top-2 h-1 overflow-hidden rounded-full bg-white/10">
           <Box
             className={`progress-wave block h-full rounded-full ${task.stage === "error" ? "bg-rose-400" : "bg-emerald-400"}`}

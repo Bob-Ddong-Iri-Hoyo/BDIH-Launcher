@@ -1,124 +1,94 @@
 import React from "react";
-import { join_classes } from "../../../Common/Util/ClassName";
 
-/** Text color intent used by text primitives. */
-export type TextTone = "strong" | "body" | "muted";
+export interface TextProps extends React.HTMLAttributes<HTMLElement> {
+  as?: React.ElementType;
+}
 
-/** Text size intent used by text primitives. */
-export type TextSize = "xs" | "sm" | "base";
+export interface CodeBlockProps extends React.HTMLAttributes<HTMLPreElement> {
+  codeClassName?: string;
+}
 
-/** Paragraph weight options. */
-export type TextWeight = "regular" | "semibold";
-
-/**
- * Paragraph text primitive.
- *
- * Use `Text` for block-level copy, helper text, descriptions, and small status
- * descriptions. For text inside buttons or inline rows, prefer `InlineText` to
- * avoid invalid nested paragraph markup.
- */
-export function Text({
-  tone = "muted",
-  size = "sm",
-  weight = "regular",
-  truncate = false,
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLParagraphElement> & {
-  tone?: TextTone;
-  size?: TextSize;
-  weight?: TextWeight;
-  truncate?: boolean;
-}) {
-  const toneClass = {
-    strong: "text-slate-100",
-    body: "text-slate-300",
-    muted: "text-slate-500",
-  }[tone];
-  const sizeClass = {
-    xs: "text-xs leading-5",
-    sm: "text-sm leading-6",
-    base: "text-base leading-6",
-  }[size];
-  const weightClass = weight === "semibold" ? "font-semibold" : undefined;
-
-  return (
-    <p className={join_classes(toneClass, sizeClass, weightClass, truncate && "truncate", className)} {...props}>
-      {children}
-    </p>
-  );
+function join_class_names(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
 }
 
 /**
- * Inline text primitive.
+ * Primitive text block.
  *
- * Use `InlineText` inside buttons, badges, list items, and inline metadata rows.
- * It shares tone and size language with `Text` but renders a span.
+ * Use `Text` for paragraph-like copy in Components. The `as` prop keeps
+ * semantic flexibility while still avoiding raw DOM tags outside Primitives.
  */
-export function InlineText({
-  tone = "body",
-  size = "xs",
-  truncate = false,
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLSpanElement> & {
-  tone?: TextTone;
-  size?: TextSize;
-  truncate?: boolean;
-}) {
-  const toneClass = {
-    strong: "text-slate-100",
-    body: "text-slate-300",
-    muted: "text-slate-500",
-  }[tone];
-  const sizeClass = {
-    xs: "text-xs leading-5",
-    sm: "text-sm leading-6",
-    base: "text-base leading-6",
-  }[size];
+export const Text = React.forwardRef<HTMLElement, TextProps>(
+  ({ as: Element = "p", className = "", children, ...props }, ref) => (
+    <Element ref={ref} className={className} {...props}>
+      {children}
+    </Element>
+  ),
+);
 
-  return (
-    <span className={join_classes(toneClass, sizeClass, truncate && "truncate", className)} {...props}>
+Text.displayName = "Text";
+
+/**
+ * Primitive inline text.
+ *
+ * Use this where Components would otherwise need a raw `<span>`, especially
+ * inside buttons, badges, compact rows, and mixed inline labels.
+ */
+export const InlineText = React.forwardRef<HTMLSpanElement, React.HTMLAttributes<HTMLSpanElement>>(
+  ({ className = "", children, ...props }, ref) => (
+    <span ref={ref} className={className} {...props}>
       {children}
     </span>
-  );
-}
+  ),
+);
+
+InlineText.displayName = "InlineText";
 
 /**
- * Label primitive for form fields.
+ * Primitive field label.
  *
- * Use this with `Input`, `Select`, `ComboItem`, or other form primitives when a
- * visible label is needed. For radio/checkbox item text, use `Text` or
- * `InlineText` next to the input instead.
+ * This intentionally renders a label so form Components can keep accessible
+ * labeling without exposing raw DOM tags.
  */
-export function FieldLabel({
-  className,
-  children,
-  ...props
-}: React.LabelHTMLAttributes<HTMLLabelElement>) {
-  return (
-    <label className={join_classes("mb-2 block text-xs font-semibold text-slate-400", className)} {...props}>
+export const FieldLabel = React.forwardRef<HTMLLabelElement, React.LabelHTMLAttributes<HTMLLabelElement>>(
+  ({ className = "", children, ...props }, ref) => (
+    <label ref={ref} className={className} {...props}>
       {children}
     </label>
-  );
-}
+  ),
+);
+
+FieldLabel.displayName = "FieldLabel";
 
 /**
- * Monospace preformatted text primitive.
+ * Primitive code/log block.
  *
- * Use `CodeBlock` for log output, terminal snippets, and other preformatted
- * content. It owns the `<pre><code>` structure so feature components do not need
- * to render raw code containers.
+ * `CodeBlock` is tuned for logger and terminal-style output: it stays block
+ * sized, keeps long lines inside its own scroll area, and avoids the nested
+ * `<code>` element changing the measured width of its parent.
  */
-export const CodeBlock = React.forwardRef<HTMLPreElement, React.HTMLAttributes<HTMLPreElement>>(function CodeBlock(
-  { className, children, ...props },
-  ref,
-) {
-  return (
-    <pre ref={ref} className={join_classes("font-mono", className)} {...props}>
-      <code>{children}</code>
+export const CodeBlock = React.forwardRef<HTMLPreElement, CodeBlockProps>(
+  ({ className = "", codeClassName = "", children, style, ...props }, ref) => (
+    <pre
+      ref={ref}
+      className={join_class_names("block min-w-0 max-w-full overflow-auto", className)}
+      style={style}
+      {...props}
+    >
+      <code
+        className={join_class_names("block min-w-0", codeClassName)}
+        style={{
+          whiteSpace: "inherit",
+          overflowWrap: "inherit",
+          wordBreak: "inherit",
+          font: "inherit",
+          color: "inherit",
+        }}
+      >
+        {children}
+      </code>
     </pre>
-  );
-});
+  ),
+);
+
+CodeBlock.displayName = "CodeBlock";
