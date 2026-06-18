@@ -6,7 +6,14 @@ export const BDIH_GITHUB_URL = "https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launc
 export const STEAM_WINDOWS_INSTALLER_URL = "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe";
 export const STEAM_ICON_URL = "https://store.steampowered.com/favicon.ico";
 export const STEAM_GAME_LAUNCH_ARGUMENT = "-applaunch";
-export const STEAM_WEBHELPER_ARGUMENTS = "-no-cef-sandbox";
+export const STEAM_WEBHELPER_ARGUMENTS = ` ${[
+  "--no-sandbox",
+  "--in-process-gpu",
+  "--disable-gpu",
+  "--disable-ipv6",
+  "--disable-async-dns",
+  '--host-resolver-rules="MAP steamloopback.host 127.0.0.1,MAP *.steamloopback.host 127.0.0.1,EXCLUDE localhost"',
+].join(" ")}`;
 export const HOYOPLAY_WINDOWS_INSTALLER_URL =
   "https://sg-public-api.hoyoverse.com/event/download_porter/trace/hyp_global/hyphoyoverse/default?url=https%3A%2F%2Fhoyoplay.hoyoverse.com%2F";
 export const HOYOPLAY_ICON_URL = "https://hoyoplay.hoyoverse.com/favicon.ico";

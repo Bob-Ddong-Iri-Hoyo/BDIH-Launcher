@@ -1,4 +1,5 @@
 import React from "react";
+import { Box } from "./Primitives";
 
 export function ViewSurface({
   children,
@@ -7,5 +8,5 @@ export function ViewSurface({
   children: React.ReactNode;
   className?: string;
 }) {
-  return <div className={`h-full p-6 ${className}`}>{children}</div>;
+  return <Box className={`h-full p-6 ${className}`}>{children}</Box>;
 }

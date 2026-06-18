@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { Box } from "./Primitives";
 
 export interface XTermTerminalProps {
   className?: string;
@@ -16,7 +17,7 @@ const XTermTerminal: React.FC<XTermTerminalProps> = ({
   welcomeMessage,
 }) => {
   const { t, i18n } = useTranslation();
-  const terminalRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<HTMLElement>(null);
   const xterm = useRef<Terminal | null>(null);
 
   useEffect(() => {
@@ -79,7 +80,7 @@ const XTermTerminal: React.FC<XTermTerminalProps> = ({
   }, [i18n.language, t, welcomeMessage]);
 
   return (
-    <div
+    <Box
       ref={terminalRef}
       className={`min-h-0 w-full overflow-hidden rounded-lg border border-white/10 bg-[#0b1020] ${className}`}
       style={{ height }}

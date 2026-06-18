@@ -113,6 +113,22 @@ export interface SelectFileResultPayload {
   path?: string;
 }
 
+export interface PathSuggestionPayload {
+  value: string;
+  defaultPath?: string;
+  limit?: number;
+}
+
+export interface PathSuggestionItemPayload {
+  path: string;
+  name: string;
+  isDirectory: boolean;
+}
+
+export interface PathSuggestionResultPayload {
+  suggestions: PathSuggestionItemPayload[];
+}
+
 export type LauncherDataDeleteTarget = "wineRuntime" | "bottlePrefixes" | "dxmtCache" | "settings" | "logs" | "all";
 
 export interface DeleteLauncherDataPayload {
@@ -335,6 +351,7 @@ export interface AppChannelSchema {
   readonly UPDATE_PREFERENCE: IpcChannelUnit<LauncherPreferencePatch>;
   readonly SELECT_DIRECTORY: IpcChannelUnit<SelectDirectoryPayload>;
   readonly SELECT_FILE: IpcChannelUnit<SelectFilePayload>;
+  readonly SUGGEST_PATHS: IpcChannelUnit<PathSuggestionPayload>;
   readonly DELETE_LAUNCHER_DATA: IpcChannelUnit<DeleteLauncherDataPayload>;
   readonly OPEN_LOG_FOLDER: IpcChannelUnit<void>;
   readonly GET_LOG_SNAPSHOT: IpcChannelUnit<void>;
@@ -546,6 +563,12 @@ export const APP = {
     direction: "RENDERER_TO_MAIN",
     method: "invoke",
     payload: {} as SelectFilePayload,
+  },
+  SUGGEST_PATHS: {
+    channelName: "app:suggest-paths",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as PathSuggestionPayload,
   },
   DELETE_LAUNCHER_DATA: {
     channelName: "app:delete-launcher-data",

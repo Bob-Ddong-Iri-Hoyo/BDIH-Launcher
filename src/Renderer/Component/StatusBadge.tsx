@@ -1,6 +1,6 @@
-import React from "react";
 import { InstallStatus } from "../../Common/Types/Wine";
 import i18n from "../I18n/I18n";
+import { Badge } from "./Primitives";
 
 export type StatusTone = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -58,10 +58,8 @@ export function label_from_status(status: InstallStatus, translate: Translate = 
 
 export function StatusBadge({ label, tone = "neutral", animated = false, className = "" }: StatusBadgeProps) {
   return (
-    <span
-      className={`inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-xs font-medium ${animated ? "badge-ripple" : ""} ${TONE_CLASS_MAP[tone]} ${className}`}
-    >
+    <Badge className={`h-6 shrink-0 rounded-md border text-xs font-medium ${animated ? "badge-ripple" : ""} ${TONE_CLASS_MAP[tone]} ${className}`}>
       {label}
-    </span>
+    </Badge>
   );
 }

@@ -7,7 +7,7 @@ import {
   Search,
   ScrollText,
 } from "lucide-react";
-import { SelectMenu, SelectMenuOption } from "./SelectMenu";
+import { Badge, Box, Button, CodeBlock, Input, Inline, InlineText, RelativeBox, Select, SelectMenuOption, Stack, Text } from "./Primitives";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogLevelFilter = "all" | LogLevel;
@@ -255,7 +255,7 @@ export function LogViewer({
   }
 
   return (
-    <section
+    <Box
       className={`flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0b1020] text-slate-100 shadow-2xl shadow-black/20 ${className}`}
     >
       <LogTargetHeader
@@ -268,7 +268,7 @@ export function LogViewer({
         favoriteTargetIds={activeFavoriteTargetIds}
         onFavoriteTargetIdsChange={change_favorite_target_ids}
       />
-      <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
+      <Box className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
         <LogHistoryPane
           sessions={targetSessions}
           selectedSessionId={sessionId}
@@ -292,14 +292,14 @@ export function LogViewer({
           onOpenLogFile={onOpenLogFile}
           onRevealLogFile={onRevealLogFile}
         />
-      </div>
+      </Box>
       <LogSessionContextMenu
         state={contextMenuState}
         onClose={() => setContextMenuState(null)}
         onOpenLogFile={onOpenLogFile}
         onRevealLogFile={onRevealLogFile}
       />
-    </section>
+    </Box>
   );
 }
 
@@ -326,40 +326,38 @@ function LogTargetHeader({
 
   if (displayMode === "label") {
     return (
-      <header className="border-b border-white/10 bg-[#101827] px-4 py-3">
-        <div className="flex min-w-0 items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+      <Box className="border-b border-white/10 bg-[#101827] px-4 py-3">
+        <Inline justify="between" gap="md" className="min-w-0">
+          <Stack gap="xs" className="min-w-0">
+            <Inline gap="sm" className="text-sm font-semibold text-slate-100">
               <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-              <span className="truncate">
+              <InlineText tone="strong" size="sm" truncate>
                 {label ?? selectedTarget?.label ?? "Logs"}
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-slate-500">
-              {selectedTarget?.kind === "bottle"
-                ? "Bottle logs"
-                : "Application logs"}
-            </p>
-          </div>
-          {selectedTarget && <CountPill value={selectedTarget.count} />}
-        </div>
-      </header>
+              </InlineText>
+            </Inline>
+            <Text tone="muted" size="xs">
+              {selectedTarget?.kind === "bottle" ? "Bottle logs" : "Application logs"}
+            </Text>
+          </Stack>
+          {selectedTarget ? <CountPill value={selectedTarget.count} /> : null}
+        </Inline>
+      </Box>
     );
   }
 
   return (
-    <header className="border-b border-white/10 bg-[#101827] px-3 py-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-200">
+    <Box className="border-b border-white/10 bg-[#101827] px-3 py-3">
+      <Inline justify="between" gap="md" className="mb-2">
+        <Inline gap="sm" className="min-w-0 text-sm font-semibold text-slate-200">
           <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-          <span className="truncate">Log targets</span>
-        </div>
-        <span className="inline-flex min-w-[5.5rem] justify-center rounded bg-white/[0.05] px-2 py-1 text-center text-xs tabular-nums text-slate-500">
+          <InlineText tone="body" size="sm" truncate>Log targets</InlineText>
+        </Inline>
+        <Badge className="min-w-[5.5rem] rounded bg-white/[0.05] text-center text-xs font-normal tabular-nums text-slate-500">
           {targets.length} targets
-        </span>
-      </div>
+        </Badge>
+      </Inline>
 
-      <SelectMenu
+      <Select
         value={selectedTargetId}
         options={targetOptions}
         label="Log target"
@@ -369,7 +367,7 @@ function LogTargetHeader({
         searchPlaceholder="Search log targets"
         onChange={onTargetChange}
       />
-    </header>
+    </Box>
   );
 }
 
@@ -385,15 +383,13 @@ function LogHistoryPane({
   onSessionContextMenu: (event: React.MouseEvent, session: LogSession) => void;
 }) {
   return (
-    <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#08101f] p-3">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
+    <Box className="flex min-h-0 flex-col border-r border-white/10 bg-[#08101f] p-3">
+      <Inline gap="sm" className="mb-2 text-sm font-semibold text-slate-200">
         <CalendarDays className="h-4 w-4 text-slate-400" />
-        <span>History</span>
-      </div>
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
-        {sessions.length === 0 && (
-          <EmptyListMessage>No log sessions</EmptyListMessage>
-        )}
+        <InlineText tone="body" size="sm">History</InlineText>
+      </Inline>
+      <Stack gap="xs" className="min-h-0 flex-1 overflow-y-auto pr-1">
+        {sessions.length === 0 ? <EmptyListMessage>No log sessions</EmptyListMessage> : null}
         {sessions.map((session) => (
           <SessionButton
             key={session.id}
@@ -403,8 +399,8 @@ function LogHistoryPane({
             onContextMenu={(event) => onSessionContextMenu(event, session)}
           />
         ))}
-      </div>
-    </aside>
+      </Stack>
+    </Box>
   );
 }
 
@@ -420,33 +416,28 @@ function SessionButton({
   onContextMenu: (event: React.MouseEvent) => void;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="listbox"
+      selected={selected}
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={session_title(session)}
-      className={`grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3 py-2 text-left transition ${
+      className={`grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3 py-2 text-left font-normal ${
         selected
           ? "accent-selection text-white"
           : "border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/[0.06] hover:text-slate-200"
       }`}
     >
-      <span className="min-w-0">
-        <span className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-          {session.isRunning && <LiveDot />}
-          <span className="truncate">{session.label}</span>
-        </span>
-        <span className="mt-1 block truncate text-xs text-slate-500">
-          {log_file_name(session)}
-        </span>
-        <span className="mt-1 block truncate text-[11px] text-slate-500">
-          {format_session_time(session.startedAt)}
-        </span>
-      </span>
-      {session.count !== undefined && (
-        <CountPill value={session.count} suffix="lines" />
-      )}
-    </button>
+      <Stack gap="xs" className="min-w-0">
+        <Inline gap="sm" className="min-w-0 text-sm font-semibold">
+          {session.isRunning ? <LiveDot /> : null}
+          <InlineText tone="strong" size="sm" truncate>{session.label}</InlineText>
+        </Inline>
+        <InlineText tone="muted" size="xs" truncate>{log_file_name(session)}</InlineText>
+        <InlineText tone="muted" size="xs" truncate className="text-[11px]">{format_session_time(session.startedAt)}</InlineText>
+      </Stack>
+      {session.count !== undefined ? <CountPill value={session.count} suffix="lines" /> : null}
+    </Button>
   );
 }
 
@@ -484,7 +475,7 @@ function LogContent({
   onRevealLogFile?: (session: LogSession) => void;
 }) {
   return (
-    <main className="flex min-h-0 min-w-0 flex-col bg-[#0b1020]">
+    <Box className="flex min-h-0 min-w-0 flex-col bg-[#0b1020]">
       <LogToolbar
         selectedSession={selectedSession}
         sources={sources}
@@ -504,13 +495,9 @@ function LogContent({
         entries={entries}
         text={logText}
         scrollScopeKey={selectedSession?.id ?? "no-session"}
-        placeholder={
-          selectedSession
-            ? "No logs match the current filters."
-            : "No log session selected."
-        }
+        placeholder={selectedSession ? "No logs match the current filters." : "No log session selected."}
       />
-    </main>
+    </Box>
   );
 }
 
@@ -545,96 +532,82 @@ function LogToolbar({
 }) {
   const hasSelectedSessionFile = Boolean(selectedSession && log_session_file_target(selectedSession));
   const hasSelectedSessionFolder = Boolean(selectedSession && log_session_reveal_target(selectedSession));
+  const sourceSelectOptions: SelectMenuOption[] = [
+    { value: "all", label: "All sources" },
+    ...sources.map((source) => ({
+      value: source.id,
+      label: source.count !== undefined ? `${source.label} (${source.count})` : source.label,
+    })),
+  ];
 
   return (
-    <header className="border-b border-white/10 bg-[#101827] p-3">
-      <div className="mb-3 flex min-w-0 items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-100">
+    <Box className="border-b border-white/10 bg-[#101827] p-3">
+      <Inline align="start" justify="between" gap="md" className="mb-3 min-w-0">
+        <Stack gap="xs" className="min-w-0">
+          <Inline gap="sm" className="min-w-0 text-sm font-semibold text-slate-100">
             <ScrollText className="h-4 w-4 shrink-0 text-slate-400" />
-            <span className="truncate">
-              {selectedSession?.label ?? "No session selected"}
-            </span>
-          </div>
-          <div className="mt-1 truncate text-xs text-slate-500">
-            {selectedSession
-              ? log_file_name(selectedSession)
-              : "Select a target and history item"}
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.07] hover:text-white"
-            onClick={onOpenLogFolder}
-          >
-            <FolderOpen size={14} />
-            Log folder
-          </button>
-          <button
-            type="button"
+            <InlineText tone="strong" size="sm" truncate>{selectedSession?.label ?? "No session selected"}</InlineText>
+          </Inline>
+          <Text tone="muted" size="xs" truncate>
+            {selectedSession ? log_file_name(selectedSession) : "Select a target and history item"}
+          </Text>
+        </Stack>
+        <Inline justify="end" gap="sm" wrap className="shrink-0">
+          <Button variant="glass" size="xs" icon={<FolderOpen size={14} />} onClick={onOpenLogFolder}>Log folder</Button>
+          <Button
+            variant="glass"
+            size="xs"
             disabled={!hasSelectedSessionFolder}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+            icon={<FileText size={14} />}
             onClick={() => selectedSession && onOpenLogFile?.(selectedSession)}
           >
-            <FileText size={14} />
             Open file
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="glass"
+            size="xs"
             disabled={!hasSelectedSessionFile}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+            icon={<ExternalLink size={14} />}
             onClick={() => selectedSession && onRevealLogFile?.(selectedSession)}
           >
-            <ExternalLink size={14} />
             Show in folder
-          </button>
-          <span className="inline-flex min-w-[5.75rem] justify-center rounded-md bg-white/[0.05] px-2 py-1 text-center text-xs tabular-nums text-slate-400">
+          </Button>
+          <Badge className="min-w-[5.75rem] rounded-md bg-white/[0.05] text-center text-xs font-normal tabular-nums text-slate-400">
             {visibleCount} / {totalCount}
-          </span>
-        </div>
-      </div>
-      <div className="flex min-w-0 flex-wrap gap-2">
-        <label className="relative min-w-52 flex-1">
+          </Badge>
+        </Inline>
+      </Inline>
+      <Inline gap="sm" wrap className="min-w-0">
+        <RelativeBox className="min-w-52 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-          <input
+          <Input
             value={searchValue}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Filter text"
-            className="h-9 w-full rounded-md border border-white/10 bg-[#0b1020] pl-9 pr-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[rgb(var(--accent-rgb))] focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.22)]"
+            className="h-9 pl-9"
           />
-        </label>
-        <select
+        </RelativeBox>
+        <Select
           value={selectedSourceId}
-          onChange={(event) => onSourceChange(event.target.value)}
-          className="h-9 min-w-36 flex-1 rounded-md border border-white/10 bg-[#0b1020] px-2 text-sm text-slate-200 outline-none focus:border-[rgb(var(--accent-rgb))] focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.22)]"
-        >
-          <option value="all">All sources</option>
-          {sources.map((source) => (
-            <option key={source.id} value={source.id}>
-              {source.label}
-              {source.count !== undefined ? ` (${source.count})` : ""}
-            </option>
-          ))}
-        </select>
-        <div className="flex h-9 shrink-0 rounded-md border border-white/10 bg-[#0b1020] p-1">
+          options={sourceSelectOptions}
+          onChange={(value) => onSourceChange(value)}
+          className="min-w-36 flex-1"
+          searchPlaceholder="Search sources"
+        />
+        <Inline gap="xs" className="h-9 shrink-0 rounded-md border border-white/10 bg-[#0b1020] p-1">
           {LEVELS.map((level) => (
-            <button
+            <Button
               key={level}
-              type="button"
+              variant={selectedLevel === level ? "primary" : "ghost"}
+              size="xs"
               onClick={() => onLevelChange(level)}
-              className={`h-7 rounded px-2.5 text-xs font-medium transition ${
-                selectedLevel === level
-                  ? "accent-primary"
-                  : "text-slate-400 hover:bg-white/5 hover:text-slate-100"
-              }`}
             >
               {LEVEL_LABEL[level]}
-            </button>
+            </Button>
           ))}
-        </div>
-      </div>
-    </header>
+        </Inline>
+      </Inline>
+    </Box>
   );
 }
 
@@ -671,36 +644,39 @@ function LogSessionContextMenu({
   const hasSessionFolder = Boolean(log_session_reveal_target(state.session));
 
   return (
-    <div
+    <Stack
+      gap="xs"
       className="fixed z-50 min-w-44 overflow-hidden rounded-lg border border-white/10 bg-[#0f172a] p-1 text-sm text-slate-200 shadow-2xl shadow-black/45"
       style={{ left: state.x, top: state.y }}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         disabled={!hasSessionFile}
-        className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-45"
+        className="w-full justify-start px-3 text-left"
+        icon={<FileText size={15} />}
         onClick={() => {
           onOpenLogFile?.(state.session);
           onClose();
         }}
       >
-        <FileText size={15} />
         Open log file
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
         disabled={!hasSessionFolder}
-        className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-45"
+        className="w-full justify-start px-3 text-left"
+        icon={<FolderOpen size={15} />}
         onClick={() => {
           onRevealLogFile?.(state.session);
           onClose();
         }}
       >
-        <FolderOpen size={15} />
         Open containing folder
-      </button>
-    </div>
+      </Button>
+    </Stack>
   );
 }
 
@@ -745,42 +721,42 @@ export function LogTextPanel({
   }
 
   return (
-    <div className="min-h-0 flex-1 bg-[#0b1020] p-3">
-      <pre
+    <Box className="min-h-0 flex-1 bg-[#0b1020] p-3">
+      <CodeBlock
         ref={textPanelRef}
         aria-label="Selected log content"
-        className="h-full select-text overflow-auto rounded-md border border-white/10 bg-[#050914] p-3 font-mono text-xs leading-5 text-slate-200 selection:bg-[rgb(var(--accent-rgb)/0.32)] selection:text-white"
+        className="h-full select-text overflow-auto rounded-md border border-white/10 bg-[#050914] p-3 text-xs leading-5 text-slate-200 selection:bg-[rgb(var(--accent-rgb)/0.32)] selection:text-white"
         onScroll={remember_scroll_position}
       >
-        <code>{text || placeholder}</code>
-      </pre>
-      {entries.length === 0 && <span className="sr-only">{placeholder}</span>}
-    </div>
+        {text || placeholder}
+      </CodeBlock>
+      {entries.length === 0 ? <InlineText className="sr-only">{placeholder}</InlineText> : null}
+    </Box>
   );
 }
 
 function EmptyListMessage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
+    <Box className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
       {children}
-    </div>
+    </Box>
   );
 }
 
 function LiveDot() {
   return (
-    <span className="relative flex h-2 w-2 shrink-0">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
-      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-    </span>
+    <Box className="relative flex h-2 w-2 shrink-0">
+      <Box className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
+      <Box className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+    </Box>
   );
 }
 
 function CountPill({ value, suffix }: { value: number; suffix?: string }) {
   return (
-    <span className={`inline-flex shrink-0 justify-center rounded bg-white/10 px-1.5 py-0.5 text-center text-[11px] tabular-nums text-slate-300 ${suffix ? "min-w-[4.25rem]" : "min-w-8"}`}>
+    <Badge className={`shrink-0 justify-center rounded bg-white/10 px-1.5 py-0.5 text-center text-[11px] font-normal tabular-nums text-slate-300 ${suffix ? "min-w-[4.25rem]" : "min-w-8"}`}>
       {suffix ? `${value} ${suffix}` : value}
-    </span>
+    </Badge>
   );
 }
 

@@ -1,5 +1,6 @@
 import React from "react";
 import { AlertTriangle, CheckCircle2, Info, LucideIcon, X } from "lucide-react";
+import { Box, Button, Inline, Stack, Surface, Text } from "./Primitives";
 
 export type DialogTone = "neutral" | "info" | "success" | "warning" | "danger";
 export type DialogActionVariant = "primary" | "secondary" | "danger";
@@ -69,9 +70,9 @@ const TONE_CLASS_MAP: Record<DialogTone, { icon: string; iconBox: string; border
 };
 
 const ACTION_CLASS_MAP: Record<DialogActionVariant, string> = {
-  primary: "accent-primary",
-  secondary: "border border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.07]",
-  danger: "border border-red-400/25 bg-red-500/15 text-red-100 hover:bg-red-500/25",
+  primary: "",
+  secondary: "",
+  danger: "border-red-400/25 bg-red-500/15 text-red-100 hover:bg-red-500/25",
 };
 
 export function DialogHost({ children, dialog }: DialogHostProps) {
@@ -128,71 +129,74 @@ export function Dialog({
   }
 
   return (
-    <div
+    <Box
       className={`fixed inset-0 z-[100] flex justify-center bg-black/45 px-4 backdrop-blur-sm ${placementClass}`}
       role="presentation"
       onMouseDown={handle_backdrop_click}
     >
-      <section
+      <Surface
         role="dialog"
         aria-modal="true"
         aria-labelledby="dialog-title"
         aria-describedby={description ? "dialog-description" : undefined}
-        className={`w-full ${widthClassName} rounded-lg border ${toneClasses.border} bg-[#0f172a] p-5 text-slate-100 shadow-2xl shadow-black/45 ${className}`}
+        tone="deep"
+        padding="lg"
+        className={`w-full ${widthClassName} border ${toneClasses.border} bg-[#0f172a] text-slate-100 shadow-2xl shadow-black/45 ${className}`}
       >
-        <div className="flex items-start gap-3">
-          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-md border ${toneClasses.iconBox}`}>
+        <Inline align="start" gap="md">
+          <Box className={`grid h-10 w-10 shrink-0 place-items-center rounded-md border ${toneClasses.iconBox}`}>
             <Icon size={20} className={toneClasses.icon} />
-          </div>
+          </Box>
 
-          <div className="min-w-0 flex-1">
-            <h2 id="dialog-title" className="text-base font-semibold text-white">
+          <Stack gap="xs" className="min-w-0 flex-1">
+            <Text id="dialog-title" tone="strong" size="base" weight="semibold">
               {title}
-            </h2>
+            </Text>
             {description ? (
-              <p id="dialog-description" className="mt-1 text-sm leading-5 text-slate-400">
+              <Text id="dialog-description" tone="muted" size="sm">
                 {description}
-              </p>
+              </Text>
             ) : null}
-          </div>
+          </Stack>
 
           {showCloseButton ? (
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-white/5 hover:text-white"
+            <Button
+              variant="ghost"
+              size="xs"
+              className="w-8 px-0 text-slate-400 hover:bg-white/5 hover:text-white"
               aria-label="Close dialog"
+              icon={<X size={16} />}
               onClick={onClose}
-            >
-              <X size={16} />
-            </button>
+            />
           ) : null}
-        </div>
+        </Inline>
 
-        {children ? <div className="mt-4 text-sm leading-6 text-slate-300">{children}</div> : null}
+        {children ? <Box className="mt-4 text-sm leading-6 text-slate-300">{children}</Box> : null}
 
         {actions.length > 0 ? (
-          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Inline justify="end" gap="sm" wrap className="mt-5 flex-col-reverse sm:flex-row">
             {actions.map((action) => {
               const ActionIcon = action.icon;
               const variant = action.variant ?? "secondary";
 
               return (
-                <button
+                <Button
                   key={action.label}
-                  type="button"
                   autoFocus={action.autoFocus}
                   disabled={action.disabled}
-                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${ACTION_CLASS_MAP[variant]}`}
+                  variant={variant === "primary" ? "primary" : "glass"}
+                  size="md"
+                  className={`px-4 text-sm ${ACTION_CLASS_MAP[variant]}`}
+                  icon={ActionIcon ? <ActionIcon size={16} /> : undefined}
                   onClick={action.onClick}
                 >
-                  {ActionIcon ? <ActionIcon size={16} /> : null}
                   {action.label}
-                </button>
+                </Button>
               );
             })}
-          </div>
+          </Inline>
         ) : null}
-      </section>
-    </div>
+      </Surface>
+    </Box>
   );
 }

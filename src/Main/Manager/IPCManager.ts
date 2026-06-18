@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, OpenDialogOptions, shell } from "electron";
-import { rm } from "fs/promises";
+import { readdir, rm } from "fs/promises";
 import os from "os";
 import path from "path";
-import { DeleteBottlePayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, LauncherDataDeleteTarget, LauncherPreferencePatch, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload } from "../../Common/Types/IPC";
+import { DeleteBottlePayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, LauncherDataDeleteTarget, LauncherPreferencePatch, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload } from "../../Common/Types/IPC";
 import {
   get_bottle_registry_path,
   get_default_log_dir,
@@ -291,6 +291,14 @@ export class IPCManager {
       },
     );
 
+    ipcMain.removeHandler(IPC_CHANNELS.APP.SUGGEST_PATHS.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.APP.SUGGEST_PATHS.channelName,
+      async (_event, request: PathSuggestionPayload): Promise<PathSuggestionResultPayload> => {
+        return this.suggestPaths(request);
+      },
+    );
+
     ipcMain.removeHandler(IPC_CHANNELS.APP.DELETE_LAUNCHER_DATA.channelName);
     ipcMain.handle(
       IPC_CHANNELS.APP.DELETE_LAUNCHER_DATA.channelName,
@@ -410,6 +418,104 @@ export class IPCManager {
     }
 
     return targetPath;
+  }
+
+  private async suggestPaths(request: PathSuggestionPayload = { value: "" }): Promise<PathSuggestionResultPayload> {
+    const value = request.value?.trim() ?? "";
+    const limit = Math.max(1, Math.min(30, request.limit ?? 12));
+    const defaultPath = this.expandUserHomePath(request.defaultPath || os.homedir());
+    const resolvedInput = this.resolvePathSuggestionInput(value, defaultPath);
+    const hasTrailingSeparator = value.length === 0 || /[\\/]$/.test(value);
+    const directoryPath = hasTrailingSeparator
+      ? resolvedInput.localPath
+      : path.dirname(resolvedInput.localPath);
+    const prefix = hasTrailingSeparator
+      ? ""
+      : path.basename(resolvedInput.localPath).toLowerCase();
+
+    try {
+      const entries = await readdir(directoryPath, { withFileTypes: true });
+      const suggestions = entries
+        .filter((entry) => entry.name.toLowerCase().startsWith(prefix))
+        .sort((left, right) => {
+          if (left.isDirectory() !== right.isDirectory()) {
+            return left.isDirectory() ? -1 : 1;
+          }
+
+          return left.name.localeCompare(right.name);
+        })
+        .slice(0, limit)
+        .map((entry) => {
+          const targetPath = path.join(directoryPath, entry.name);
+
+          return {
+            path: this.formatPathSuggestion(targetPath, entry.isDirectory(), resolvedInput.mode, defaultPath),
+            name: entry.name,
+            isDirectory: entry.isDirectory(),
+          };
+        });
+
+      return { suggestions };
+    } catch {
+      return { suggestions: [] };
+    }
+  }
+
+  private resolvePathSuggestionInput(
+    value: string,
+    defaultPath: string,
+  ): { localPath: string; mode: "local" | "z" | "c" } {
+    if (/^z:[\\/]/i.test(value)) {
+      const localPath = value
+        .replace(/^z:[\\/]?/i, "/")
+        .replace(/\\/g, "/");
+
+      return {
+        mode: "z",
+        localPath: path.resolve(localPath.startsWith("/") ? localPath : `/${localPath}`),
+      };
+    }
+
+    if (/^c:[\\/]/i.test(value)) {
+      const relativePath = value
+        .replace(/^c:[\\/]?/i, "")
+        .replace(/[\\/]+/g, path.sep);
+
+      return {
+        mode: "c",
+        localPath: path.resolve(defaultPath, "drive_c", relativePath),
+      };
+    }
+
+    const expandedPath = value.length > 0 ? this.expandUserHomePath(value) : defaultPath;
+
+    return {
+      mode: "local",
+      localPath: path.isAbsolute(expandedPath)
+        ? path.resolve(expandedPath)
+        : path.resolve(defaultPath, expandedPath),
+    };
+  }
+
+  private formatPathSuggestion(
+    targetPath: string,
+    isDirectory: boolean,
+    mode: "local" | "z" | "c",
+    defaultPath: string,
+  ): string {
+    if (mode === "z") {
+      const winePath = `Z:${targetPath.replace(/\//g, "\\")}`;
+      return isDirectory && !winePath.endsWith("\\") ? `${winePath}\\` : winePath;
+    }
+
+    if (mode === "c") {
+      const driveRoot = path.resolve(defaultPath, "drive_c");
+      const relativePath = path.relative(driveRoot, targetPath).split(path.sep).join("\\");
+      const winePath = relativePath ? `C:\\${relativePath}` : "C:\\";
+      return isDirectory && !winePath.endsWith("\\") ? `${winePath}\\` : winePath;
+    }
+
+    return isDirectory && !targetPath.endsWith(path.sep) ? `${targetPath}${path.sep}` : targetPath;
   }
 
   private resolveLauncherPath(targetPath?: string): string {

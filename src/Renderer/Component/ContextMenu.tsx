@@ -1,6 +1,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { LucideIcon } from "lucide-react";
+import { Box, Button, InlineText, Stack } from "./Primitives";
 
 export interface ContextMenuPosition {
   x: number;
@@ -37,7 +38,7 @@ export function ContextMenu({
   width = DEFAULT_WIDTH,
   className = "",
 }: ContextMenuProps) {
-  const menuRef = React.useRef<HTMLDivElement>(null);
+  const menuRef = React.useRef<HTMLElement>(null);
   const [resolvedPosition, setResolvedPosition] = React.useState<ContextMenuPosition>(position ?? { x: 0, y: 0 });
 
   React.useLayoutEffect(() => {
@@ -67,13 +68,11 @@ export function ContextMenu({
         onClose();
       }
     };
-
     const handle_key_down = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
       }
     };
-
     const handle_scroll = () => onClose();
 
     window.addEventListener("pointerdown", handle_pointer_down);
@@ -92,8 +91,9 @@ export function ContextMenu({
   }
 
   const menu = (
-    <div
+    <Stack
       ref={menuRef}
+      gap="xs"
       role="menu"
       className={`fixed z-[110] rounded-lg border border-white/10 bg-[#0f172a] p-1 text-slate-100 shadow-2xl shadow-black/45 ring-1 ring-black/20 ${className}`}
       style={{ left: resolvedPosition.x, top: resolvedPosition.y, width }}
@@ -104,16 +104,14 @@ export function ContextMenu({
 
         return (
           <React.Fragment key={item.id}>
-            {item.separatorBefore ? <div className="my-1 h-px bg-white/10" role="separator" /> : null}
-            <button
-              type="button"
+            {item.separatorBefore ? <Box className="my-1 h-px bg-white/10" role="separator" /> : null}
+            <Button
+              variant="ghost"
+              size="sm"
               role="menuitem"
               disabled={item.disabled}
-              className={`flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-45 ${
-                item.danger
-                  ? "text-red-100 hover:bg-red-500/15"
-                  : "text-slate-200 hover:bg-white/[0.07] hover:text-white"
-              }`}
+              className={`w-full justify-start px-2.5 text-left text-sm font-normal ${item.danger ? "text-red-100 hover:bg-red-500/15" : "text-slate-200 hover:bg-white/[0.07] hover:text-white"}`}
+              icon={Icon ? <Icon size={15} className="shrink-0" /> : <Box className="h-[15px] w-[15px] shrink-0" />}
               onClick={() => {
                 if (item.disabled) {
                   return;
@@ -123,13 +121,12 @@ export function ContextMenu({
                 onClose();
               }}
             >
-              {Icon ? <Icon size={15} className="shrink-0" /> : <span className="h-[15px] w-[15px] shrink-0" />}
-              <span className="min-w-0 truncate">{item.label}</span>
-            </button>
+              <InlineText truncate className="min-w-0">{item.label}</InlineText>
+            </Button>
           </React.Fragment>
         );
       })}
-    </div>
+    </Stack>
   );
 
   return createPortal(menu, document.body);

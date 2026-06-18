@@ -1,6 +1,27 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { Monitor, Play } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { join_classes } from "../../Common/Util/ClassName";
+import {
+  Badge,
+  Box,
+  Button,
+  CenterOverlay,
+  IconSlot,
+  ImageFrame,
+  Inline,
+  InlineText,
+  MediaOverlay,
+  PrimitiveImage,
+  Stack,
+  Text,
+} from "./Primitives";
+
+export type ImageButtonPreset = "app" | "compact" | "tile";
+export type ImageButtonRadius = "sm" | "md" | "lg" | "xl" | "full";
+export type ImageButtonBorder = "none" | "subtle" | "strong" | "glow";
+export type ImageButtonImageShape = "rounded" | "circle";
+export type ImageButtonImageSize = "sm" | "md" | "lg";
 
 export interface ImageButtonProps {
   id?: string;
@@ -8,6 +29,11 @@ export interface ImageButtonProps {
   name?: string;
   subtitle?: string;
   actionLabel?: string;
+  preset?: ImageButtonPreset;
+  radius?: ImageButtonRadius;
+  border?: ImageButtonBorder;
+  imageShape?: ImageButtonImageShape;
+  imageSize?: ImageButtonImageSize;
   isActive?: boolean;
   isRunning?: boolean;
   hasError?: boolean;
@@ -24,6 +50,11 @@ export function ImageButton({
   name = "Untitled",
   subtitle,
   actionLabel,
+  preset = "app",
+  radius,
+  border,
+  imageShape,
+  imageSize,
   isActive = false,
   isRunning = false,
   hasError = false,
@@ -36,50 +67,220 @@ export function ImageButton({
 }: ImageButtonProps) {
   const { t } = useTranslation();
   const resolvedActionLabel = actionLabel ?? t("common.actions.run");
+  const presetClass = image_button_preset_class(preset);
+  const resolvedRadius = radius ?? image_button_default_radius(preset);
+  const resolvedBorder = border ?? image_button_default_border(preset);
+  const resolvedImageShape = imageShape ?? image_button_default_image_shape(preset);
+  const resolvedImageSize = imageSize ?? image_button_default_image_size(preset);
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="md"
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onMouseMove={onMouseHover}
       onContextMenu={onContextMenu}
-      className={`group relative isolate flex min-h-40 w-full flex-col items-center overflow-hidden rounded-2xl border p-4 text-center transition ${
-        isRunning
-          ? "running-app-card border-emerald-300/70 bg-emerald-500/[0.10] shadow-[0_0_34px_rgba(16,185,129,0.24)]"
-          : hasError
-            ? "border-red-300/50 bg-red-500/[0.10] shadow-[0_0_28px_rgba(248,113,113,0.16)] hover:border-red-300/70 hover:bg-red-500/[0.14]"
-          : isActive
-            ? "accent-selection"
-            : "border-white/10 bg-white/[0.04] hover:border-white/20 hover:bg-white/[0.07]"
-      } ${className}`}
+      className={join_classes(
+        "group relative isolate h-full w-full flex-col overflow-hidden text-center",
+        presetClass,
+        image_button_radius_class(resolvedRadius),
+        image_button_border_class(resolvedBorder),
+        image_button_tone({ isActive, isRunning, hasError }),
+        className,
+      )}
       aria-label={`${name} ${resolvedActionLabel}`}
     >
-      {isRunning && (
-        <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-300/30 bg-emerald-400/15 px-2 py-1 text-[11px] font-bold text-emerald-100 shadow-[0_0_18px_rgba(52,211,153,0.24)]">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-70" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-300" />
-          </span>
-          {t("main.appContext.running")}
-        </span>
-      )}
-      <div className={`mb-3 flex h-20 w-20 items-center justify-center rounded-full border bg-[radial-gradient(circle_at_35%_28%,rgba(255,255,255,0.18),rgba(15,23,42,0.92)_58%,rgba(2,6,23,0.98))] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_14px_36px_rgba(0,0,0,0.32)] transition group-hover:scale-[1.04] ${isRunning ? "border-emerald-300/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_0_30px_rgba(16,185,129,0.28)]" : hasError ? "border-red-300/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_0_24px_rgba(248,113,113,0.18)]" : "border-white/10 group-hover:border-white/20"}`}>
-        <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white/[0.08] p-1.5 ring-1 ring-white/10">
-        {src ? (
-          <img className="h-full w-full object-contain" src={src} alt="" draggable={false} />
-        ) : (
-          <Monitor className="text-slate-300" size={30} />
-        )}
-        </div>
-      </div>
-      <span className="line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-slate-100">{name}</span>
-      {subtitle && <span className="mt-1 max-w-full truncate text-xs text-slate-500">{subtitle}</span>}
-      <span className={`mt-auto inline-flex items-center gap-1 pt-3 text-xs font-medium text-emerald-300 transition ${isRunning ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-        <Play size={13} fill="currentColor" />
-        {resolvedActionLabel}
-      </span>
-    </button>
+      <ImageFrame
+        size={resolvedImageSize}
+        shape={resolvedImageShape}
+        className={join_classes(image_frame_spacing_class(preset), "group-hover:scale-[1.04]", image_frame_tone({ isRunning, hasError }))}
+      >
+        <AppImage src={src} name={name} />
+        <ActionOverlay isRunning={isRunning} actionLabel={resolvedActionLabel} />
+        {isRunning ? <RunningEffects /> : null}
+      </ImageFrame>
+      <InlineText tone="strong" size="sm" className="line-clamp-2 text-center font-semibold">
+        {name}
+      </InlineText>
+      {subtitle ? (
+        <Text tone="muted" size="xs" truncate className="mt-1 max-w-full text-center">
+          {subtitle}
+        </Text>
+      ) : null}
+    </Button>
   );
+}
+
+function AppImage({ src, name }: { src?: string; name: string }) {
+  if (src) {
+    return <PrimitiveImage src={src} alt={name} />;
+  }
+
+  return (
+    <IconSlot>
+      <Monitor className="text-slate-300" size={30} />
+    </IconSlot>
+  );
+}
+
+function ActionOverlay({
+  isRunning,
+  actionLabel,
+}: {
+  isRunning: boolean;
+  actionLabel: string;
+}) {
+  return (
+    <CenterOverlay className={isRunning ? "opacity-0" : "opacity-0 transition group-hover:opacity-100"}>
+      <Inline className="text-xs font-medium text-emerald-300">
+        <Play size={13} fill="currentColor" />
+        <InlineText tone="strong" size="xs">
+          {actionLabel}
+        </InlineText>
+      </Inline>
+    </CenterOverlay>
+  );
+}
+
+function RunningEffects() {
+  return (
+    <>
+      <MediaOverlay className="pointer-events-none bg-gradient-to-br from-emerald-300/55 via-cyan-300/20 to-transparent mix-blend-screen" />
+      <MediaOverlay className="pointer-events-none bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.42),transparent_46%)]" />
+      <RunningBadge />
+    </>
+  );
+}
+
+function RunningBadge() {
+  const { t } = useTranslation();
+
+  return (
+    <Badge className="absolute bottom-1.5 max-w-[4.4rem] bg-black/40 text-emerald-50 shadow-[0_0_12px_rgba(16,185,129,0.35)] ring-1 ring-emerald-200/25 backdrop-blur-md">
+      <RunningDot />
+      <InlineText tone="strong" size="xs" truncate>
+        {t("main.appContext.running")}
+      </InlineText>
+    </Badge>
+  );
+}
+
+function RunningDot() {
+  return (
+    <Box className="relative flex h-1.5 w-1.5 shrink-0">
+      <Box className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-70" />
+      <Box className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-300" />
+    </Box>
+  );
+}
+
+function image_button_preset_class(preset: ImageButtonPreset): string {
+  return {
+    app: "min-h-40 p-4",
+    compact: "min-h-28 p-3",
+    tile: "min-h-36 p-4",
+  }[preset];
+}
+
+function image_button_default_radius(preset: ImageButtonPreset): ImageButtonRadius {
+  return {
+    app: "xl",
+    compact: "lg",
+    tile: "md",
+  }[preset];
+}
+
+function image_button_default_border(preset: ImageButtonPreset): ImageButtonBorder {
+  return {
+    app: "subtle",
+    compact: "subtle",
+    tile: "strong",
+  }[preset];
+}
+
+function image_button_default_image_shape(preset: ImageButtonPreset): ImageButtonImageShape {
+  return {
+    app: "circle",
+    compact: "rounded",
+    tile: "rounded",
+  }[preset];
+}
+
+function image_button_default_image_size(preset: ImageButtonPreset): ImageButtonImageSize {
+  return {
+    app: "md",
+    compact: "sm",
+    tile: "lg",
+  }[preset];
+}
+
+function image_button_radius_class(radius: ImageButtonRadius): string {
+  return {
+    sm: "rounded-lg",
+    md: "rounded-xl",
+    lg: "rounded-2xl",
+    xl: "rounded-3xl",
+    full: "rounded-[2rem]",
+  }[radius];
+}
+
+function image_button_border_class(border: ImageButtonBorder): string {
+  return {
+    none: "border border-transparent",
+    subtle: "border border-white/10",
+    strong: "border border-white/20",
+    glow: "border border-emerald-300/40 shadow-[0_0_28px_rgba(16,185,129,0.18)]",
+  }[border];
+}
+
+function image_frame_spacing_class(preset: ImageButtonPreset): string {
+  return {
+    app: "mb-3",
+    compact: "mb-2",
+    tile: "mb-3",
+  }[preset];
+}
+
+function image_button_tone({
+  isActive,
+  isRunning,
+  hasError,
+}: {
+  isActive: boolean;
+  isRunning: boolean;
+  hasError: boolean;
+}) {
+  if (isRunning) {
+    return "running-app-card border-emerald-300/70 bg-emerald-500/[0.10] shadow-[0_0_34px_rgba(16,185,129,0.24)]";
+  }
+
+  if (hasError) {
+    return "border-red-300/50 bg-red-500/[0.10] shadow-[0_0_28px_rgba(248,113,113,0.16)] hover:border-red-300/70 hover:bg-red-500/[0.14]";
+  }
+
+  if (isActive) {
+    return "accent-selection";
+  }
+
+  return "bg-white/[0.04] hover:border-white/20 hover:bg-white/[0.07]";
+}
+
+function image_frame_tone({
+  isRunning,
+  hasError,
+}: {
+  isRunning: boolean;
+  hasError: boolean;
+}) {
+  if (isRunning) {
+    return "ring-emerald-300/60 shadow-[0_0_32px_rgba(16,185,129,0.34)]";
+  }
+
+  if (hasError) {
+    return "ring-red-300/45 shadow-[0_0_24px_rgba(248,113,113,0.20)]";
+  }
+
+  return "ring-white/10 group-hover:ring-white/20";
 }

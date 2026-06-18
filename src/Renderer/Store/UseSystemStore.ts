@@ -32,8 +32,10 @@ export interface SystemStoreState {
   subscribeWineStatus: () => () => void;
 }
 
-const DEFAULT_WINE_INSTALL_PATH = "~/Library/Application Support/BDIH Launcher/Wine";
-const DEFAULT_DXMT_CACHE_PATH = "~/Library/Application Support/BDIH Launcher/DXMT";
+const DEFAULT_WINE_INSTALL_PATH =
+  "~/Library/Application Support/BDIH Launcher/Wine";
+const DEFAULT_DXMT_CACHE_PATH =
+  "~/Library/Application Support/BDIH Launcher/DXMT";
 
 function get_bith_api() {
   if (typeof window === "undefined") {
@@ -54,7 +56,11 @@ function create_system_summary(): SystemSummary {
 
   return {
     platform: navigator.platform || "unknown",
-    arch: navigator.userAgent.includes("arm64") || navigator.userAgent.includes("aarch64") ? "arm64" : "x64",
+    arch:
+      navigator.userAgent.includes("arm64") ||
+      navigator.userAgent.includes("aarch64")
+        ? "arm64"
+        : "x64",
     rendererMode: get_bith_api() ? "electron" : "browser",
   };
 }
@@ -71,7 +77,10 @@ function normalize_dxmt_versions(versions: unknown): DxmtVersion[] {
   return Array.isArray(versions) ? (versions as DxmtVersion[]) : [];
 }
 
-function update_runtime_status<T extends WineVersion | DxmtVersion>(versions: T[], payload: WineStatusPayload): T[] {
+function update_runtime_status<T extends WineVersion | DxmtVersion>(
+  versions: T[],
+  payload: WineStatusPayload,
+): T[] {
   return versions.map((version) => {
     if (version.id !== payload.versionId) {
       return version;
@@ -104,7 +113,10 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
     try {
       const api = get_bith_api();
       const versions = api
-        ? await api.invoke(IPC_CHANNELS.WINE.GET_VERSION_LIST.channelName, undefined as never)
+        ? await api.invoke(
+            IPC_CHANNELS.WINE.GET_VERSION_LIST.channelName,
+            undefined as never,
+          )
         : PREDEFINED_WINE_VERSIONS;
       const wineVersions = normalize_wine_versions(versions);
 
@@ -112,14 +124,19 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
         wineVersions,
         selectedWineVersionId: wineVersions[0]?.id ?? "",
         isLoadingWineVersions: false,
-        lastStatusMessage: api ? i18n.t("store.catalogMain") : i18n.t("store.catalogLocal"),
+        lastStatusMessage: api
+          ? i18n.t("store.catalogMain")
+          : i18n.t("store.catalogLocal"),
       });
     } catch (error) {
       set({
         wineVersions: PREDEFINED_WINE_VERSIONS,
         selectedWineVersionId: PREDEFINED_WINE_VERSIONS[0]?.id ?? "",
         isLoadingWineVersions: false,
-        lastStatusMessage: error instanceof Error ? error.message : i18n.t("store.catalogFailed"),
+        lastStatusMessage:
+          error instanceof Error
+            ? error.message
+            : i18n.t("store.catalogFailed"),
       });
     }
   },
@@ -130,7 +147,10 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
     try {
       const api = get_bith_api();
       const versions = api
-        ? await api.invoke(IPC_CHANNELS.DXMT.GET_VERSION_LIST.channelName, undefined as never)
+        ? await api.invoke(
+            IPC_CHANNELS.DXMT.GET_VERSION_LIST.channelName,
+            undefined as never,
+          )
         : [];
       const dxmtVersions = normalize_dxmt_versions(versions);
 
@@ -153,7 +173,13 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
 
     set((state) => ({
       wineVersions: state.wineVersions.map((version) =>
-        version.id === versionId ? { ...version, status: "installing", progress: Math.max(version.progress, 5) } : version,
+        version.id === versionId
+          ? {
+              ...version,
+              status: "installing",
+              progress: Math.max(version.progress, 5),
+            }
+          : version,
       ),
       lastStatusMessage: i18n.t("store.installRequested", { versionId }),
     }));
@@ -169,7 +195,14 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
       } else {
         set((state) => ({
           wineVersions: state.wineVersions.map((version) =>
-            version.id === versionId ? { ...version, status: "installed", progress: 100, path: installPath } : version,
+            version.id === versionId
+              ? {
+                  ...version,
+                  status: "installed",
+                  progress: 100,
+                  path: installPath,
+                }
+              : version,
           ),
           lastStatusMessage: i18n.t("store.previewInstallComplete"),
         }));
@@ -177,9 +210,14 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
     } catch (error) {
       set((state) => ({
         wineVersions: state.wineVersions.map((version) =>
-          version.id === versionId ? { ...version, status: "error", progress: version.progress } : version,
+          version.id === versionId
+            ? { ...version, status: "error", progress: version.progress }
+            : version,
         ),
-        lastStatusMessage: error instanceof Error ? error.message : i18n.t("store.installFailed"),
+        lastStatusMessage:
+          error instanceof Error
+            ? error.message
+            : i18n.t("store.installFailed"),
       }));
     }
   },
@@ -189,7 +227,13 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
 
     set((state) => ({
       dxmtVersions: state.dxmtVersions.map((version) =>
-        version.id === versionId ? { ...version, status: "installing", progress: Math.max(version.progress, 5) } : version,
+        version.id === versionId
+          ? {
+              ...version,
+              status: "installing",
+              progress: Math.max(version.progress, 5),
+            }
+          : version,
       ),
       lastStatusMessage: i18n.t("store.installRequested", { versionId }),
     }));
@@ -206,9 +250,14 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
     } catch (error) {
       set((state) => ({
         dxmtVersions: state.dxmtVersions.map((version) =>
-          version.id === versionId ? { ...version, status: "error", progress: version.progress } : version,
+          version.id === versionId
+            ? { ...version, status: "error", progress: version.progress }
+            : version,
         ),
-        lastStatusMessage: error instanceof Error ? error.message : i18n.t("store.installFailed"),
+        lastStatusMessage:
+          error instanceof Error
+            ? error.message
+            : i18n.t("store.installFailed"),
       }));
     }
   },
@@ -236,18 +285,26 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
       return () => undefined;
     }
 
-    const unsubscribeWine = api.on(IPC_CHANNELS.WINE.STATUS_UPDATE.channelName, (_event, payload) => {
-      set((state) => ({
-        wineVersions: update_runtime_status(state.wineVersions, payload),
-        lastStatusMessage: payload.message ?? `${payload.versionId}: ${payload.status}`,
-      }));
-    });
-    const unsubscribeDxmt = api.on(IPC_CHANNELS.DXMT.STATUS_UPDATE.channelName, (_event, payload) => {
-      set((state) => ({
-        dxmtVersions: update_runtime_status(state.dxmtVersions, payload),
-        lastStatusMessage: payload.message ?? `${payload.versionId}: ${payload.status}`,
-      }));
-    });
+    const unsubscribeWine = api.on(
+      IPC_CHANNELS.WINE.STATUS_UPDATE.channelName,
+      (_event, payload) => {
+        set((state) => ({
+          wineVersions: update_runtime_status(state.wineVersions, payload),
+          lastStatusMessage:
+            payload.message ?? `${payload.versionId}: ${payload.status}`,
+        }));
+      },
+    );
+    const unsubscribeDxmt = api.on(
+      IPC_CHANNELS.DXMT.STATUS_UPDATE.channelName,
+      (_event, payload) => {
+        set((state) => ({
+          dxmtVersions: update_runtime_status(state.dxmtVersions, payload),
+          lastStatusMessage:
+            payload.message ?? `${payload.versionId}: ${payload.status}`,
+        }));
+      },
+    );
 
     return () => {
       unsubscribeWine?.();
@@ -255,3 +312,12 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
     };
   },
 }));
+
+// // Placeholder functions for tutorial completion flag management.
+// export async function setTutorialCompletedFlag(): Promise<void> {
+//   return;
+// }
+
+// export async function getTutorialCompletedFlag(): Promise<boolean> {
+//   return false;
+// }

@@ -1,7 +1,7 @@
-import { downloadByCurl } from "../Program/Curl";
+import { Download } from "../Program/Downloader";
 
-type CurlArgs = Parameters<typeof downloadByCurl>[1];
-type CurlReturn = ReturnType<typeof downloadByCurl>;
+type DownloadArgs = Pick<Parameters<typeof Download>[0], "outputDir" | "fileName" | "otherArgs">;
+type DownloadTask = ReturnType<typeof Download>;
 
 export interface DownloadCallbacks {
   onStart?: () => void;
@@ -11,28 +11,31 @@ export interface DownloadCallbacks {
 }
 
 export class DownloadManager {
-  private readonly downloads = new Map<string, CurlReturn>();
+  private readonly downloads = new Map<string, DownloadTask>();
 
   startDownload(
     id: string,
     url: string,
-    args: CurlArgs,
+    args: DownloadArgs,
     callbacks: DownloadCallbacks = {},
   ): string {
     if (this.downloads.has(id)) {
       throw new Error(`Download already exists: ${id}`);
     }
 
-    const download = downloadByCurl(url, args, {
+    const download = Download({
+      ...args,
+      url,
       onStart: () => callbacks.onStart?.(),
       onProgress: (progress) => callbacks.onProgress?.(progress),
       onError: (error) => {
         this.downloads.delete(id);
         callbacks.onError?.(error);
+        callbacks.onEnd?.(false);
       },
-      onEnd: (success) => {
+      onComplete: () => {
         this.downloads.delete(id);
-        callbacks.onEnd?.(success);
+        callbacks.onEnd?.(true);
       },
     });
 
@@ -47,7 +50,7 @@ export class DownloadManager {
       return;
     }
 
-    await download.StopCurl();
+    await download.StopDownload();
     this.downloads.delete(id);
   }
 

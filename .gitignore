@@ -5,3 +5,4 @@ release/
 storybook-static/
 output/
 screenshots/
+tmp*

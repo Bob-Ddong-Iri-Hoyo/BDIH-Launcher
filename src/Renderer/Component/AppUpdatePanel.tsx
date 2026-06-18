@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { AppUpdateStatusPayload } from "../../Common/Types/IPC";
 import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
+import { Box, Button, Checkbox, IconSlot, Inline, InlineText, Stack, Text } from "./Primitives";
 import { StatusBadge, StatusTone } from "./StatusBadge";
 
 export interface AppUpdatePanelProps {
@@ -88,36 +89,35 @@ export function AppUpdatePanel({
 
   return (
     <>
-      <div className="rounded-lg border border-white/10 bg-[#0b1020] p-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="flex min-w-0 gap-3">
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-white/10 bg-white/[0.04]">
+      <Box className="rounded-lg border border-white/10 bg-[#0b1020] p-4">
+        <Stack className="gap-4 md:flex-row md:items-start md:justify-between">
+          <Inline className="min-w-0 gap-3">
+            <IconSlot className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-white/10 bg-white/[0.04]">
               <Icon size={19} className={status?.status === "error" ? "text-red-300" : "accent-text"} />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold text-slate-100">{t("preferences.appUpdate.title")}</p>
+            </IconSlot>
+            <Stack className="min-w-0 gap-1">
+              <Inline className="flex-wrap items-center gap-2">
+                <Text className="text-sm font-semibold text-slate-100">{t("preferences.appUpdate.title")}</Text>
                 <StatusBadge label={t(`preferences.appUpdate.status.${statusKey}`)} tone={STATUS_TONE_MAP[statusKey]} />
-              </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
+              </Inline>
+              <Text className="text-xs leading-5 text-slate-500">
                 {status?.message ?? t("preferences.appUpdate.description")}
-              </p>
-              {status?.version ? <p className="mt-1 text-xs text-slate-400">{t("preferences.appUpdate.version", { version: status.version })}</p> : null}
-              {status?.error ? <p className="mt-1 text-xs text-red-300">{status.error}</p> : null}
-            </div>
-          </div>
+              </Text>
+              {status?.version ? (
+                <Text className="text-xs text-slate-400">{t("preferences.appUpdate.version", { version: status.version })}</Text>
+              ) : null}
+              {status?.error ? <Text className="text-xs text-red-300">{status.error}</Text> : null}
+            </Stack>
+          </Inline>
 
-          <div className="flex shrink-0 items-center gap-2">
-            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-slate-200">
-              <input
-                type="checkbox"
-                checked={autoUpdateEnabled}
-                className="accent-checkbox h-4 w-4"
-                onChange={(event) => onAutoUpdateChange?.(event.target.checked)}
-              />
-              {t("preferences.appUpdate.autoCheck")}
-            </label>
-            <button
+          <Inline className="shrink-0 items-center gap-2">
+            <Checkbox
+              checked={autoUpdateEnabled}
+              onCheckedChange={(checked) => onAutoUpdateChange?.(checked)}
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-slate-200"
+              label={t("preferences.appUpdate.autoCheck")}
+            />
+            <Button
               type="button"
               className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isChecking || isDownloading}
@@ -125,9 +125,9 @@ export function AppUpdatePanel({
             >
               <RefreshCw size={14} className={isChecking ? "animate-spin" : ""} />
               {t("preferences.appUpdate.check")}
-            </button>
-          </div>
-        </div>
+            </Button>
+          </Inline>
+        </Stack>
 
         {isDownloading ? (
           <ProgressBar
@@ -141,12 +141,12 @@ export function AppUpdatePanel({
         ) : null}
 
         {status?.status === "downloaded" ? (
-          <div className="mt-4 inline-flex items-center gap-2 rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200">
+          <Inline className="mt-4 inline-flex items-center gap-2 rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200">
             <RotateCw size={14} />
-            {t("preferences.appUpdate.restartHint")}
-          </div>
+            <InlineText>{t("preferences.appUpdate.restartHint")}</InlineText>
+          </Inline>
         ) : null}
-      </div>
+      </Box>
 
       <Dialog
         open={isResultDialogOpen}
@@ -165,24 +165,24 @@ export function AppUpdatePanel({
           },
         ]}
       >
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-            <span className="text-xs font-semibold text-slate-400">
+        <Stack className="gap-3">
+          <Inline className="items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+            <InlineText className="text-xs font-semibold text-slate-400">
               {t("preferences.appUpdate.title")}
-            </span>
+            </InlineText>
             <StatusBadge label={t(`preferences.appUpdate.status.${dialogStatusKey}`)} tone={STATUS_TONE_MAP[dialogStatusKey]} />
-          </div>
+          </Inline>
 
           {dialogStatus?.version ? (
-            <p className="rounded-lg border border-white/10 bg-[#050914] px-3 py-2 text-xs text-slate-300">
+            <Text className="rounded-lg border border-white/10 bg-[#050914] px-3 py-2 text-xs text-slate-300">
               {t("preferences.appUpdate.version", { version: dialogStatus.version })}
-            </p>
+            </Text>
           ) : null}
 
           {dialogStatus?.error ? (
-            <p className="rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">
+            <Text className="rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">
               {dialogStatus.error}
-            </p>
+            </Text>
           ) : null}
 
           {dialogStatus?.status === "downloading" ? (
@@ -196,11 +196,11 @@ export function AppUpdatePanel({
           ) : null}
 
           {dialogStatus?.status === "downloaded" ? (
-            <p className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold leading-5 text-emerald-200">
+            <Text className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold leading-5 text-emerald-200">
               {t("preferences.appUpdate.restartHint")}
-            </p>
+            </Text>
           ) : null}
-        </div>
+        </Stack>
       </Dialog>
     </>
   );

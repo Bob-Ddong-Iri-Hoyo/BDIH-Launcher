@@ -1,6 +1,7 @@
 import React from "react";
 import { Maximize2, Minus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Box, Button, Inline, InlineText } from "./Primitives";
 
 export interface MacTitleBarProps {
   title?: string;
@@ -35,8 +36,9 @@ function TrafficLightButton({ action, label, onClick }: TrafficLightButtonProps)
   const Icon = TRAFFIC_LIGHT_ICON[action];
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="xs"
       title={label}
       aria-label={label}
       onClick={onClick}
@@ -44,12 +46,12 @@ function TrafficLightButton({ action, label, onClick }: TrafficLightButtonProps)
         event.stopPropagation();
         event.currentTarget.focus();
       }}
-      className="group flex h-8 w-8 items-center justify-center rounded-full outline-none transition [-webkit-app-region:no-drag] focus-visible:ring-2 focus-visible:ring-white/25"
+      className="group h-8 w-8 px-0 outline-none [-webkit-app-region:no-drag] focus-visible:ring-2 focus-visible:ring-white/25"
     >
-      <span className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border ${TRAFFIC_LIGHT_STYLE[action]}`}>
-        <Icon size={8} strokeWidth={3} className="opacity-0 transition group-hover:opacity-80" />
-      </span>
-    </button>
+      <Box className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border ${TRAFFIC_LIGHT_STYLE[action]}`}>
+        <Icon size={8} strokeWidth={4} className="opacity-0 transition group-hover:opacity-80" />
+      </Box>
+    </Button>
   );
 }
 
@@ -57,22 +59,26 @@ export function MacTitleBar({ title, rightSlot, className = "", onQuit, onMinimi
   const { t } = useTranslation();
 
   return (
-    <div
+    <Box
       role="toolbar"
       aria-label={t("titleBar.label")}
       className={`grid h-11 shrink-0 grid-cols-[12rem_minmax(0,1fr)_12rem] items-center border-b border-white/10 bg-[#0b1020]/95 text-slate-300 [-webkit-app-region:drag] ${className}`}
     >
-      <div className="flex items-center gap-0.5 px-2">
+      <Inline gap="xs" className="px-2">
         <TrafficLightButton action="quit" label={t("titleBar.quit")} onClick={onQuit} />
         <TrafficLightButton action="minimize" label={t("titleBar.minimize")} onClick={onMinimize} />
         <TrafficLightButton action="maximize" label={t("titleBar.maximize")} onClick={onMaximize} />
-      </div>
+      </Inline>
 
-      <div className="pointer-events-none min-w-0 text-center">
-        <span className="block truncate text-xs font-semibold text-slate-400">{title ?? t("common.appName")}</span>
-      </div>
+      <Box className="pointer-events-none min-w-0 text-center">
+        <InlineText tone="muted" size="xs" truncate className="block font-semibold">
+          {title ?? t("common.appName")}
+        </InlineText>
+      </Box>
 
-      <div className="flex min-w-0 justify-end px-4 [-webkit-app-region:no-drag]">{rightSlot}</div>
-    </div>
+      <Inline justify="end" className="min-w-0 px-4 [-webkit-app-region:no-drag]">
+        {rightSlot}
+      </Inline>
+    </Box>
   );
 }

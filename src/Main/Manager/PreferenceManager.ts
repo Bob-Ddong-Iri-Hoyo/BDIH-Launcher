@@ -1,9 +1,11 @@
-import { readUserSettings, writeUserSettings } from "../FileIO/IO";
+import { readConfigFile, readUserSettings, writeUserSettings } from "../FileIO/IO";
 import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LauncherLogLevel, LAUNCHER_SHORTCUT_ACTIONS, LauncherPreferencePayload, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
 import {
   get_default_bottle_prefix_path,
   get_default_dxmt_cache_path,
   get_default_wine_install_path,
+  get_legacy_settings_path,
+  is_dev_resource_environment,
 } from "../Environment/AppPaths";
 
 export type LauncherPreference = LauncherPreferencePayload;
@@ -70,7 +72,30 @@ export class PreferenceManager {
       return this.normalizePreference(JSON.parse(data));
     } catch (error) {
       if (this.isMissingFileError(error)) {
+        const legacyPreference = await this.loadLegacyPreference();
+
+        if (legacyPreference) {
+          return legacyPreference;
+        }
+
         return DEFAULT_LAUNCHER_PREFERENCE;
+      }
+
+      throw error;
+    }
+  }
+
+  private async loadLegacyPreference(): Promise<LauncherPreference | null> {
+    if (!is_dev_resource_environment()) {
+      return null;
+    }
+
+    try {
+      const data = await readConfigFile(get_legacy_settings_path());
+      return this.normalizePreference(JSON.parse(data));
+    } catch (error) {
+      if (this.isMissingFileError(error)) {
+        return null;
       }
 
       throw error;

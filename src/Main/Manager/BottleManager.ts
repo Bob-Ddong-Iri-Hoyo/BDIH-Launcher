@@ -10,7 +10,14 @@ import {
   InstalledBottleAppPayload,
 } from "../../Common/Types/IPC";
 import { HOYOPLAY_ICON_URL, STEAM_GAME_LAUNCH_ARGUMENT, STEAM_ICON_URL } from "../../Common/Constant/RuntimeSources";
-import { get_bottle_registry_path } from "../Environment/AppPaths";
+import { readConfigFile } from "../FileIO/IO";
+import {
+  get_bottle_registry_path,
+  get_legacy_bottle_prefix_paths,
+  get_legacy_bottle_registry_paths,
+  get_legacy_settings_path,
+  is_dev_resource_environment,
+} from "../Environment/AppPaths";
 import { preferenceManager } from "./PreferenceManager";
 
 const REGISTRY_VERSION = 1;
@@ -148,44 +155,70 @@ export class BottleManager {
   }
 
   private async loadRegistryState(): Promise<BottleRegistryState> {
-    const registryPath = get_bottle_registry_path();
+    const registryPaths = unique_paths([
+      get_bottle_registry_path(),
+      ...get_legacy_bottle_registry_paths(),
+    ]);
+    const states: BottleRegistryState[] = [];
+
+    for (const registryPath of registryPaths) {
+      try {
+        states.push(parse_registry_state(await readFile(registryPath, "utf8")));
+      } catch (error) {
+        if (is_missing_file_error(error)) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    if (states.length === 0) {
+      return {
+        bottles: [],
+        deletedBottleKeys: [],
+      };
+    }
+
+    return merge_registry_states(states);
+  }
+
+  private async scanDefaultPrefixBottles(): Promise<BottleMetadataPayload[]> {
+    const preference = await preferenceManager.getPreference();
+    const legacyPreferencePrefixPaths = await this.loadLegacyPreferenceBottlePrefixPaths();
+    const prefixRoots = unique_paths([
+      preference.bottlePrefixPath,
+      ...legacyPreferencePrefixPaths,
+      ...get_legacy_bottle_prefix_paths(),
+    ].map(expand_user_home_path));
+
+    const bottleGroups = await Promise.all(
+      prefixRoots.map((prefixRoot) => this.scanPrefixRootBottles(prefixRoot)),
+    );
+
+    return merge_bottles([], bottleGroups.flat());
+  }
+
+  private async loadLegacyPreferenceBottlePrefixPaths(): Promise<string[]> {
+    if (!is_dev_resource_environment()) {
+      return [];
+    }
 
     try {
-      const raw = await readFile(registryPath, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
-      const candidate = is_record(parsed) && Array.isArray(parsed.bottles)
-          ? parsed.bottles
-          : Array.isArray(parsed)
-            ? parsed
-            : [];
-      const deletedBottleKeys = is_record(parsed)
-        ? normalize_deleted_bottle_keys([
-            ...array_of_strings(parsed.deletedBottleKeys),
-            ...array_of_strings(parsed.deletedBottleIds).map((id) => `id:${id}`),
-            ...array_of_strings(parsed.deletedBottlePaths).map((targetPath) => bottle_path_key(targetPath)),
-          ])
-        : [];
+      const parsed = JSON.parse(await readConfigFile(get_legacy_settings_path())) as unknown;
+      const bottlePrefixPath = is_record(parsed) ? optional_string(parsed.bottlePrefixPath) : undefined;
 
-      return {
-        bottles: normalize_bottle_array(candidate),
-        deletedBottleKeys,
-      };
+      return bottlePrefixPath ? [bottlePrefixPath] : [];
     } catch (error) {
       if (is_missing_file_error(error)) {
-        return {
-          bottles: [],
-          deletedBottleKeys: [],
-        };
+        return [];
       }
 
       throw error;
     }
   }
 
-  private async scanDefaultPrefixBottles(): Promise<BottleMetadataPayload[]> {
-    const preference = await preferenceManager.getPreference();
-    const prefixRoot = expand_user_home_path(preference.bottlePrefixPath);
-
+  private async scanPrefixRootBottles(prefixRoot: string): Promise<BottleMetadataPayload[]> {
     if (!existsSync(prefixRoot)) {
       return [];
     }
@@ -227,6 +260,37 @@ export class BottleManager {
       return [];
     }
   }
+}
+
+function parse_registry_state(raw: string): BottleRegistryState {
+  const parsed = JSON.parse(raw) as unknown;
+  const candidate = is_record(parsed) && Array.isArray(parsed.bottles)
+      ? parsed.bottles
+      : Array.isArray(parsed)
+        ? parsed
+        : [];
+  const deletedBottleKeys = is_record(parsed)
+    ? normalize_deleted_bottle_keys([
+        ...array_of_strings(parsed.deletedBottleKeys),
+        ...array_of_strings(parsed.deletedBottleIds).map((id) => `id:${id}`),
+        ...array_of_strings(parsed.deletedBottlePaths).map((targetPath) => bottle_path_key(targetPath)),
+      ])
+    : [];
+
+  return {
+    bottles: normalize_bottle_array(candidate),
+    deletedBottleKeys,
+  };
+}
+
+function merge_registry_states(states: BottleRegistryState[]): BottleRegistryState {
+  return {
+    bottles: states.reduceRight<BottleMetadataPayload[]>(
+      (mergedBottles, state) => merge_bottles(state.bottles, mergedBottles),
+      [],
+    ),
+    deletedBottleKeys: normalize_deleted_bottle_keys(states.flatMap((state) => state.deletedBottleKeys)),
+  };
 }
 
 function normalize_bottle_array(value: unknown): BottleMetadataPayload[] {
@@ -709,6 +773,10 @@ function expand_user_home_path(targetPath: string): string {
   }
 
   return targetPath;
+}
+
+function unique_paths(paths: string[]): string[] {
+  return [...new Set(paths.map((targetPath) => path.resolve(targetPath)))];
 }
 
 function is_record(value: unknown): value is Record<string, unknown> {
