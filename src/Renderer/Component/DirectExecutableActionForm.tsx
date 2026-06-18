@@ -16,6 +16,13 @@ import {
   Text,
 } from "./Primitives";
 
+/**
+ * Form body for direct executable launching.
+ *
+ * Use this inside the direct launch dialog. It owns path entry, argument entry,
+ * browse/autocomplete interactions, and validation presentation for executable
+ * paths while leaving launch side effects to the parent.
+ */
 export function DirectExecutableActionForm({
   runner,
 }: {

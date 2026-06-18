@@ -1,6 +1,12 @@
 import React from "react";
 import { IconSlot, ImageFrame, InlineText, PrimitiveImage } from "./Primitives";
 
+/**
+ * Small favicon-style icon frame.
+ *
+ * Use this for launcher/site shortcuts where the source image may be remote or
+ * missing and the UI still needs a consistent compact fallback frame.
+ */
 export function FaviconIcon({ src, label }: { src: string; label: string }) {
   const [hasError, setHasError] = React.useState(false);
 

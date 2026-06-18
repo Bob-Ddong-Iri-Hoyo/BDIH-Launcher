@@ -3,11 +3,23 @@ import { createPortal } from "react-dom";
 import { LucideIcon } from "lucide-react";
 import { Box, Button, InlineText, Stack } from "./Primitives";
 
+/**
+ * Screen-space position for a context menu anchor.
+ *
+ * Values should come from mouse or pointer client coordinates so the menu can
+ * clamp itself inside the visible viewport.
+ */
 export interface ContextMenuPosition {
   x: number;
   y: number;
 }
 
+/**
+ * Declarative context menu item definition.
+ *
+ * Use this shape to keep menu rendering independent from the feature that owns
+ * each action, including disabled, danger, and separator states.
+ */
 export interface ContextMenuItem {
   id: string;
   label: string;
@@ -18,6 +30,12 @@ export interface ContextMenuItem {
   onSelect: () => void;
 }
 
+/**
+ * Props for a floating context menu.
+ *
+ * Provide `open`, a viewport position, and a stable item list. The menu owns
+ * outside-click and escape handling, while the caller owns action side effects.
+ */
 export interface ContextMenuProps {
   open: boolean;
   position?: ContextMenuPosition;
@@ -30,6 +48,13 @@ export interface ContextMenuProps {
 const MENU_MARGIN = 8;
 const DEFAULT_WIDTH = 220;
 
+/**
+ * Floating right-click menu used by bottle and app cards.
+ *
+ * Use this when an interaction needs quick secondary actions without opening a
+ * full dialog. Keep destructive work in the item callback so confirmation can
+ * stay feature-specific.
+ */
 export function ContextMenu({
   open,
   position,

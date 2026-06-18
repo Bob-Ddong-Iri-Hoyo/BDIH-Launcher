@@ -6,6 +6,12 @@ import { Dialog } from "./Dialog";
 import { InfoRow } from "./InfoRow";
 import { Box, Button, Inline, Text } from "./Primitives";
 
+/**
+ * Bottle recipe detail dialog.
+ *
+ * Use this to show the runtime recipe attached to a bottle, including Wine,
+ * DXMT, and prefix location, without crowding the main bottle app grid.
+ */
 export function RecipeDialog({
   bottle,
   open,

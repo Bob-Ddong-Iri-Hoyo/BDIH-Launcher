@@ -9,15 +9,28 @@ import {
 } from "lucide-react";
 import { Badge, Box, Button, CodeBlock, Input, Inline, InlineText, RelativeBox, Select, SelectMenuOption, Stack, Text } from "./Primitives";
 
+/** Supported severity levels rendered by the log viewer. */
 export type LogLevel = "debug" | "info" | "warn" | "error";
+/** Severity filter value used by the log toolbar. */
 export type LogLevelFilter = "all" | LogLevel;
+/** Physical/logical log file category. */
 export type LogFileCategory = "app" | "bottle" | "wine";
+/** Category filter value used by the log toolbar. */
 export type LogCategoryFilter = "all" | LogFileCategory;
+/** Source filter value. `all` keeps every source visible. */
 export type LogSourceFilter = "all" | string;
+/** Session grouping kind used for app-wide and bottle-scoped logs. */
 export type LogSessionKind = "app" | "bottle";
+/** Controls whether the current log target is selectable or read-only. */
 export type LogTargetDisplayMode = "picker" | "label";
 type LogTargetKind = "app" | "bottle";
 
+/**
+ * Selectable target for a log viewer instance.
+ *
+ * Use targets when one log screen can pivot between app logs, bottle logs, and
+ * Wine sessions while keeping filtering state in the same component.
+ */
 export interface LogTarget {
   id: string;
   label: string;
@@ -27,6 +40,7 @@ export interface LogTarget {
   runningCount: number;
 }
 
+/** Normalized log entry rendered by the log viewer. */
 export interface LogEntry {
   id: string;
   sessionId?: string;
@@ -40,6 +54,7 @@ export interface LogEntry {
   detail?: string;
 }
 
+/** Metadata for a log session and its backing file location. */
 export interface LogSession {
   id: string;
   label: string;
@@ -54,12 +69,19 @@ export interface LogSession {
   isRunning?: boolean;
 }
 
+/** Select option for filtering logs by source. */
 export interface LogSourceOption {
   id: string;
   label: string;
   count?: number;
 }
 
+/**
+ * Props for the full log viewer.
+ *
+ * The parent supplies entries, sessions, and file actions. LogViewer owns only
+ * presentation, filtering, stick-to-bottom behavior, and target selection.
+ */
 export interface LogViewerProps {
   entries: LogEntry[];
   sessions: LogSession[];
@@ -96,6 +118,12 @@ const LEVEL_LABEL: Record<LogLevelFilter, string> = {
 const LEVELS: LogLevelFilter[] = ["all", "debug", "info", "warn", "error"];
 const LOG_BOTTOM_STICKY_THRESHOLD = 32;
 
+/**
+ * Full-featured log viewer with filters, target picker, and file actions.
+ *
+ * Use this for live app/bottle/Wine logs where users need to inspect recent
+ * output, jump to the bottom, reveal files, or open the backing log file.
+ */
 export function LogViewer({
   entries,
   sessions,
@@ -680,6 +708,7 @@ function LogSessionContextMenu({
   );
 }
 
+/** Props for the scrollable raw log text panel used by LogViewer. */
 export interface LogTextPanelProps {
   text: string;
   entries?: LogEntry[];
@@ -687,6 +716,12 @@ export interface LogTextPanelProps {
   scrollScopeKey?: string;
 }
 
+/**
+ * Scrollable log text panel.
+ *
+ * Use it when log entries are already filtered and formatted, and the UI only
+ * needs a stable, sticky-bottom capable text viewport.
+ */
 export function LogTextPanel({
   text,
   entries = [],
@@ -994,10 +1029,12 @@ function log_file_name(session: LogSession) {
   return `${owner}-${datePart}.log`;
 }
 
+/** Returns the best direct file path for a log session, if one is available. */
 export function log_session_file_path(session: LogSession): string | undefined {
   return log_session_file_target(session);
 }
 
+/** Returns the best path to reveal in Finder for a log session. */
 export function log_session_reveal_path(session: LogSession): string | undefined {
   return log_session_reveal_target(session);
 }

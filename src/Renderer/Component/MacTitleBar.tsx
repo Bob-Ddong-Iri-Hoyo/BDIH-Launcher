@@ -3,6 +3,12 @@ import { Maximize2, Minus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Box, Button, Inline, InlineText } from "./Primitives";
 
+/**
+ * Props for the macOS-style custom title bar.
+ *
+ * Use this interface when a renderer window needs draggable chrome while still
+ * allowing caller-owned action slots and native window control callbacks.
+ */
 export interface MacTitleBarProps {
   title?: string;
   rightSlot?: React.ReactNode;
@@ -55,6 +61,12 @@ function TrafficLightButton({ action, label, onClick }: TrafficLightButtonProps)
   );
 }
 
+/**
+ * macOS-style frameless title bar used by Electron windows.
+ *
+ * Use it at the top of a window layout when the window keeps a custom title
+ * area but still needs familiar close, minimize, and maximize affordances.
+ */
 export function MacTitleBar({ title, rightSlot, className = "", onQuit, onMinimize, onMaximize }: MacTitleBarProps) {
   const { t } = useTranslation();
 

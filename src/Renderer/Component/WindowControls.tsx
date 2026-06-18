@@ -2,6 +2,13 @@ import { Maximize2, Minus, Power, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Box, Button, Inline, InlineText } from "./Primitives";
 
+/**
+ * Props for the compact window control cluster.
+ *
+ * Pass only the handlers supported by the current window; missing handlers keep
+ * the visual control present but inert when the surrounding title bar requires
+ * stable spacing.
+ */
 export interface WindowControlsProps {
   onRefresh?: () => void;
   onMinimize?: () => void;
@@ -10,6 +17,12 @@ export interface WindowControlsProps {
   className?: string;
 }
 
+/**
+ * Compact window action buttons for refresh, minimize, maximize, and quit.
+ *
+ * Use this inside custom title bars or utility panels where the controls should
+ * feel native to the launcher instead of inheriting browser default buttons.
+ */
 export function WindowControls({ onRefresh, onMinimize, onMaximize, onQuit, className = "" }: WindowControlsProps) {
   const { t } = useTranslation();
 

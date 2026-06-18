@@ -7,6 +7,12 @@ import { ProgressBar } from "./ProgressBar";
 import { Box, Button, Checkbox, IconSlot, Inline, InlineText, Stack, Text } from "./Primitives";
 import { StatusBadge, StatusTone } from "./StatusBadge";
 
+/**
+ * Props for the app update preference panel.
+ *
+ * The parent owns update checks and auto-update persistence; this component only
+ * renders current status and exposes user intent through callbacks.
+ */
 export interface AppUpdatePanelProps {
   autoUpdateEnabled: boolean;
   status?: AppUpdateStatusPayload;
@@ -52,6 +58,12 @@ function dialog_tone_from_status(status?: AppUpdateStatusPayload["status"]) {
   return "info";
 }
 
+/**
+ * App update status and manual check panel.
+ *
+ * Use it inside preferences when users need to enable startup checks, trigger a
+ * manual check, and read the result in a modal without leaving the settings UI.
+ */
 export function AppUpdatePanel({
   autoUpdateEnabled,
   status,

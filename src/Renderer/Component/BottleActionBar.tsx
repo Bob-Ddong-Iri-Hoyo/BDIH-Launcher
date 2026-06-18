@@ -7,6 +7,12 @@ import { DirectExecutableAction } from "./DirectExecutableAction";
 import { FaviconIcon } from "./FaviconIcon";
 import { Box, Button, InlineText } from "./Primitives";
 
+/**
+ * Quick action row for the currently selected bottle.
+ *
+ * Use this above or beside bottle metadata when the user needs launcher install
+ * shortcuts and a direct executable launcher for the same bottle context.
+ */
 export function BottleActionBar({
   bottle,
   wineRuntimePath,

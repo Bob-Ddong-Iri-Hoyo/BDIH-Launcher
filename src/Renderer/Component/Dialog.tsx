@@ -2,10 +2,19 @@ import React from "react";
 import { AlertTriangle, CheckCircle2, Info, LucideIcon, X } from "lucide-react";
 import { Box, Button, Inline, Stack, Surface, Text } from "./Primitives";
 
+/** Visual tone applied to dialog chrome, icon treatment, and action emphasis. */
 export type DialogTone = "neutral" | "info" | "success" | "warning" | "danger";
+/** Button treatment for dialog actions. Use `danger` only for destructive confirmation. */
 export type DialogActionVariant = "primary" | "secondary" | "danger";
+/** Dialog placement preset. `center` is best for decisions; `top` is best for lightweight notices. */
 export type DialogPlacement = "top" | "center";
 
+/**
+ * Declarative action shown in a dialog footer.
+ *
+ * Prefer actions over embedding custom buttons in dialog content so keyboard
+ * focus, visual hierarchy, and disabled states remain consistent.
+ */
 export interface DialogAction {
   label: string;
   icon?: LucideIcon;
@@ -15,6 +24,12 @@ export interface DialogAction {
   onClick: () => void;
 }
 
+/**
+ * Props for the shared launcher dialog.
+ *
+ * Use Dialog for modal choices, confirmations, and compact detail panels. Keep
+ * long-running workflows in the parent and pass status through content/actions.
+ */
 export interface DialogProps {
   open: boolean;
   title: string;
@@ -31,6 +46,12 @@ export interface DialogProps {
   className?: string;
 }
 
+/**
+ * Props for rendering a route-owned dialog beside normal page content.
+ *
+ * Use DialogHost when a view needs to keep its content mounted while layering a
+ * single optional dialog over it.
+ */
 export interface DialogHostProps {
   children: React.ReactNode;
   dialog?: React.ReactNode;
@@ -75,6 +96,12 @@ const ACTION_CLASS_MAP: Record<DialogActionVariant, string> = {
   danger: "border-red-400/25 bg-red-500/15 text-red-100 hover:bg-red-500/25",
 };
 
+/**
+ * Simple host that renders page content and an optional dialog sibling.
+ *
+ * This keeps dialog ownership near the feature while avoiding repeated fragment
+ * boilerplate in high-level views.
+ */
 export function DialogHost({ children, dialog }: DialogHostProps) {
   return (
     <>
@@ -84,6 +111,12 @@ export function DialogHost({ children, dialog }: DialogHostProps) {
   );
 }
 
+/**
+ * Shared modal dialog component.
+ *
+ * Use it for focused decisions or detail views that should block interaction
+ * with the underlying page until the user closes or completes the dialog.
+ */
 export function Dialog({
   open,
   title,

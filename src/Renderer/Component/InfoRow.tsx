@@ -1,5 +1,6 @@
 import { Surface, Text } from "./Primitives";
 
+/** Props for compact label/value rows used in detail dialogs. */
 export interface InfoRowProps {
   label: string;
   value?: string;
@@ -8,6 +9,12 @@ export interface InfoRowProps {
   onClickValue?: (value: string) => void;
 }
 
+/**
+ * Compact label/value display row.
+ *
+ * Use this in dialogs or metadata panels when values should align consistently
+ * and long paths or version strings need safe truncation/wrapping.
+ */
 export function InfoRow({
   label,
   value,

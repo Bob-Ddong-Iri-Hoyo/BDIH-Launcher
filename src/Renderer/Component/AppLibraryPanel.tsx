@@ -11,6 +11,13 @@ import { ImageButton } from "./ImageButton";
 import { Box, CodeBlock, Inline, Stack, Text } from "./Primitives";
 import { StatusBadge } from "./StatusBadge";
 
+/**
+ * Bottle-scoped application grid.
+ *
+ * Use this inside a selected bottle detail view to show discovered launchers and
+ * games, launch apps, open per-app context actions, and inspect compact app
+ * logs without mixing bottle metadata controls into the app grid.
+ */
 export function AppLibraryPanel({
   bottle,
   selectedWineVersionId,

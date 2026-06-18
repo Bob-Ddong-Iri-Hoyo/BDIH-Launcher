@@ -2,6 +2,12 @@ import React from "react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "./Primitives";
 
+/**
+ * Props for compact icon-only or icon-forward buttons.
+ *
+ * Use this wrapper when the action is primarily represented by an icon and
+ * needs consistent tooltip, label, selected, or danger treatment.
+ */
 export interface IconButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
   icon: LucideIcon;
   label: string;
@@ -13,6 +19,12 @@ const SIZE_CLASS_MAP = {
   md: "w-10",
 };
 
+/**
+ * Reusable icon button for compact toolbars.
+ *
+ * Use it when a normal text button would add noise but the action still needs a
+ * stable accessible label and consistent launcher styling.
+ */
 export function IconButton({
   icon: Icon,
   label,

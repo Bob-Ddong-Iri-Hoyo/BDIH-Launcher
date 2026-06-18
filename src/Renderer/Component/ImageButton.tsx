@@ -17,12 +17,23 @@ import {
   Text,
 } from "./Primitives";
 
+/** Visual presets for image-backed buttons. */
 export type ImageButtonPreset = "app" | "compact" | "tile";
+/** Border radius preset for image-backed button surfaces. */
 export type ImageButtonRadius = "sm" | "md" | "lg" | "xl" | "full";
+/** Border treatment preset for image-backed button surfaces. */
 export type ImageButtonBorder = "none" | "subtle" | "strong" | "glow";
+/** Image crop shape used inside ImageButton. */
 export type ImageButtonImageShape = "rounded" | "circle";
+/** Image size preset used inside ImageButton. */
 export type ImageButtonImageSize = "sm" | "md" | "lg";
 
+/**
+ * Props for a rich image-backed action button.
+ *
+ * Use this for app/game launch tiles where an icon, status ring, subtitle, and
+ * contextual launch state need to behave as one accessible button.
+ */
 export interface ImageButtonProps {
   id?: string;
   src?: string;
@@ -45,6 +56,12 @@ export interface ImageButtonProps {
   onContextMenu?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
+/**
+ * Rich image-backed button for apps, launchers, and visual tiles.
+ *
+ * Prefer this over composing primitives manually when the action should feel
+ * like a CrossOver-style app icon with running/error/active affordances.
+ */
 export function ImageButton({
   src,
   name = "Untitled",

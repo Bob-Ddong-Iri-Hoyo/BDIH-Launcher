@@ -57,6 +57,7 @@ const CHARACTER_BOTTLE_NAMES = [
   "Yuki",
 ];
 
+/** Maps bottle lifecycle state to the shared status badge tone. */
 export function tone_from_bottle_status(
   status: Bottle["status"],
 ): "success" | "warning" | "info" {
@@ -90,6 +91,12 @@ function generate_bottle_name() {
   return pick_random_item(CHARACTER_BOTTLE_NAMES);
 }
 
+/**
+ * Breadcrumb for navigating between the bottle library and a selected bottle.
+ *
+ * Use it in headers where the user should understand whether actions apply to
+ * all bottles or to the current bottle only.
+ */
 export function DashboardBreadcrumb({
   bottleName,
   onBottleHome,
@@ -131,6 +138,12 @@ export function DashboardBreadcrumb({
   );
 }
 
+/**
+ * Clickable bottle summary card.
+ *
+ * Use this in bottle grids to expose status, app count, selected runtime, and a
+ * right-click surface for bottle-level actions.
+ */
 export function BottleCard({
   bottle,
   onClick,
@@ -259,6 +272,12 @@ function BottleLibraryPanel({
   );
 }
 
+/**
+ * Bottle dashboard home view.
+ *
+ * Use this when no bottle is selected. It combines the bottle library, installed
+ * runtime dialog, runtime downloads, and create-bottle affordance.
+ */
 export function DashboardHomePanel({
   wineVersions,
   dxmtVersions,
@@ -499,6 +518,12 @@ function RuntimeEmptyMessage({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Detail view for a single selected bottle.
+ *
+ * Use this after bottle selection to show installed apps first, then compact
+ * bottle metadata, setup progress, recipe details, and bottle-scoped actions.
+ */
 export function BottleDetailPanel({
   bottle,
   selectedWineVersionId,
@@ -621,6 +646,13 @@ export function BottleDetailPanel({
   );
 }
 
+/**
+ * Modal form for creating a bottle.
+ *
+ * Use it when collecting the bottle name, prefix root, Wine runtime, DXMT
+ * runtime, and optional description before handing a normalized creation input
+ * back to the store or main process.
+ */
 export function CreateBottleDialog({
   open,
   wineVersions,

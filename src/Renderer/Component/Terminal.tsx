@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Box } from "./Primitives";
 
+/** Props for embedding the xterm terminal viewport. */
 export interface XTermTerminalProps {
   className?: string;
   height?: string | number;

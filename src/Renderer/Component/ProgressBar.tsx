@@ -2,6 +2,12 @@ import React from "react";
 import { ProtoComponentProps } from "../Common/ProtoProps";
 import { Inline, ProgressBar as PrimitiveProgressBar, Stack, Text } from "./Primitives";
 
+/**
+ * Compatibility props for the higher-level progress bar wrapper.
+ *
+ * Use this wrapper when existing Components expect `progressValue`, visible
+ * percentages, or description text on top of the primitive progress track.
+ */
 export interface ProgressBarProps extends ProtoComponentProps {
   progressValue: number | string;
   progressMinValue?: number | string;
@@ -23,6 +29,12 @@ const TONE_MAP = {
   rose: "rose",
 } as const;
 
+/**
+ * Progress indicator with optional label and percentage text.
+ *
+ * Use this for task progress where users need both a visual track and readable
+ * context. Use the primitive ProgressBar directly when only the track is needed.
+ */
 export function ProgressBar({
   progressValue,
   progressMinValue,

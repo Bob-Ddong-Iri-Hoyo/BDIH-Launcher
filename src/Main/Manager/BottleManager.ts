@@ -46,9 +46,8 @@ export class BottleManager {
   async saveBottleList(payload: BottleListPayload): Promise<BottleListPayload> {
     const incomingBottles = normalize_bottle_array(payload?.bottles);
     const registry = await this.loadRegistryState();
-    const deletedBottleKeys = resolve_deleted_bottle_keys(
+    const deletedBottleKeys = deleted_keys_without_incoming_bottles(
       registry.deletedBottleKeys,
-      this.cache ?? registry.bottles,
       incomingBottles,
     );
     const bottles = await this.buildBottleList(incomingBottles, {
@@ -119,10 +118,9 @@ export class BottleManager {
     const registryState = registry ?? await this.loadRegistryState();
     const deletedBottleKeys = new Set(registryState.deletedBottleKeys);
     const registryBottles = registryState.bottles.filter((bottle) => !is_deleted_bottle(bottle, deletedBottleKeys));
-    const scannedBottles = await this.scanDefaultPrefixBottles();
-    const visibleScannedBottles = scannedBottles.filter((bottle) => !is_deleted_bottle(bottle, deletedBottleKeys));
+    const scannedBottles = await this.scanDefaultPrefixBottles(registryState.bottles);
     const visibleIncomingBottles = incomingBottles.filter((bottle) => !is_deleted_bottle(bottle, deletedBottleKeys));
-    const registryAndScannedBottles = merge_bottles(registryBottles, visibleScannedBottles);
+    const registryAndScannedBottles = merge_bottles(registryBottles, scannedBottles);
     const mergedBottles = merge_bottles(visibleIncomingBottles, registryAndScannedBottles);
     const enrichedBottles = await Promise.all(mergedBottles.map((bottle) => enrich_bottle_apps_from_prefix(bottle)));
 
@@ -169,6 +167,10 @@ export class BottleManager {
           continue;
         }
 
+        if (error instanceof SyntaxError) {
+          continue;
+        }
+
         throw error;
       }
     }
@@ -183,13 +185,18 @@ export class BottleManager {
     return merge_registry_states(states);
   }
 
-  private async scanDefaultPrefixBottles(): Promise<BottleMetadataPayload[]> {
+  private async scanDefaultPrefixBottles(registryBottles: BottleMetadataPayload[] = []): Promise<BottleMetadataPayload[]> {
     const preference = await preferenceManager.getPreference();
     const legacyPreferencePrefixPaths = await this.loadLegacyPreferenceBottlePrefixPaths();
+    const registryBottlePaths = registryBottles
+      .map((bottle) => optional_string(bottle.path))
+      .filter((bottlePath): bottlePath is string => Boolean(bottlePath));
     const prefixRoots = unique_paths([
       preference.bottlePrefixPath,
       ...legacyPreferencePrefixPaths,
       ...get_legacy_bottle_prefix_paths(),
+      ...registryBottlePaths,
+      ...registryBottlePaths.map((bottlePath) => path.dirname(expand_user_home_path(bottlePath))),
     ].map(expand_user_home_path));
 
     const bottleGroups = await Promise.all(
@@ -224,40 +231,50 @@ export class BottleManager {
     }
 
     try {
+      const rootBottle = await this.readPrefixBottleCandidate(prefixRoot, path.basename(prefixRoot));
       const entries = await readdir(prefixRoot, { withFileTypes: true });
       const bottles = await Promise.all(
         entries
           .filter((entry) => entry.isDirectory())
-          .map(async (entry) => {
-            const bottlePath = path.join(prefixRoot, entry.name);
-            const metadataPath = path.join(bottlePath, "bdih-bottle.json");
-
-            try {
-              if (existsSync(metadataPath)) {
-                const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as unknown;
-                const normalized = normalize_bottle(metadata, bottlePath);
-
-                if (normalized) {
-                  return normalized;
-                }
-              }
-
-              const stats = await stat(bottlePath);
-              const scannedBottle = create_scanned_bottle(entry.name, bottlePath, stats.birthtime.toISOString());
-              await write_prefix_metadata(scannedBottle);
-              return scannedBottle;
-            } catch {
-              const stats = await stat(bottlePath);
-              const scannedBottle = create_scanned_bottle(entry.name, bottlePath, stats.birthtime.toISOString());
-              await write_prefix_metadata(scannedBottle);
-              return scannedBottle;
-            }
-          }),
+          .map((entry) => this.readPrefixBottleCandidate(path.join(prefixRoot, entry.name), entry.name)),
       );
 
-      return bottles.filter((bottle): bottle is BottleMetadataPayload => Boolean(bottle));
+      return merge_bottles([], [rootBottle, ...bottles].filter((bottle): bottle is BottleMetadataPayload => Boolean(bottle)));
     } catch {
       return [];
+    }
+  }
+
+  private async readPrefixBottleCandidate(bottlePath: string, fallbackName: string): Promise<BottleMetadataPayload | null> {
+    const metadataPath = path.join(bottlePath, "bdih-bottle.json");
+
+    try {
+      if (existsSync(metadataPath)) {
+        const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as unknown;
+        const normalized = normalize_bottle(metadata, bottlePath);
+
+        if (normalized) {
+          return normalized;
+        }
+      }
+
+      if (!is_bottle_prefix_path(bottlePath)) {
+        return null;
+      }
+
+      const stats = await stat(bottlePath);
+      const scannedBottle = create_scanned_bottle(fallbackName, bottlePath, stats.birthtime.toISOString());
+      await write_prefix_metadata(scannedBottle);
+      return scannedBottle;
+    } catch {
+      if (!is_bottle_prefix_path(bottlePath)) {
+        return null;
+      }
+
+      const createdAt = await safe_bottle_created_at(bottlePath);
+      const scannedBottle = create_scanned_bottle(fallbackName, bottlePath, createdAt);
+      await write_prefix_metadata(scannedBottle);
+      return scannedBottle;
     }
   }
 }
@@ -340,9 +357,8 @@ function normalize_bottle(value: unknown, fallbackPath = ""): BottleMetadataPayl
   };
 }
 
-function resolve_deleted_bottle_keys(
+function deleted_keys_without_incoming_bottles(
   existingDeletedBottleKeys: string[],
-  previousBottles: BottleMetadataPayload[],
   incomingBottles: BottleMetadataPayload[],
 ): string[] {
   const deletedBottleKeys = new Set(normalize_deleted_bottle_keys(existingDeletedBottleKeys));
@@ -350,16 +366,6 @@ function resolve_deleted_bottle_keys(
 
   for (const key of incomingBottleKeys) {
     deletedBottleKeys.delete(key);
-  }
-
-  for (const bottle of previousBottles) {
-    if (bottle_has_any_identity_key(bottle, incomingBottleKeys)) {
-      continue;
-    }
-
-    for (const key of bottle_identity_keys(bottle)) {
-      deletedBottleKeys.add(key);
-    }
   }
 
   return normalize_deleted_bottle_keys([...deletedBottleKeys]);
@@ -474,18 +480,18 @@ function merge_bottles(
 
   for (const bottle of scannedBottles) {
     merged.set(bottle.id, bottle);
-    merged.set(bottle.path, bottle);
+    merged.set(bottle_path_key(bottle.path), bottle);
   }
 
   for (const bottle of registryBottles) {
-    const previous = merged.get(bottle.id) ?? merged.get(bottle.path);
+    const previous = merged.get(bottle.id) ?? merged.get(bottle_path_key(bottle.path));
     const next = previous ? { ...previous, ...bottle, apps: merge_apps(previous.apps, bottle.apps) } : bottle;
 
     merged.set(next.id, next);
-    merged.set(next.path, next);
+    merged.set(bottle_path_key(next.path), next);
   }
 
-  return [...new Map([...merged.values()].map((bottle) => [bottle.id, bottle])).values()]
+  return [...new Map([...merged.values()].map((bottle) => [bottle_path_key(bottle.path), bottle])).values()]
     .sort((left, right) => string_or_default(right.updatedAt, "").localeCompare(string_or_default(left.updatedAt, "")));
 }
 
@@ -497,11 +503,26 @@ function create_scanned_bottle(name: string, bottlePath: string, createdAt: stri
     wineVersionId: "",
     path: bottlePath,
     prefixPath: path.dirname(bottlePath),
-    status: "needs-setup",
+    status: is_bottle_prefix_path(bottlePath) ? "ready" : "needs-setup",
     apps: [],
     createdAt,
     updatedAt: createdAt,
   };
+}
+
+function is_bottle_prefix_path(bottlePath: string): boolean {
+  return existsSync(path.join(bottlePath, "bdih-bottle.json"))
+    || existsSync(path.join(bottlePath, "system.reg"))
+    || existsSync(path.join(bottlePath, "user.reg"))
+    || existsSync(path.join(bottlePath, "drive_c"));
+}
+
+async function safe_bottle_created_at(bottlePath: string): Promise<string> {
+  try {
+    return (await stat(bottlePath)).birthtime.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
 }
 
 async function enrich_bottle_apps_from_prefix(bottle: BottleMetadataPayload): Promise<BottleMetadataPayload> {

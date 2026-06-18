@@ -81,7 +81,7 @@ export class IPCManager {
   private initBottleIPC(): void {
     ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.GET_LIST.channelName);
     ipcMain.handle(IPC_CHANNELS.BOTTLE.GET_LIST.channelName, async () => {
-      return this.bottles.getBottleList();
+      return this.bottles.getBottleList(true);
     });
 
     ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.SAVE_LIST.channelName);
@@ -229,6 +229,11 @@ export class IPCManager {
       IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName,
       async (_event, patch: LauncherPreferencePatch) => {
         const preference = await this.preferences.updatePreference(patch);
+
+        if (Object.prototype.hasOwnProperty.call(patch, "bottlePrefixPath")) {
+          this.bottles.clearCache();
+        }
+
         logManager.setMinLevel(
           preference.appLoggingLevel === "all"
             ? "debug"

@@ -5,6 +5,7 @@ import { WineVersion } from "../../Common/Types/Wine";
 import { Box, Button, IconSlot, Inline, InlineText, ProgressBar as PrimitiveProgressBar, Stack } from "./Primitives";
 import { StatusBadge, label_from_status, tone_from_status } from "./StatusBadge";
 
+/** Props for a full Wine version card used in runtime lists. */
 export interface WineVersionCardProps {
   version: WineVersion;
   isSelected?: boolean;
@@ -14,6 +15,12 @@ export interface WineVersionCardProps {
   onInstall?: (versionId: string) => void;
 }
 
+/**
+ * Full-size Wine runtime card.
+ *
+ * Use this when a view needs richer runtime presentation than the compact
+ * download rows, including selected state, install path, status, and progress.
+ */
 export function WineVersionCard({
   version,
   isSelected = false,

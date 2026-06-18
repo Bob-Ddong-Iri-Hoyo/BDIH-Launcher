@@ -7,6 +7,12 @@ import { Button } from "./Primitives";
 import { Dialog } from "./Dialog";
 import { DirectExecutableActionForm } from "./DirectExecutableActionForm";
 
+/**
+ * Direct executable launcher entry point for a bottle.
+ *
+ * Use this in bottle action bars when users need to run a manually selected EXE
+ * or register it as a reusable app without going through Steam or HoyoPlay.
+ */
 export function DirectExecutableAction({
   bottle,
   wineRuntimePath,

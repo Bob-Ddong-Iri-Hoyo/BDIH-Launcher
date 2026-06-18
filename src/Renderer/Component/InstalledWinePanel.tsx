@@ -5,6 +5,12 @@ import { Box, Button, Inline, Stack, Surface, Text } from "./Primitives";
 import { StatusBadge } from "./StatusBadge";
 import { WineVersionCard } from "./WineVersionCard";
 
+/**
+ * Props for rendering installed Wine runtime choices.
+ *
+ * The parent owns selection and installation state; this panel only filters and
+ * presents versions that are ready for bottle creation or launching.
+ */
 export interface InstalledWinePanelProps {
   wineVersions: WineVersion[];
   selectedWineVersionId?: string;
@@ -20,10 +26,17 @@ const VISIBLE_WINE_STATUSES = new Set([
   "completed",
 ]);
 
+/** Returns Wine versions that should appear in the installed-runtime picker. */
 export function get_visible_installed_wine_versions(wineVersions: WineVersion[]) {
   return wineVersions.filter((version) => VISIBLE_WINE_STATUSES.has(version.status));
 }
 
+/**
+ * Installed Wine runtime selector panel.
+ *
+ * Use it in runtime management dialogs or bottle creation surfaces when users
+ * need to see which Wine builds are installed and choose the active one.
+ */
 export function InstalledWinePanel({
   wineVersions,
   selectedWineVersionId,

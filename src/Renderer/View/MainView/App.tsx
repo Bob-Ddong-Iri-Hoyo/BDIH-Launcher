@@ -484,13 +484,17 @@ const App: React.FC = () => {
     let isMounted = true;
 
     async function load_bottle_metadata() {
-      const payload = (await window.BTIH_API?.invoke(
-        IPC_CHANNELS.BOTTLE.GET_LIST.channelName,
-        undefined as never,
-      )) as BottleListPayload | undefined;
+      try {
+        const payload = (await window.BTIH_API?.invoke(
+          IPC_CHANNELS.BOTTLE.GET_LIST.channelName,
+          undefined as never,
+        )) as BottleListPayload | undefined;
 
-      if (isMounted && payload?.bottles) {
-        setBottles(payload.bottles.map(strip_transient_launcher_tasks));
+        if (isMounted && payload?.bottles) {
+          setBottles(payload.bottles.map(strip_transient_launcher_tasks));
+        }
+      } catch (error) {
+        console.error("Failed to load bottle metadata:", error);
       }
     }
 

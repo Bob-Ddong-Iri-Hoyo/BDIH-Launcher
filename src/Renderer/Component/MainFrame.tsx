@@ -4,13 +4,26 @@ import { FileText, Home, LucideIcon, MonitorPlay, Settings, Wine } from "lucide-
 import { Box, Button, ImageFrame, Inline, InlineText, PrimitiveImage, Stack, Text } from "./Primitives";
 import { StatusBadge } from "./StatusBadge";
 
+/** Top-level renderer view identifiers used by the left navigation shell. */
 export type RendererViewKey = "dashboard" | "logs" | "preferences";
 
+/**
+ * Metadata for a primary navigation item.
+ *
+ * Keep this intentionally small; labels and descriptions come from i18n keys so
+ * the navigation can respond to language changes without rebuilding constants.
+ */
 export interface NavigationItem {
   id: RendererViewKey;
   icon: LucideIcon;
 }
 
+/**
+ * Props for the main application shell.
+ *
+ * Use MainFrame around primary renderer views. It owns global navigation, the
+ * header area, title bar slotting, and the scroll container for page content.
+ */
 export interface MainFrameProps {
   title: React.ReactNode;
   subtitle?: string;
@@ -23,6 +36,7 @@ export interface MainFrameProps {
   onViewChange: (viewKey: RendererViewKey) => void;
 }
 
+/** Primary navigation model for the renderer shell. */
 export const RENDERER_NAVIGATION_ITEMS: NavigationItem[] = [
   {
     id: "dashboard",
@@ -38,6 +52,12 @@ export const RENDERER_NAVIGATION_ITEMS: NavigationItem[] = [
   },
 ];
 
+/**
+ * Primary launcher layout shell.
+ *
+ * Use this once per renderer window to compose the sidebar, header, optional
+ * title bar, and active page content without duplicating shell markup.
+ */
 export function MainFrame({
   title,
   subtitle,
@@ -122,6 +142,7 @@ export function MainFrame({
   );
 }
 
+/** Storybook/demo view for checking the shell without full app state. */
 export function WineeryView() {
   const { t } = useTranslation();
 
