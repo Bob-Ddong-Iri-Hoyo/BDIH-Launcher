@@ -349,25 +349,60 @@ jobs:
           UPDATE_CHANNEL: nightly
         run: pnpm build && pnpm exec electron-builder --mac --publish never --config electron-builder.config.cjs
 
-      - name: Mirror nightly branch
+      - name: Update nightly release branch
         if: steps.decide.outputs.should_build == 'true'
         env:
           GH_TOKEN: ${{ secrets.NIGHTLY_RELEASE_TOKEN }}
+          NIGHTLY_TAG: ${{ steps.source.outputs.nightly_tag }}
+          NIGHTLY_VERSION: ${{ steps.source.outputs.nightly_version }}
           RELEASE_REPOSITORY: ${{ steps.target.outputs.release_repository }}
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          SNAPSHOT_CUTOFF_KST: ${{ steps.source.outputs.cutoff_kst }}
         run: |
           set -euo pipefail
 
+          anchor_dir="$(mktemp -d)"
+
           cleanup() {
-            git remote remove nightly-target 2>/dev/null || true
+            rm -rf "$anchor_dir"
           }
 
           trap cleanup EXIT
-          cleanup
+          cd "$anchor_dir"
 
-          git config --local --unset-all "http.https://github.com/.extraheader" 2>/dev/null || true
-          git remote add nightly-target "https://x-access-token:${GH_TOKEN}@github.com/${RELEASE_REPOSITORY}.git"
-          git push --force nightly-target "${SOURCE_SHA}:refs/heads/${TARGET_NIGHTLY_BRANCH}"
+          git init
+          git checkout -b "$TARGET_NIGHTLY_BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          const metadata = {
+            version: process.env.NIGHTLY_VERSION,
+            tag: process.env.NIGHTLY_TAG,
+            sourceRepository: process.env.GITHUB_REPOSITORY,
+            sourceBranch: process.env.SOURCE_BRANCH,
+            sourceCommit: process.env.SOURCE_SHA,
+            snapshotCutoffKst: process.env.SNAPSHOT_CUTOFF_KST,
+          };
+
+          fs.writeFileSync("nightly-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
+          fs.writeFileSync(
+            "README.md",
+            [
+              "# BDIH Launcher Nightly Releases",
+              "",
+              "This branch is only an anchor for GitHub Releases.",
+              "The source commit for each build is recorded in the release notes and nightly-source.json asset.",
+              "",
+            ].join("\n"),
+          );
+          NODE
+
+          git add README.md nightly-source.json
+          git commit -m "Update nightly release anchor for $NIGHTLY_TAG"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${RELEASE_REPOSITORY}.git" "HEAD:refs/heads/${TARGET_NIGHTLY_BRANCH}"
 
       - name: Create nightly release
         if: steps.decide.outputs.should_build == 'true'
