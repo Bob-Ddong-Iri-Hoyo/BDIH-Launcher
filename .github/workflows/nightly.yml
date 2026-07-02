@@ -346,7 +346,7 @@ jobs:
           PUBLISH_REPOSITORY: ${{ steps.target.outputs.release_repository }}
           RELEASE_TYPE: prerelease
           UPDATE_CHANNEL: nightly
-        run: pnpm build && pnpm exec electron-builder --mac --config electron-builder.config.cjs
+        run: pnpm build && pnpm exec electron-builder --mac --publish never --config electron-builder.config.cjs
 
       - name: Mirror nightly branch
         if: steps.decide.outputs.should_build == 'true'
