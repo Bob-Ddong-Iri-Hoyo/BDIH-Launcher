@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search, Star, StarOff } from "lucide-react";
 import {
   ContextMenu,
@@ -31,12 +32,21 @@ export interface SelectProps {
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
+  renderOptionAccessory?: (option: SelectOption) => React.ReactNode;
   label?: string;
   enableFavorites?: boolean;
   favoriteValues?: string[];
   onFavoriteValuesChange?: (values: string[]) => void;
   searchPlaceholder?: string;
   className?: string;
+}
+
+interface SelectDropdownLayout {
+  left: number;
+  width: number;
+  maxHeight: number;
+  top?: number;
+  bottom?: number;
 }
 
 /**
@@ -50,6 +60,7 @@ export function Select({
   value,
   options,
   onChange,
+  renderOptionAccessory,
   label,
   enableFavorites = false,
   favoriteValues,
@@ -64,7 +75,9 @@ export function Select({
     option: SelectOption;
     position: ContextMenuPosition;
   } | null>(null);
+  const [dropdownLayout, setDropdownLayout] = React.useState<SelectDropdownLayout | null>(null);
   const rootRef = React.useRef<HTMLDivElement>(null);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
   const selectedOption = options.find((option) => option.value === value) ?? options[0];
   const activeFavoriteValues = favoriteValues ?? localFavoriteValues;
@@ -91,7 +104,12 @@ export function Select({
     }
 
     const handle_pointer_down = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+
+      if (
+        !rootRef.current?.contains(target) &&
+        !dropdownRef.current?.contains(target)
+      ) {
         setIsOpen(false);
       }
     };
@@ -108,6 +126,33 @@ export function Select({
     return () => {
       window.removeEventListener("pointerdown", handle_pointer_down);
       window.removeEventListener("keydown", handle_key_down);
+    };
+  }, [isOpen]);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) {
+      setDropdownLayout(null);
+      return undefined;
+    }
+
+    function update_dropdown_layout() {
+      const root = rootRef.current;
+
+      if (!root) {
+        setDropdownLayout(null);
+        return;
+      }
+
+      setDropdownLayout(calculate_select_dropdown_layout(root));
+    }
+
+    update_dropdown_layout();
+    window.addEventListener("resize", update_dropdown_layout);
+    window.addEventListener("scroll", update_dropdown_layout, true);
+
+    return () => {
+      window.removeEventListener("resize", update_dropdown_layout);
+      window.removeEventListener("scroll", update_dropdown_layout, true);
     };
   }, [isOpen]);
 
@@ -250,9 +295,11 @@ export function Select({
         <ChevronDown size={16} className={`shrink-0 text-slate-500 transition ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
-      {isOpen && (
+      {isOpen && dropdownLayout && typeof document !== "undefined" ? createPortal(
         <div
-          className="absolute left-0 right-0 z-50 mt-2 rounded-lg border border-white/10 bg-[#0f172a] p-1 shadow-2xl shadow-black/40"
+          ref={dropdownRef}
+          className="fixed z-[1300] flex flex-col rounded-lg border border-white/10 bg-[#0f172a] p-1 shadow-2xl shadow-black/40"
+          style={select_dropdown_style(dropdownLayout)}
         >
           <label className="relative mb-1 block">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -264,7 +311,7 @@ export function Select({
               className="h-9 w-full rounded-md border border-white/10 bg-[#0b1020] pl-9 pr-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[rgb(var(--accent-rgb))] focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.22)]"
             />
           </label>
-          <div role="listbox" className="max-h-72 overflow-y-auto">
+          <div role="listbox" className="min-h-0 overflow-y-auto">
             {filteredOptions.map((option) => {
               const isSelected = option.value === value;
               const isFavorite = activeFavoriteValues.includes(option.value);
@@ -305,6 +352,15 @@ export function Select({
                     {render_option_content(option)}
                     {isSelected && <Check size={16} className="shrink-0 accent-text" />}
                   </button>
+                  {renderOptionAccessory ? (
+                    <span
+                      className="shrink-0 pr-1"
+                      onClick={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
+                    >
+                      {renderOptionAccessory(option)}
+                    </span>
+                  ) : null}
                 </div>
               );
             })}
@@ -314,8 +370,9 @@ export function Select({
               </div>
             )}
           </div>
-        </div>
-      )}
+        </div>,
+        document.body,
+      ) : null}
       <ContextMenu
         open={Boolean(contextMenuState)}
         position={contextMenuState?.position}
@@ -332,3 +389,35 @@ export type SelectMenuOption = SelectOption;
 export type SelectMenuProps = SelectProps;
 /** Backward-compatible alias for callers still importing SelectMenu. */
 export const SelectMenu = Select;
+
+function calculate_select_dropdown_layout(anchor: HTMLElement): SelectDropdownLayout {
+  const rect = anchor.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const gap = 8;
+  const margin = 12;
+  const spaceBelow = viewportHeight - rect.bottom - gap - margin;
+  const spaceAbove = rect.top - gap - margin;
+  const showAbove = spaceBelow < 300 && spaceAbove > spaceBelow;
+  const availableHeight = Math.max(180, showAbove ? spaceAbove : spaceBelow);
+  const width = Math.max(260, Math.min(rect.width, viewportWidth - margin * 2));
+  const left = Math.min(Math.max(margin, rect.left), viewportWidth - width - margin);
+
+  return {
+    left,
+    width,
+    maxHeight: Math.min(440, availableHeight),
+    top: showAbove ? undefined : rect.bottom + gap,
+    bottom: showAbove ? viewportHeight - rect.top + gap : undefined,
+  };
+}
+
+function select_dropdown_style(layout: SelectDropdownLayout): React.CSSProperties {
+  return {
+    left: layout.left,
+    width: layout.width,
+    maxHeight: layout.maxHeight,
+    top: layout.top,
+    bottom: layout.bottom,
+  };
+}

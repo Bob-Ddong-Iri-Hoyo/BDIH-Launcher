@@ -3,9 +3,11 @@ import React from "react";
 export interface PrimitiveImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {}
 
 export type ImageFrameSize = "xs" | "sm" | "md" | "lg";
+export type ImageFrameShape = "rounded" | "circle";
 
 export interface ImageFrameProps extends React.HTMLAttributes<HTMLDivElement> {
   size?: ImageFrameSize;
+  shape?: ImageFrameShape;
 }
 
 const IMAGE_FRAME_SIZE_CLASSES: Record<ImageFrameSize, string> = {
@@ -13,6 +15,11 @@ const IMAGE_FRAME_SIZE_CLASSES: Record<ImageFrameSize, string> = {
   sm: "h-8 w-8",
   md: "h-10 w-10",
   lg: "h-12 w-12",
+};
+
+const IMAGE_FRAME_SHAPE_CLASSES: Record<ImageFrameShape, string> = {
+  rounded: "rounded-lg",
+  circle: "rounded-full",
 };
 
 function join_class_names(...classes: Array<string | false | null | undefined>) {
@@ -50,11 +57,11 @@ PrimitiveImage.displayName = "PrimitiveImage";
  * keep their exact dimensions.
  */
 export const ImageFrame = React.forwardRef<HTMLDivElement, ImageFrameProps>(
-  ({ size = "md", className = "", children, ...props }, ref) => {
+  ({ size = "md", shape = "rounded", className = "", children, ...props }, ref) => {
     const sizeClassName = has_explicit_dimension_class(className) ? "" : IMAGE_FRAME_SIZE_CLASSES[size];
 
     return (
-      <div ref={ref} className={join_class_names("overflow-hidden", sizeClassName, className)} {...props}>
+      <div ref={ref} className={join_class_names("overflow-hidden", sizeClassName, IMAGE_FRAME_SHAPE_CLASSES[shape], className)} {...props}>
         {children}
       </div>
     );

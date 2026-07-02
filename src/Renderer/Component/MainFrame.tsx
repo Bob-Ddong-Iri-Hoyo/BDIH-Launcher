@@ -1,8 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { FileText, Home, LucideIcon, MonitorPlay, Settings, Wine } from "lucide-react";
-import { Box, Button, ImageFrame, Inline, InlineText, PrimitiveImage, Stack, Text } from "./Primitives";
-import { StatusBadge } from "./StatusBadge";
+import { FileText, Home, LucideIcon, Settings, Wine } from "lucide-react";
+import { Box, ImageFrame, Inline, List, ListItem, ListItemBody, ListItemDescription, ListItemTitle, PrimitiveImage, Stack, Text } from "./Primitives";
 
 /** Top-level renderer view identifiers used by the left navigation shell. */
 export type RendererViewKey = "dashboard" | "logs" | "preferences";
@@ -88,28 +87,32 @@ export function MainFrame({
             </Stack>
           </Inline>
 
-          <Box as="nav" className="flex-1 space-y-1 overflow-y-auto px-3 py-4 [-webkit-app-region:no-drag]">
+          <Box as="nav" className="flex-1 overflow-y-auto px-3 py-4 [-webkit-app-region:no-drag]">
+            <List>
             {RENDERER_NAVIGATION_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = activeView === item.id;
 
               return (
-                <Button
+                <ListItem
+                  as="button"
                   key={item.id}
                   type="button"
+                  density="compact"
+                  tone={isActive ? "selected" : "default"}
+                  interactive
                   onClick={() => onViewChange(item.id)}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
-                    isActive ? "accent-subtle text-white ring-1 accent-ring" : "text-slate-400 hover:bg-white/5 hover:text-white"
-                  }`}
+                  className="w-full items-center gap-3 rounded-lg px-3 py-3"
                 >
                   <Icon size={20} className="shrink-0" />
-                  <Stack className="min-w-0 gap-0">
-                    <InlineText className="block truncate text-sm font-semibold">{t(`navigation.${item.id}.label`)}</InlineText>
-                    <InlineText className="block truncate text-xs opacity-70">{t(`navigation.${item.id}.description`)}</InlineText>
-                  </Stack>
-                </Button>
+                  <ListItemBody className="gap-0">
+                    <ListItemTitle>{t(`navigation.${item.id}.label`)}</ListItemTitle>
+                    <ListItemDescription className={isActive ? "text-slate-200/80" : "opacity-70"}>{t(`navigation.${item.id}.description`)}</ListItemDescription>
+                  </ListItemBody>
+                </ListItem>
               );
             })}
+            </List>
           </Box>
         </Box>
 
@@ -118,10 +121,6 @@ export function MainFrame({
             <Inline className="min-w-0 items-center gap-3">
               {headerLeading ? <Box className="shrink-0 [-webkit-app-region:no-drag]">{headerLeading}</Box> : null}
               <Stack className="min-w-0 gap-0">
-                <Inline className="mb-1 items-center gap-2">
-                  <MonitorPlay size={18} className="accent-text" />
-                  <StatusBadge label={t("common.macosWine")} tone="info" />
-                </Inline>
                 {typeof title === "string" ? (
                   <Box as="h2" className="truncate text-xl font-bold text-white">
                     {title}

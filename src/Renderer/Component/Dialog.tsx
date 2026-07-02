@@ -153,7 +153,7 @@ export function Dialog({
 
   const toneClasses = TONE_CLASS_MAP[tone];
   const Icon = icon ?? toneClasses.defaultIcon;
-  const placementClass = placement === "center" ? "items-center pb-16" : "items-start pt-24";
+  const placementClass = placement === "center" ? "items-center py-4 sm:py-6" : "items-start py-4 sm:pb-6 sm:pt-24";
 
   function handle_backdrop_click(event: React.MouseEvent<HTMLDivElement>) {
     if (closeOnBackdrop && event.target === event.currentTarget) {
@@ -163,7 +163,7 @@ export function Dialog({
 
   return (
     <Box
-      className={`fixed inset-0 z-[100] flex justify-center bg-black/45 px-4 backdrop-blur-sm ${placementClass}`}
+      className={`fixed inset-0 z-[100] flex justify-center overflow-y-auto bg-black/45 px-4 backdrop-blur-sm ${placementClass}`}
       role="presentation"
       onMouseDown={handle_backdrop_click}
     >
@@ -174,9 +174,9 @@ export function Dialog({
         aria-describedby={description ? "dialog-description" : undefined}
         tone="deep"
         padding="lg"
-        className={`w-full ${widthClassName} border ${toneClasses.border} bg-[#0f172a] text-slate-100 shadow-2xl shadow-black/45 ${className}`}
+        className={`flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden sm:max-h-[calc(100dvh-3rem)] ${widthClassName} border ${toneClasses.border} bg-[#0f172a] text-slate-100 shadow-2xl shadow-black/45 ${className}`}
       >
-        <Inline align="start" gap="md">
+        <Inline align="start" gap="md" className="shrink-0">
           <Box className={`grid h-10 w-10 shrink-0 place-items-center rounded-md border ${toneClasses.iconBox}`}>
             <Icon size={20} className={toneClasses.icon} />
           </Box>
@@ -204,10 +204,10 @@ export function Dialog({
           ) : null}
         </Inline>
 
-        {children ? <Box className="mt-4 text-sm leading-6 text-slate-300">{children}</Box> : null}
+        {children ? <Box className="mt-4 min-h-0 overflow-y-auto pr-1 text-sm leading-6 text-slate-300">{children}</Box> : null}
 
         {actions.length > 0 ? (
-          <Inline justify="end" gap="sm" wrap className="mt-5 flex-col-reverse sm:flex-row">
+          <Inline justify="end" gap="sm" wrap className="mt-5 shrink-0 flex-col-reverse sm:flex-row">
             {actions.map((action) => {
               const ActionIcon = action.icon;
               const variant = action.variant ?? "secondary";

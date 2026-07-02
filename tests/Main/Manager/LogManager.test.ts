@@ -1,4 +1,5 @@
 import { jest } from "@jest/globals";
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import path from "path";
 import {
@@ -77,6 +78,75 @@ describe("LogManager", () => {
       );
     } finally {
       consoleInfo.mockRestore();
+    }
+  });
+
+  it("does not write app log entries when the minimum level is off", async () => {
+    const { LogManager, log_level_from_preference } = require("../../../src/Main/Manager/LogManager") as typeof import("../../../src/Main/Manager/LogManager");
+    const manager = new LogManager();
+
+    expect(log_level_from_preference("off")).toBe("off");
+    expect(log_level_from_preference("all")).toBe("debug");
+
+    manager.init({
+      logDir: environment.devLogRoot,
+      sessionName: "2026-06-17_121000",
+      minLevel: "off",
+      patchConsole: false,
+    });
+
+    const logger = manager.createLogger("unit");
+
+    logger.error("hidden error");
+    logger.warn("hidden warn");
+    logger.info("hidden info");
+    logger.debug("hidden debug");
+
+    const logFilePath = path.join(environment.devLogRoot, "2026-06-17_121000", "app.log");
+
+    expect(existsSync(logFilePath)).toBe(false);
+    expect(manager.getSnapshot().entries).toEqual([]);
+  });
+
+  it("writes only entries at or above the selected app log level", async () => {
+    const consoleInfo = jest.spyOn(console, "info").mockImplementation(() => undefined);
+    const consoleWarn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const { LogManager } = require("../../../src/Main/Manager/LogManager") as typeof import("../../../src/Main/Manager/LogManager");
+    const manager = new LogManager();
+
+    try {
+      manager.init({
+        logDir: environment.devLogRoot,
+        sessionName: "2026-06-17_122000",
+        minLevel: "info",
+        patchConsole: false,
+      });
+
+      const logger = manager.createLogger("unit");
+
+      logger.debug("filtered debug");
+      logger.info("visible info");
+      logger.warn("visible warn");
+      logger.error("visible error");
+
+      manager.setMinLevel("error");
+      logger.warn("filtered warn after error level");
+      logger.error("visible error after error level");
+
+      const logFilePath = path.join(environment.devLogRoot, "2026-06-17_122000", "app.log");
+      const logText = await readFile(logFilePath, "utf8");
+
+      expect(logText).not.toContain("filtered debug");
+      expect(logText).not.toContain("filtered warn after error level");
+      expect(logText).toContain("[INFO] [unit] visible info");
+      expect(logText).toContain("[WARN] [unit] visible warn");
+      expect(logText).toContain("[ERROR] [unit] visible error");
+      expect(logText).toContain("[ERROR] [unit] visible error after error level");
+    } finally {
+      consoleInfo.mockRestore();
+      consoleWarn.mockRestore();
+      consoleError.mockRestore();
     }
   });
 });

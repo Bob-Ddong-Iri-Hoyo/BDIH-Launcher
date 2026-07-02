@@ -1,7 +1,8 @@
-import { Layers3, X } from "lucide-react";
+import { Layers3, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { WineVersion } from "../../Common/Types/Wine";
-import { Box, Button, Inline, Stack, Surface, Text } from "./Primitives";
+import { JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
+import { Box, Button, Inline, List, Stack, Surface, Text } from "./Primitives";
+import { RuntimeVersionSelect } from "./RuntimeVersionSelect";
 import { StatusBadge } from "./StatusBadge";
 import { WineVersionCard } from "./WineVersionCard";
 
@@ -13,10 +14,15 @@ import { WineVersionCard } from "./WineVersionCard";
  */
 export interface InstalledWinePanelProps {
   wineVersions: WineVersion[];
+  jadeiteVersions?: JadeiteVersion[];
   selectedWineVersionId?: string;
+  selectedJadeiteVersionId?: string;
   installPath?: string;
   className?: string;
   onSelectWineVersion?: (versionId: string) => void;
+  onSelectJadeiteVersion?: (versionId: string) => void;
+  onInstallJadeiteVersion?: (versionId: string) => void;
+  onDeleteJadeiteVersion?: (versionId: string) => void;
   onClose?: () => void;
   showHeader?: boolean;
 }
@@ -39,33 +45,44 @@ export function get_visible_installed_wine_versions(wineVersions: WineVersion[])
  */
 export function InstalledWinePanel({
   wineVersions,
+  jadeiteVersions = [],
   selectedWineVersionId,
+  selectedJadeiteVersionId,
   installPath,
   className = "",
   onSelectWineVersion,
+  onSelectJadeiteVersion,
+  onInstallJadeiteVersion,
+  onDeleteJadeiteVersion,
   onClose,
   showHeader = true,
 }: InstalledWinePanelProps) {
   const { t } = useTranslation();
   const visibleWineVersions = get_visible_installed_wine_versions(wineVersions);
   const listClassName = showHeader ? "mt-5" : "";
+  const selectedJadeiteVersion = jadeiteVersions.find((version) => version.id === selectedJadeiteVersionId);
+  const canDeleteSelectedJadeite = Boolean(
+    selectedJadeiteVersion
+      && (selectedJadeiteVersion.status === "installed" || selectedJadeiteVersion.status === "completed")
+      && onDeleteJadeiteVersion,
+  );
 
   return (
     <Surface tone="deep" padding="lg" className={`bg-[#101827] shadow-2xl shadow-black/20 ${className}`}>
       {showHeader ? (
-        <Inline align="start" justify="between" gap="md">
-          <Inline align="start" gap="md" className="min-w-0">
+        <Inline className="items-start justify-between gap-3">
+          <Inline className="min-w-0 items-start gap-3">
             <Box className="accent-subtle accent-text flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 accent-ring">
               <Layers3 size={20} />
             </Box>
-            <Stack gap="xs" className="min-w-0">
-              <Inline gap="sm" wrap>
-                <Text tone="strong" size="base" weight="semibold">
+            <Stack className="min-w-0 gap-1">
+              <Inline className="flex-wrap gap-2">
+                <Text className="text-base font-semibold text-slate-100">
                   {t("main.installedWine.title")}
                 </Text>
                 <StatusBadge label={`${visibleWineVersions.length}`} tone="neutral" />
               </Inline>
-              <Text tone="muted" size="sm">
+              <Text className="text-sm text-slate-500">
                 {t("main.installedWine.description")}
               </Text>
             </Stack>
@@ -76,15 +93,16 @@ export function InstalledWinePanel({
               size="sm"
               className="w-9 px-0 text-slate-400"
               aria-label={t("common.actions.close")}
-              icon={<X size={17} />}
               onClick={onClose}
-            />
+            >
+              <X size={17} />
+            </Button>
           ) : null}
         </Inline>
       ) : null}
 
       {visibleWineVersions.length > 0 ? (
-        <Stack gap="md" className={listClassName}>
+        <List className={`gap-3 ${listClassName}`}>
           {visibleWineVersions.map((version) => (
             <WineVersionCard
               key={version.id}
@@ -95,7 +113,7 @@ export function InstalledWinePanel({
               onSelect={onSelectWineVersion}
             />
           ))}
-        </Stack>
+        </List>
       ) : (
         <Box className={showHeader ? "mt-5" : ""}>
           <Surface tone="subtle" padding="lg" className="border-dashed text-sm leading-6 text-slate-500">
@@ -103,6 +121,46 @@ export function InstalledWinePanel({
           </Surface>
         </Box>
       )}
+
+      {jadeiteVersions.length > 0 ? (
+        <Surface tone="subtle" padding="md" className="mt-5 border-white/10">
+          <Stack className="gap-3">
+            <Inline className="items-start justify-between gap-3">
+              <Stack className="gap-1">
+                <Text className="text-sm font-semibold text-slate-100">
+                  Jadeite Runtime
+                </Text>
+                <Text className="text-xs leading-5 text-slate-500">
+                  HoYo Star Rail recipes can use this runtime when the selected Wine build supports the overseer route.
+                </Text>
+              </Stack>
+              {canDeleteSelectedJadeite ? (
+                <Button
+                  type="button"
+                  variant="glass"
+                  size="sm"
+                  className="shrink-0 text-rose-200"
+                  onClick={() => {
+                    if (selectedJadeiteVersionId) {
+                      onDeleteJadeiteVersion?.(selectedJadeiteVersionId);
+                    }
+                  }}
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </Button>
+              ) : null}
+            </Inline>
+            <RuntimeVersionSelect
+              label="Jadeite"
+              value={selectedJadeiteVersionId ?? ""}
+              versions={jadeiteVersions}
+              onChange={onSelectJadeiteVersion}
+              onInstall={onInstallJadeiteVersion}
+            />
+          </Stack>
+        </Surface>
+      ) : null}
     </Surface>
   );
 }

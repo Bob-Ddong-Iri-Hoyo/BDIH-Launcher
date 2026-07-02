@@ -1,0 +1,620 @@
+{
+  "translation": {
+    "localeMeta": {
+      "code": "ja",
+      "nativeName": "日本語",
+      "englishName": "Japanese"
+    },
+    "common": {
+      "appName": "BDIH Launcher",
+      "appSubtitle": "macOS向けカスタムWineランチャー",
+      "macosWine": "macOS Wine",
+      "local": "ローカル",
+      "ready": "準備完了",
+      "syncing": "同期中",
+      "actions": {
+        "refresh": "更新",
+        "quit": "終了",
+        "install": "インストール",
+        "reset": "リセット",
+        "browse": "参照",
+        "save": "保存",
+        "apply": "適用",
+        "run": "実行",
+        "download": "ダウンロード",
+        "createPrefix": "Prefixを作成",
+        "close": "閉じる",
+        "cancel": "キャンセル",
+        "delete": "削除"
+      }
+    },
+    "navigation": {
+      "dashboard": {
+        "label": "ボトル",
+        "description": "ボトルとWineの状態",
+        "subtitle": "ボトル、アプリ、Wineランタイムの状態を管理します。"
+      },
+      "terminal": {
+        "label": "ターミナル",
+        "description": "Wine作業ログ",
+        "subtitle": "インストール、起動、デバッグログを確認します。"
+      },
+      "logs": {
+        "label": "ログ",
+        "description": "アプリとボトルのログ",
+        "subtitle": "アプリセッション、ボトル起動、Wineプロセスログを閲覧します。"
+      },
+      "preferences": {
+        "label": "設定",
+        "description": "パスとログ設定",
+        "subtitle": "Wineのインストール先と診断ログを調整します。"
+      }
+    },
+    "status": {
+      "title": "状態",
+      "idle": "待機中",
+      "available": "利用可能",
+      "downloading": "ダウンロード中",
+      "installing": "インストール中",
+      "extracting": "展開中",
+      "installed": "インストール済み",
+      "completed": "完了",
+      "error": "エラー"
+    },
+    "store": {
+      "catalogLocal": "ローカル既定値からWineカタログを読み込みました。",
+      "catalogMain": "メインプロセスからWineカタログを読み込みました。",
+      "catalogFailed": "Wineカタログを読み込めませんでした。",
+      "installRequested": "{{versionId}} のインストールを要求しました。",
+      "previewInstallComplete": "プレビューモード: インストール完了としてマークしました。",
+      "installFailed": "Wineのインストールに失敗しました。",
+      "deleteCompleted": "{{versionId}} を削除しました。",
+      "deleteFailed": "ランタイムの削除に失敗しました。"
+    },
+    "main": {
+      "heroTitle": "macOSでWindowsゲームを実行する準備ができました",
+      "heroDescription": "ボトルとWineの状態を管理し、インストール作業はターミナルログで確認できます。",
+      "metrics": {
+        "wineCatalog": "Wineカタログ",
+        "installed": "インストール済み",
+        "apps": "アプリ",
+        "bottles": "ボトル"
+      },
+      "selectedWine": "選択中のWine",
+      "selectedDxmt": "選択中のDXMT",
+      "noWineSelected": "Wineバージョンを選択してください。",
+      "setupProgress": "ボトル設定",
+      "taskProgress": {
+        "estimated": "推定ステップ進行率",
+        "download": "ダウンロード進行率"
+      },
+      "workProgress": "作業進行率",
+      "installProgress": "インストール進行率",
+      "gameLibrary": "ゲームライブラリ",
+      "breadcrumbLabel": "ボトルナビゲーション",
+      "bottleLibrary": "ボトル",
+      "bottleHome": "ボトルホーム",
+      "backToBottleHome": "ボトルホームへ戻る",
+      "bottleLibraryDescription": "ボトル全体で{{count}}個のアプリがあります。",
+      "bottleApps": "{{count}}個のアプリ",
+      "bottleRunningApps": "{{count}}個実行中",
+      "bottleRunningDescription": "このボトルでは{{count}}個のアプリがまだ実行中です。ボトル設定を変更する前にすべてのWineプロセスを停止してください。",
+      "bottleAppsEmpty": "インストールしたランチャーとゲームはアプリアイコンとしてここに表示されます。",
+      "bottleGames": "ボトル内のアプリ",
+      "bottlePath": "ボトルパス",
+      "bottleInfo": {
+        "title": "ボトル情報",
+        "name": "名前",
+        "description": "説明",
+        "path": "パス",
+        "openInFinder": "Finderで開く"
+      },
+      "recipeSettings": "レシピ設定",
+      "recipeSettingsDescription": "選択したボトルのレシピ、ランタイムオプション、起動準備手順を調整します。",
+      "recipeViewAction": "レシピを表示",
+      "recipeInfo": {
+        "wineVersion": "Wineバージョン",
+        "dxmtVersion": "DXMTバージョン",
+        "prefixPath": "Prefixパス",
+        "runtimeExists": "インストール済み",
+        "downloadRuntime": "ダウンロード",
+        "currentRecipe": "現在のレシピ",
+        "applyChanges": "変更を適用",
+        "pendingChanges": "レシピ変更が保留中です。アプリを起動する前に適用してください。",
+        "applied": "レシピ変更を適用しました。",
+        "applyModalTitle": "レシピを適用中",
+        "applyModalDescription": "ボトルのランタイムレシピを更新しています。",
+        "doNotQuit": "設定が完了するまでランチャーを終了しないでください。",
+        "applyPreparing": "レシピ変更を準備中...",
+        "applySaving": "ボトルレシピを保存中...",
+        "applyRuntime": "ランタイム設定を適用中...",
+        "applyComplete": "レシピ設定が完了しました。"
+      },
+      "openRecipeSettings": "レシピ設定を開く",
+      "bottleStatus": {
+        "ready": "準備完了",
+        "needs-setup": "設定が必要",
+        "updating": "更新中",
+        "running": "実行中"
+      },
+      "contextMenu": {
+        "openBottle": "ボトルを開く",
+        "launchOptions": "起動オプション",
+        "recipeSettings": "レシピ設定",
+        "rename": "名前を変更",
+        "copyPath": "パスをコピー",
+        "revealFolder": "フォルダで表示",
+        "deleteBottle": "ボトルを削除",
+        "deleteBottleConfirm": "{{name}} を削除しますか？"
+      },
+      "renameBottle": {
+        "title": "ボトル名を変更",
+        "description": "{{name}} の新しい名前を入力します。",
+        "nameLabel": "新しいボトル名",
+        "duplicateTitle": "同じボトル名がすでにあります",
+        "duplicateDescription": "{{name}} は別のボトルで使用されています。別の名前を選んで再度適用してください。",
+        "runningTitle": "ボトルが実行中です",
+        "runningDescription": "{{name}} のアプリとランチャーをすべて停止してからボトル名を変更してください。",
+        "successTitle": "ボトル名を変更しました",
+        "successDescription": "ボトル名を {{name}} に変更しました。"
+      },
+      "launchOptionsUnavailable": {
+        "title": "起動オプション",
+        "description": "ボトル一覧からはまだ起動オプションを開けません。ランチャー操作はボトル詳細で使用してください。"
+      },
+      "launchOptions": {
+        "title": "起動オプション",
+        "description": "{{name}} の起動プリセットとWineオプションを調整します。",
+        "emptyDescription": "起動オプションを編集するアプリを選択してください。",
+        "empty": "このボトルにはまだ登録済みアプリがありません。",
+        "targetApp": "対象アプリ",
+        "searchApps": "アプリを検索",
+        "preset": "プリセット",
+        "searchPresets": "プリセットを検索",
+        "sections": "セクション",
+        "unsupportedByWine": "選択中のWineランタイムメタデータでは利用できません。",
+        "general": "一般",
+        "timing": "タイミング",
+        "network": "ネットワーク",
+        "enableMsync": "msyncを有効化",
+        "steamWebHelperArgs": "Steam WebHelper引数",
+        "hoyoplayInProcessGpu": "HoYoPlay --in-process-gpu",
+        "enableTimeoutFix": "Wineタイムアウト修正",
+        "leftCommandIsCtrl": "左CommandをCtrlとして使用",
+        "retinaMode": "Retinaモード",
+        "metalHud": "Metal HUD",
+        "dxmt": "DXMT",
+        "dxmtPreferredMaxFrameRate": "DXMTフレーム制限",
+        "dxmtMetalFxSpatialUpscale": "DXMT MetalFX空間アップスケール",
+        "dxmtMetalFxSpatialUpscaleFactor": "MetalFXアップスケール倍率",
+        "earlyExitWaitMs": "起動確認ms",
+        "superviseWaitSeconds": "監視待機秒数",
+        "networkGate": "HoYoネットワークゲート",
+        "networkGateSeconds": "ネットワークゲート秒数",
+        "waitForManualNetworkCut": "手動ネットワーク遮断待機",
+        "autoNetworkCut": "ホストネットワーク自動遮断",
+        "autoNetworkReconnectSeconds": "自動再接続秒数",
+        "allowDuplicateGame": "同じゲームの重複起動を許可",
+        "descriptions": {
+          "enableMsync": "WineビルドがWINEMSYNCに対応している場合、Mach同期パスを使用します。",
+          "steamWebHelperArgs": "Steam UIがmacOS Wine上でより安定して描画されるよう、Steam WebHelperに安定化用のChromium/CEFフラグを追加します。",
+          "hoyoplayInProcessGpu": "HoYoPlayを --in-process-gpu 付きで起動し、一部のCEFウィンドウがWine上で表示されやすくします。",
+          "enableTimeoutFix": "起動中に停止するランチャー向けに、同梱のWineタイムアウト回避策を有効にします。",
+          "leftCommandIsCtrl": "Windowsショートカットを想定するゲーム向けに、Wine内で左CommandキーをCtrlとして割り当てます。",
+          "retinaMode": "高DPI環境でUIをより鮮明にするため、Wine Mac DriverのRetina描画を切り替えます。",
+          "metalHud": "グラフィックデバッグ用にAppleのMetalパフォーマンスHUDを表示します。",
+          "dxmtPreferredMaxFrameRate": "DXMT_CONFIGにd3d11.preferredMaxFrameRateを書き込みます。HoYoPlay系の固定FPSには60を使い、DXMTが0を解除値として扱う環境では0で制限を外します。",
+          "dxmtMetalFxSpatialUpscale": "DXMTのMetalFX空間アップスケール経路を使うため、DXMT_METALFX_SPATIAL_SWAPCHAINを有効にします。",
+          "dxmtMetalFxSpatialUpscaleFactor": "swapchainをアップスケールしたい場合に、DXMT_CONFIGへd3d11.metalSpatialUpscaleFactorを書き込みます。",
+          "earlyExitWaitMs": "Wineが即終了した場合に起動失敗と判断するまで待つ時間です。",
+          "superviseWaitSeconds": "ランチャー側の監視処理が、ルーティングされた子プロセスを待つ時間です。",
+          "networkGate": "制御された再接続区間が必要なHoYoゲーム向けのネットワークゲート回避策を使用します。",
+          "networkGateSeconds": "ネットワークゲートを維持する秒数です。",
+          "waitForManualNetworkCut": "ルーティング起動を続行する前に、ユーザーが手動でネットワークを切断するのを待ちます。",
+          "autoNetworkCut": "ランチャーの補助ロジックがホストネットワークを自動的に切断・再接続することを許可します。",
+          "autoNetworkReconnectSeconds": "自動ネットワーク切断後、再接続するまで待つ秒数です。",
+          "allowDuplicateGame": "一致するゲームプロセスがすでに追跡中でも、監視処理がゲームを起動できるようにします。"
+        },
+        "presets": {
+          "auto": "自動",
+          "steam": "Steam",
+          "hoyoplay": "HoYoPlay",
+          "zzz": "Zenless Zone Zero",
+          "hsr": "Honkai: Star Rail",
+          "genshin": "Genshin Impact",
+          "custom": "カスタム"
+        }
+      },
+      "appContext": {
+        "run": "アプリを実行",
+        "runWithArgs": "引数付きで実行",
+        "launchOptions": "起動オプション",
+        "stop": "アプリを停止",
+        "showLogs": "ログを表示",
+        "delete": "アプリを削除",
+        "deleteFiles": "アプリファイルを削除",
+        "removeFromList": "アプリ一覧から削除",
+        "running": "実行中",
+        "launchFailed": "起動失敗",
+        "appLogsTitle": "{{name}} のログ",
+        "appLogsDescription": "このアプリの簡易Wine起動ログです。",
+        "loadingLogs": "ログを読み込み中...",
+        "noLogs": "このアプリのログはまだありません。",
+        "argumentsPrompt": "追加する引数",
+        "deleteConfirm": "{{name}} をこのボトルから削除しますか？",
+        "deleteFilesTitle": "{{name}} のファイルを削除しますか？",
+        "deleteFilesConfirm": "{{name}} をこのボトルから削除し、安全なランチャー管理フォルダ内にあるアプリファイルやprefixデータも削除します。この操作は元に戻せません。",
+        "stopConfirmTitle": "{{name}} を停止しますか？",
+        "stopConfirmDescription": "続行する前に {{name}} の実行中Wineプロセスを停止します。",
+        "removeFromListTitle": "{{name}} を一覧から削除しますか？",
+        "removeFromListConfirm": "{{name}} をこのボトルのアプリ一覧から削除しますか？インストール済みファイルは削除されません。"
+      },
+      "createBottle": {
+        "action": "ボトルを作成",
+        "title": "ボトルを作成",
+        "description": "Wineランタイムを使う新しいボトルを作成します。Prefixルートを選ぶと、その下にボトルフォルダが作成されます。",
+        "nameLabel": "ボトル名",
+        "namePlaceholder": "Raiden",
+        "randomName": "ランダム",
+        "wineLabel": "Wineランタイム",
+        "dxmtLabel": "DXMTバージョン",
+        "pathLabel": "ボトルprefixルート",
+        "pathPlaceholder": "ボトルprefixを含むフォルダ",
+        "pathHint": "ボトルの作成先:",
+        "defaultPath": "既定",
+        "descriptionLabel": "説明",
+        "descriptionPlaceholder": "このボトルの用途",
+        "submit": "ボトルを作成"
+      },
+      "installers": {
+        "title": "ランチャーインストーラ",
+        "description": "公式Windowsインストーラをダウンロードし、このボトルprefixで起動します。",
+        "modalTitle": "ランチャーインストーラ",
+        "modalDescription": "このボトル内でランチャーアプリをダウンロード、インストール、実行します。",
+        "openAction": "ランチャーインストーラを開く",
+        "install": "インストーラをダウンロード",
+        "installSteam": "Steamインストーラをダウンロード/実行",
+        "installHoyoplay": "HoYoPlayインストーラをダウンロード/実行",
+        "installing": "インストーラを準備中...",
+        "downloading": "ダウンロード中",
+        "running": "実行中",
+        "alreadyAdded": "追加済み",
+        "installedCount": "{{count}}個準備完了",
+        "notInstalled": "未インストール",
+        "stage": {
+          "setup": "設定中",
+          "dxmt": "DXMT",
+          "download": "ダウンロード中",
+          "install": "Wineで起動中",
+          "ready": "準備完了",
+          "error": "エラー"
+        },
+        "steam": {
+          "title": "Steam",
+          "description": "Steam CDNからSteamSetup.exeをダウンロードし、Wineで実行します。"
+        },
+        "hoyoplay": {
+          "title": "HoYoPlay",
+          "description": "HoYoverseのダウンロード経路からHoYoPlayインストーラを取得し、Wineで実行します。"
+        }
+      },
+      "runner": {
+        "title": "実行ファイルを起動",
+        "description": "ローカルのWindows実行ファイルをこのボトルprefixで直接実行します。",
+        "addManualApp": "アプリを手動追加",
+        "addManualAppDescription": "自動検出されなかった実行ファイルをこのボトルに登録します。",
+        "pathPlaceholder": "C:\\Program Files\\App\\app.exe or /Users/me/Downloads/setup.exe",
+        "pathHint": "prefix内のWindowsパス、またはmacOS上のローカルインストーラパスを指定します。",
+        "pathAutocompleteHint": "Tabで候補を開き、Tab/矢印キーで移動、Enterで選択します。実行ファイルを選択した後はTabで引数欄へ移動します。項目が多いフォルダでは一覧をスクロールできます。",
+        "manualTitle": "パスを入力またはファイルを選択",
+        "manualDescription": "Windowsパスを直接入力するか、macOSファイルを選択してWineのZ:ドライブ経由で実行します。",
+        "manualAddTitle": "アプリ実行ファイルを選択",
+        "manualAddFormDescription": "このボトルのアプリグリッドに表示する実行ファイルを選択します。",
+        "registerPathHint": "prefix内のWindowsパス、またはmacOS上のローカル実行ファイルパスを指定します。",
+        "pathAutocompleteRegisterHint": "Tabで候補を開き、Tab/矢印キーで移動、Enterで実行ファイルを選択します。",
+        "browseFile": "ファイルを探す",
+        "selectFileTitle": "Windows実行ファイルを選択",
+        "argumentsLabel": "引数",
+        "argumentsPlaceholder": "-windowed -language ko",
+        "argumentsHint": "任意です。空白を含む引数には引用符を使えます。",
+        "pathRequired": "先に実行ファイルのパスを入力してください。",
+        "wineRuntimeMissing": "Wineランタイムがインストールまたは展開されていません: {{versionId}}",
+        "starting": "実行ファイルを起動中...",
+        "started": "このボトルで実行ファイルを起動しました。",
+        "registered": "実行ファイルをこのボトルに追加しました。",
+        "failed": "実行ファイルの起動に失敗しました。",
+        "run": "ボトルで実行",
+        "register": "アプリに追加"
+      },
+      "searchReady": "検索準備完了",
+      "wineVersions": "Wineバージョン",
+      "runtimeDownloads": {
+        "title": "ランタイムダウンロード",
+        "description": "BDIHのリリース元からWineランタイムとDXMTパッケージをダウンロードします。",
+        "noWine": "利用可能なWineリリースアセットがありません。",
+        "noDxmt": "利用可能なDXMTリリースアセットがありません。"
+      },
+      "installedWine": {
+        "title": "インストール済みWine",
+        "description": "ボトル作成またはゲーム起動に使用できるWineビルドのみ表示します。",
+        "viewAction": "インストール済みWineを表示",
+        "empty": "まだWineビルドがインストールされていません。ボトル作成中に選択したビルドは、インストール後ここに表示されます。"
+      },
+      "terminalWelcome": "BDIH Launcherターミナル",
+      "lastPlayed": {
+        "today": "今日",
+        "yesterday": "昨日",
+        "threeDaysAgo": "3日前",
+        "never": "未起動"
+      }
+    },
+    "preferences": {
+      "generalTitle": "一般",
+      "generalDescription": "レンダラーの言語、テーマ、アプリログを調整します。",
+      "categories": {
+        "general": "一般",
+        "generalDescription": "言語と表示",
+        "wine": "Wine",
+        "wineDescription": "データ保存と診断",
+        "shortcut": "ショートカット",
+        "shortcutDescription": "ランチャー操作キー"
+      },
+      "installPathTitle": "Wineインストール先",
+      "installPathDescription": "新しいWineビルドとランタイムの既定保存先です。",
+      "installPathLabel": "インストール先",
+      "storagePaths": {
+        "title": "データ保存場所",
+        "description": "Wineランタイム、ボトルprefix、DXMTパッケージ、アプリメタデータ、ログを保存するルートフォルダを選択します。",
+        "dataRootTitle": "データ保存場所",
+        "dataRootDescription": "ランチャーはWine、Bottles、DXMT、ログ、appmeta.jsonをこのフォルダに保存します。",
+        "advancedBottleRoot": "別のBottleルートを使用",
+        "advancedBottleRootDescription": "Wine/DXMT/ログはデータ場所に置き、ボトルprefixだけをカスタムフォルダに作成します。",
+        "bottleRootTitle": "Bottle prefixルート",
+        "bottleRootDescription": "ランチャー管理のボトルフォルダを含むフォルダです。各ボトルはroot/bottle-nameとして作成されます。",
+        "wineInstallTitle": "Wineランタイム保存先",
+        "wineInstallDescription": "ダウンロードしたWineビルドとランタイムのフォルダです。",
+        "bottlePrefixTitle": "Bottle prefix保存先",
+        "bottlePrefixDescription": "ボトルのWine prefixを作成・管理するフォルダです。",
+        "dxmtCacheTitle": "DXMTパッケージ保存先",
+        "dxmtCacheDescription": "事前ダウンロードしたDXMTパッケージとインストーラキャッシュのフォルダです。",
+        "resetAll": "データ場所をリセット"
+      },
+      "dangerZone": {
+        "title": "危険な操作",
+        "description": "ランチャー管理のWineランタイム、ボトルprefix、DXMTキャッシュ、設定、ログを削除します。",
+        "deleteAction": "すべてのランチャーデータを削除",
+        "confirmTitle": "すべてのランチャーデータを削除しますか？",
+        "confirmDescription": "この操作は元に戻せません。続行前に、特にカスタムパスを使っている場合は下のフォルダを確認してください。",
+        "pathsTitle": "削除対象",
+        "confirmAction": "データを削除",
+        "targets": {
+          "wineRuntime": {
+            "title": "Wineランタイム",
+            "description": "ダウンロード済みWineビルドとランタイムファイルを削除します。"
+          },
+          "bottlePrefixes": {
+            "title": "Bottle prefix",
+            "description": "ボトル用に管理されているWine prefixを削除します。"
+          },
+          "dxmtCache": {
+            "title": "DXMTキャッシュ",
+            "description": "ダウンロード済みDXMTパッケージとインストーラキャッシュを削除します。"
+          },
+          "settings": {
+            "title": "設定",
+            "description": "ランチャー設定と保存済み設定を削除します。"
+          },
+          "logs": {
+            "title": "ログ",
+            "description": "ランチャーと診断ログファイルを削除します。"
+          }
+        }
+      },
+      "logging": {
+        "title": "Wineデバッグフラグ",
+        "description": "Wine起動時に使うプリセット、または生のWINEDEBUG引数を選びます。",
+        "modePresetTitle": "プリセット",
+        "modePresetDescription": "用意されたログレベルを使用します。",
+        "modeWineDebugTitle": "カスタム引数",
+        "modeWineDebugDescription": "WINEDEBUG引数を直接入力します。",
+        "levelTitle": "プリセット",
+        "levelDescription": "ボトル別の起動設定で後からこのグローバルプリセットを上書きできます。",
+        "wineDebugTitle": "WINEDEBUG",
+        "wineDebugDescription": "ボトル側で上書きしない限りWineプロセスに適用される生のWINEDEBUG引数です。",
+        "wineDebugPlaceholder": "-all,+seh,+tid",
+        "levels": {
+          "off": {
+            "label": "ログなし",
+            "description": "アプリログを書き込みません。"
+          },
+          "error": {
+            "label": "ERROR",
+            "description": "ERROR項目のみ書き込みます。"
+          },
+          "warn": {
+            "label": "WARN",
+            "description": "WARNとERROR項目を書き込みます。"
+          },
+          "info": {
+            "label": "INFO",
+            "description": "INFO、WARN、ERROR項目を書き込みます。"
+          },
+          "debug": {
+            "label": "DEBUG",
+            "description": "DEBUG、INFO、WARN、ERROR項目を書き込みます。"
+          },
+          "all": {
+            "label": "ALL",
+            "description": "対応するすべてのレベルを書き込みます。現在はDEBUGと同じです。"
+          }
+        }
+      },
+      "languageTitle": "言語",
+      "languageDescription": "レンダラーUIで使用する言語です。",
+      "themeModeTitle": "テーマ",
+      "themeModeDescription": "ダーク、ライト、またはシステム設定に従います。",
+      "accentColorTitle": "アクセントカラー",
+      "accentColorDescription": "選択コントロール、アクション、ハイライトに使う色です。",
+      "appLoggingTitle": "アプリログ",
+      "appLoggingDescription": "ランチャーレベルのログをどの程度書き込むか選択します。",
+      "developerYouTube": {
+        "open": "開発者YouTube",
+        "onAir": "配信中",
+        "offAir": "オフライン"
+      },
+      "developerLinks": {
+        "site": "サイト",
+        "github": "GitHub"
+      },
+      "appUpdate": {
+        "title": "アプリアップデート",
+        "description": "新しいバージョンを確認し、自動更新チェックを管理します。",
+        "autoCheck": "自動チェック",
+        "check": "更新を確認",
+        "downloading": "アップデートをダウンロード中",
+        "restartHint": "アップデートをダウンロードしました。適用するにはアプリを再起動してください。",
+        "version": "バージョン {{version}}",
+        "dialog": {
+          "disabled": {
+            "title": "更新チェックは利用できません",
+            "description": "このビルドでは更新チェックが無効です。"
+          },
+          "checking": {
+            "title": "更新を確認中",
+            "description": "最新のBDIH Launcherリリースを確認しています。"
+          },
+          "available": {
+            "title": "更新があります",
+            "description": "新しいBDIH Launcherバージョンがあります。"
+          },
+          "not-available": {
+            "title": "最新版です",
+            "description": "利用可能な最新のBDIH Launcherを使用しています。"
+          },
+          "downloading": {
+            "title": "更新があります",
+            "description": "新しいバージョンが見つかり、ダウンロード中です。"
+          },
+          "downloaded": {
+            "title": "更新準備完了",
+            "description": "アップデートをダウンロードしました。"
+          },
+          "error": {
+            "title": "更新チェックに失敗しました",
+            "description": "BDIH Launcherは更新を確認できませんでした。"
+          }
+        },
+        "status": {
+          "disabled": "待機中",
+          "checking": "確認中",
+          "available": "利用可能",
+          "not-available": "最新",
+          "downloading": "ダウンロード中",
+          "downloaded": "準備完了",
+          "error": "エラー"
+        }
+      },
+      "unsavedTitle": "未保存の変更",
+      "unsavedDescription": "次回起動時に適用するには保存してください。",
+      "shortcuts": {
+        "title": "ショートカット",
+        "description": "ナビゲーションとよく使うランチャー操作のキー組み合わせです。",
+        "launchTitle": "選択中のゲームを起動",
+        "launchDescription": "現在選択中のゲームまたはアプリを実行します。",
+        "terminalTitle": "ターミナルを開く",
+        "terminalDescription": "Wine作業ターミナルへ切り替えます。",
+        "logsTitle": "ログを開く",
+        "logsDescription": "現在のセッションログビューアへ切り替えます。",
+        "preferencesTitle": "設定を開く",
+        "preferencesDescription": "設定画面へ切り替えます。",
+        "recording": "Ctrl、Command、Optionのいずれか + キーを押してください",
+        "unassigned": "未割り当て",
+        "modifierRequired": "Ctrl、Command、Optionのいずれかを別のキーと組み合わせてください。",
+        "duplicate": "このショートカットはすでに割り当てられています。",
+        "duplicateResolveConfirm": "{{shortcut}} はすでに {{action}} に割り当てられています。既存の割り当てを解除してここで使用しますか？",
+        "saveBlocked": "無効なショートカットを修正してから保存してください。"
+      },
+      "options": {
+        "dxmtTitle": "DXMTを優先",
+        "dxmtDescription": "DirectX 12ゲームでMetal変換レイヤーを優先します。",
+        "keepLogTitle": "ターミナルログを保持",
+        "keepLogDescription": "画面を切り替えた後もインストールと起動ログを保持します。",
+        "prefixTitle": "起動前にprefixを確認",
+        "prefixDescription": "不足しているWine prefixを自動検出します。",
+        "catalogTitle": "カタログを自動更新",
+        "catalogDescription": "アプリ起動時にWineカタログを再読み込みします。"
+      },
+      "closeBehavior": {
+        "title": "閉じるボタンの動作",
+        "description": "ランチャーの閉じるボタンを押したときの動作を選択します。",
+        "quitTitle": "アプリを終了",
+        "quitDescription": "ランチャーを終了し、通常の終了クリーンアップを実行します。",
+        "trayTitle": "トレイに移動",
+        "trayDescription": "ランチャーをmacOSメニューバーに隠します。トレイアイコンをクリックすると再表示します。"
+      }
+    },
+    "splash": {
+      "defaultMessage": "レンダラーを準備中",
+      "checkingCatalog": "Wineカタログを確認中",
+      "catalogReady": "Wineカタログ準備完了",
+      "description": "Steam、HoYoverse、Windowsゲーム向けのmacOS Wineランチャー",
+      "rosetta": {
+        "title": "Rosetta 2が必要です",
+        "description": "このランチャーはApple Silicon Macでx86_64 Wineを実行するためにRosetta 2が必要です。下のコマンドをコピーしてターミナルで実行し、もう一度確認してください。",
+        "instruction": "ターミナルでインストールが完了したら、「もう一度確認」をクリックしてください。",
+        "copyCommand": "コマンドをコピー",
+        "openTerminal": "ターミナルを開く",
+        "checkAgain": "もう一度確認",
+        "checking": "確認中...",
+        "copied": "コマンドをコピーしました。ターミナルを開いて貼り付け、Returnを押してください。",
+        "terminalOpened": "ターミナルを開きました。コピーしたコマンドを貼り付けてReturnを押してください。",
+        "terminalOpenFailed": "ターミナルを開けませんでした。",
+        "stillMissing": "Rosettaはまだ利用できません。ターミナルでのインストールを完了してから再確認してください。",
+        "checkFailed": "Rosetta状態の確認に失敗しました。",
+        "verified": "Rosettaを確認しました。ランチャーを開いています..."
+      }
+    },
+    "terminal": {
+      "defaultWelcome": "Eternal Vinegar Hoyoターミナルへようこそ",
+      "bridgeReady": "Wineコマンドブリッジの準備ができました。",
+      "initialized": "レンダラーターミナルを初期化しました。"
+    },
+    "windowControls": {
+      "label": "ウィンドウ操作"
+    },
+    "titleBar": {
+      "label": "macOSタイトルバー",
+      "quit": "アプリを終了",
+      "minimize": "アプリを最小化",
+      "maximize": "アプリを最大化"
+    },
+    "wine": {
+      "official": "公式Wine",
+      "custom": "カスタムビルド",
+      "noInstallPath": "インストール先が未設定"
+    },
+    "locale": {
+      "ko": "韓国語",
+      "en": "英語",
+      "ja": "日本語"
+    },
+    "theme": {
+      "mode": {
+        "dark": "ダーク",
+        "light": "ライト",
+        "system": "システム設定"
+      },
+      "accent": {
+        "rose": "ローズ",
+        "sky": "スカイ",
+        "emerald": "エメラルド",
+        "violet": "バイオレット",
+        "amber": "アンバー"
+      }
+    },
+    "tray": {
+      "show": "ランチャーを開く",
+      "quit": "ランチャーを終了"
+    }
+  }
+}

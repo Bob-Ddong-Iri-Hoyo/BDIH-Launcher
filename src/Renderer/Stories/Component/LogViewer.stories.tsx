@@ -3,10 +3,19 @@ import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { FileText, Play, ScrollText } from "lucide-react";
 import {
+  LogBottleAppFilter,
+  LogContent,
   LogEntry,
+  LogHistoryPane,
+  LogAppSummaryHeader,
+  LogModeMenu,
   LogSession,
   LogSourceOption,
+  LogTargetHeader,
+  LogTextPanel,
+  LogToolbar,
   LogViewer,
+  SessionButton,
 } from "../../Component/LogViewer";
 import { Dialog, DialogHost } from "../../Component/Dialog";
 
@@ -38,6 +47,7 @@ const SESSIONS: LogSession[] = [
     kind: "bottle",
     bottleId: "hoyoverse",
     bottleName: "HoyoVerse Bottle",
+    logFileName: "wine-hoyoverse__genshin-impact.log",
     count: 12,
     isRunning: true,
   },
@@ -48,6 +58,7 @@ const SESSIONS: LogSession[] = [
     kind: "bottle",
     bottleId: "eternal-return",
     bottleName: "Eternal Return",
+    logFileName: "wine-eternal-return__eternal-return.log",
     count: 4,
     isRunning: true,
   },
@@ -341,6 +352,294 @@ export const CompactDialogInteraction: Story = {
   name: "Compact dialog interaction",
   render: () => <CompactDialogInteractionExample />,
 };
+
+export const TargetHeaderPicker: Story = {
+  name: "Parts / Target header picker",
+  render: () => <TargetHeaderPickerExample />,
+};
+
+export const ModeMenuPart: Story = {
+  name: "Parts / Mode menu",
+  render: () => {
+    const [mode, setMode] = useState<"app" | "bottle">("bottle");
+
+    return (
+      <StorySurface>
+        <LogPartFrame title="LogModeMenu" className="max-w-3xl">
+          <LogModeMenu
+            mode={mode}
+            appCount={2}
+            bottleCount={2}
+            onModeChange={setMode}
+          />
+        </LogPartFrame>
+      </StorySurface>
+    );
+  },
+};
+
+export const AppSummaryHeaderPart: Story = {
+  name: "Parts / App summary header",
+  render: () => (
+    <StorySurface>
+      <LogPartFrame title="LogAppSummaryHeader" className="max-w-4xl">
+        <LogAppSummaryHeader target={TARGETS[0]} />
+      </LogPartFrame>
+    </StorySurface>
+  ),
+};
+
+export const TargetHeaderLabel: Story = {
+  name: "Parts / Target header label",
+  render: () => (
+    <StorySurface>
+      <LogPartFrame title="LogTargetHeader label mode">
+        <LogTargetHeader
+          targets={TARGETS}
+          selectedTarget={TARGETS[1]}
+          selectedTargetId={TARGETS[1].id}
+          displayMode="label"
+          label="HoyoVerse Bottle"
+          favoriteTargetIds={["bottle:hoyoverse"]}
+          onTargetChange={() => undefined}
+          onFavoriteTargetIdsChange={() => undefined}
+        />
+      </LogPartFrame>
+    </StorySurface>
+  ),
+};
+
+export const BottleAppFilterPart: Story = {
+  name: "Parts / Bottle app filter",
+  render: () => {
+    const [selectedValues, setSelectedValues] = useState<string[]>([]);
+
+    return (
+      <StorySurface>
+        <LogPartFrame title="LogBottleAppFilter" className="max-w-4xl">
+          <LogBottleAppFilter
+            options={[
+              {
+                value: "genshin-impact",
+                label: "Genshin Impact",
+                count: 4,
+                isRunning: true,
+              },
+              {
+                value: "hoyoplay",
+                label: "HoYoPlay",
+                count: 3,
+                isRunning: false,
+              },
+              {
+                value: "steam",
+                label: "Steam",
+                count: 2,
+                isRunning: false,
+              },
+            ]}
+            selectedValues={selectedValues}
+            onSelectedValuesChange={setSelectedValues}
+          />
+        </LogPartFrame>
+      </StorySurface>
+    );
+  },
+};
+
+export const HistoryPanePart: Story = {
+  name: "Parts / History pane",
+  render: () => {
+    const bottleSessions = SESSIONS.filter((session) => session.kind === "bottle");
+
+    return (
+      <StorySurface>
+        <LogPartFrame title="LogHistoryPane" className="h-[360px] max-w-sm">
+          <LogHistoryPane
+            sessions={bottleSessions}
+            selectedSessionId={bottleSessions[0]?.id ?? ""}
+            onSessionChange={() => undefined}
+            onSessionContextMenu={(event) => event.preventDefault()}
+          />
+        </LogPartFrame>
+      </StorySurface>
+    );
+  },
+};
+
+export const SessionButtonStates: Story = {
+  name: "Parts / Session button states",
+  render: () => (
+    <StorySurface>
+      <LogPartFrame title="SessionButton states" className="max-w-sm">
+        <div className="flex flex-col gap-2">
+          <SessionButton
+            session={SESSIONS[0]}
+            selected
+            onClick={() => undefined}
+            onContextMenu={(event) => event.preventDefault()}
+          />
+          <SessionButton
+            session={SESSIONS[2]}
+            selected={false}
+            onClick={() => undefined}
+            onContextMenu={(event) => event.preventDefault()}
+          />
+        </div>
+      </LogPartFrame>
+    </StorySurface>
+  ),
+};
+
+export const ToolbarPart: Story = {
+  name: "Parts / Toolbar",
+  render: () => (
+    <StorySurface>
+      <LogPartFrame title="LogToolbar" className="max-w-5xl">
+        <LogToolbar
+          selectedSession={SESSIONS[0]}
+          sources={SOURCES.map((source) => ({ ...source, count: 4 }))}
+          selectedSourceId="all"
+          selectedLevel="all"
+          searchValue=""
+          visibleCount={12}
+          totalCount={42}
+          onSourceChange={() => undefined}
+          onLevelChange={() => undefined}
+          onSearchChange={() => undefined}
+          onOpenLogFolder={() => undefined}
+          onOpenLogFile={() => undefined}
+          onRevealLogFile={() => undefined}
+        />
+      </LogPartFrame>
+    </StorySurface>
+  ),
+};
+
+export const TextPanelPart: Story = {
+  name: "Parts / Text panel",
+  render: () => (
+    <StorySurface>
+      <LogPartFrame title="LogTextPanel" className="h-[360px] max-w-5xl">
+        <LogTextPanel
+          entries={LOGS_BY_SESSION["2026-05-16-2102"]}
+          text={LOGS_BY_SESSION["2026-05-16-2102"].map(format_story_log_line).join("\n")}
+          scrollScopeKey="story-text-panel"
+        />
+      </LogPartFrame>
+    </StorySurface>
+  ),
+};
+
+export const ContentPart: Story = {
+  name: "Parts / Content pane",
+  render: () => {
+    const entries = LOGS_BY_SESSION["2026-05-16-2102"];
+
+    return (
+      <StorySurface>
+        <LogPartFrame title="LogContent" className="h-[520px] max-w-5xl">
+          <LogContent
+            entries={entries}
+            logText={entries.map(format_story_log_line).join("\n")}
+            selectedSession={SESSIONS[0]}
+            sources={SOURCES.map((source) => ({
+              ...source,
+              count: entries.filter((entry) => entry.source === source.id).length,
+            }))}
+            selectedSourceId="all"
+            selectedLevel="all"
+            searchValue=""
+            visibleCount={entries.length}
+            totalCount={entries.length}
+            onSourceChange={() => undefined}
+            onLevelChange={() => undefined}
+            onSearchChange={() => undefined}
+            onOpenLogFolder={() => undefined}
+            onOpenLogFile={() => undefined}
+            onRevealLogFile={() => undefined}
+          />
+        </LogPartFrame>
+      </StorySurface>
+    );
+  },
+};
+
+
+const TARGETS = [
+  {
+    id: "app",
+    label: "App Logs",
+    kind: "app" as const,
+    count: 2,
+    runningCount: 1,
+  },
+  {
+    id: "bottle:hoyoverse",
+    label: "HoyoVerse Bottle",
+    kind: "bottle" as const,
+    bottleId: "hoyoverse",
+    count: 1,
+    runningCount: 1,
+  },
+  {
+    id: "bottle:eternal-return",
+    label: "Eternal Return",
+    kind: "bottle" as const,
+    bottleId: "eternal-return",
+    count: 1,
+    runningCount: 1,
+  },
+];
+
+function TargetHeaderPickerExample() {
+  const [targetId, setTargetId] = useState(TARGETS[1].id);
+  const [favorites, setFavorites] = useState(["bottle:hoyoverse"]);
+  const selectedTarget = TARGETS.find((target) => target.id === targetId) ?? TARGETS[0];
+
+  return (
+    <StorySurface>
+      <LogPartFrame title="LogTargetHeader picker mode">
+        <LogTargetHeader
+          targets={TARGETS}
+          selectedTarget={selectedTarget}
+          selectedTargetId={targetId}
+          displayMode="picker"
+          favoriteTargetIds={favorites}
+          onTargetChange={setTargetId}
+          onFavoriteTargetIdsChange={setFavorites}
+        />
+      </LogPartFrame>
+    </StorySurface>
+  );
+}
+
+function LogPartFrame({
+  title,
+  className = "",
+  children,
+}: {
+  title: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={"overflow-hidden rounded-xl border border-white/10 bg-[#0b1020] shadow-2xl shadow-black/20 " + className}>
+      <div className="border-b border-white/10 bg-[#101827] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function format_story_log_line(entry: LogEntry): string {
+  const bottle = entry.bottleName ? " [" + entry.bottleName + "]" : "";
+  const category = entry.category ? entry.category + ":" : "";
+  const line = entry.timestamp + " [" + entry.level.toUpperCase() + "] [" + category + entry.source + "]" + bottle + " " + entry.message;
+
+  return entry.detail ? line + "\n" + entry.detail : line;
+}
 
 function CompactDialogInteractionExample() {
   const [open, setOpen] = useState(false);

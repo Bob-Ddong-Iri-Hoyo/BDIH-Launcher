@@ -4,13 +4,15 @@ export const FALLBACK_LOCALE = "ko";
 export const LOCALE_OPTIONS = [
   {
     value: "ko",
-    labelKey: "locale.ko",
-    nativeLabel: "한국어",
+    fallbackNativeName: "한국어",
   },
   {
     value: "en",
-    labelKey: "locale.en",
-    nativeLabel: "English",
+    fallbackNativeName: "English",
+  },
+  {
+    value: "ja",
+    fallbackNativeName: "日本語",
   },
 ] as const;
 

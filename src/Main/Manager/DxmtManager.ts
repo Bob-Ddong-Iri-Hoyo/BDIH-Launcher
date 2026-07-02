@@ -1,20 +1,29 @@
 import { WebContents } from "electron";
-import { existsSync } from "fs";
+import { closeSync, existsSync, openSync, readSync, rmSync, statSync } from "fs";
 import os from "os";
 import path from "path";
 import { BDIH_DXMT_REPOSITORY } from "../../Common/Constant/RuntimeSources";
-import { DxmtInstallPayload, DxmtStatusPayload, IPC_CHANNELS } from "../../Common/Types/IPC";
+import { DxmtDeletePayload, DxmtInstallPayload, DxmtStatusPayload, IPC_CHANNELS, RuntimeDeleteResultPayload } from "../../Common/Types/IPC";
 import { DxmtVersion } from "../../Common/Types/Wine";
+import { remove_quarantine_xattr } from "../Program/Xattr";
 import { fetch_github_release_catalog } from "../Runtime/GitHubReleaseCatalog";
 import { downloadManager } from "./DownloadManager";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
 
+/**
+ * Resolves and downloads DXMT package versions.
+ *
+ * DXMT is cached as downloaded package files rather than extracted runtimes, so
+ * install status is based on whether the target archive exists on disk.
+ */
 export class DxmtManager {
   private readonly logger = logManager.createLogger({ file: "wine", source: "dxmt" });
   private cachedVersions: DxmtVersion[] = [];
 
   async getVersionList(): Promise<DxmtVersion[]> {
+    // Recompute from the configured cache directory to avoid stale installed
+    // status after the cache is deleted from Preferences.
     try {
       const preference = await preferenceManager.getPreference();
       const githubVersions = await fetch_github_release_catalog(BDIH_DXMT_REPOSITORY.releasesApiUrl, "bdih-dxmt");
@@ -22,14 +31,14 @@ export class DxmtManager {
         const targetPath = version.downloadUrl
           ? get_download_target_path(preference.dxmtCachePath, version.downloadUrl, `${version.id}.zip`)
           : undefined;
-        const isInstalled = Boolean(targetPath && existsSync(targetPath));
+        const isInstalled = Boolean(targetPath && is_downloaded_dxmt_package(targetPath));
 
         return {
           ...version,
           name: `DXMT ${version.name}`,
           status: isInstalled ? "installed" : "available",
           progress: isInstalled ? 100 : 0,
-          path: targetPath,
+          path: isInstalled ? targetPath : undefined,
         };
       });
     } catch (error) {
@@ -41,6 +50,8 @@ export class DxmtManager {
   }
 
   async installDxmt(request: DxmtInstallPayload, sender?: WebContents): Promise<void> {
+    // Download progress is pushed to the renderer via DXMT.STATUS_UPDATE. The
+    // target path is kept on the version so bottle recipes can reference it.
     const dxmt = this.cachedVersions.find((version) => version.id === request.versionId);
 
     if (!dxmt?.downloadUrl) {
@@ -49,7 +60,16 @@ export class DxmtManager {
 
     const targetPath = get_download_target_path(request.installPath, dxmt.downloadUrl, `${request.versionId}.zip`);
 
-    if (existsSync(targetPath)) {
+    if (existsSync(targetPath) && !is_downloaded_dxmt_package(targetPath)) {
+      rmSync(targetPath, { recursive: true, force: true });
+      this.logger.warn("removed invalid DXMT package before retry", {
+        versionId: request.versionId,
+        targetPath,
+      });
+    }
+
+    if (is_downloaded_dxmt_package(targetPath)) {
+      await this.clearQuarantineAttribute(request.versionId, targetPath);
       this.sendStatus(sender, {
         versionId: request.versionId,
         status: "installed",
@@ -89,17 +109,23 @@ export class DxmtManager {
             });
           },
           onEnd: (success) => {
-            if (!success) {
+            void (async () => {
+            if (!success || !is_downloaded_dxmt_package(targetPath)) {
+              if (existsSync(targetPath) && !is_downloaded_dxmt_package(targetPath)) {
+                rmSync(targetPath, { recursive: true, force: true });
+              }
+
               this.sendStatus(sender, {
                 versionId: request.versionId,
                 status: "error",
                 progress: 0,
-                message: `${request.versionId} download failed.`,
+                message: `${request.versionId} download failed or produced an invalid package.`,
               });
-              reject(new Error(`${request.versionId} download failed.`));
+              reject(new Error(`${request.versionId} download failed or produced an invalid package.`));
               return;
             }
 
+            await this.clearQuarantineAttribute(request.versionId, targetPath);
             this.sendStatus(sender, {
               versionId: request.versionId,
               status: "installed",
@@ -112,6 +138,7 @@ export class DxmtManager {
                 : version,
             );
             resolve();
+            })().catch(reject);
           },
           onError: reject,
         },
@@ -119,8 +146,87 @@ export class DxmtManager {
     });
   }
 
+  async deleteDxmt(request: DxmtDeletePayload): Promise<RuntimeDeleteResultPayload> {
+    const dxmt = this.cachedVersions.find((version) => version.id === request.versionId);
+
+    if (!dxmt?.downloadUrl && !dxmt?.path) {
+      return {
+        ok: false,
+        deletedPaths: [],
+        error: `DXMT version is not managed by the launcher: ${request.versionId}`,
+      };
+    }
+
+    const targetPath = dxmt.downloadUrl
+      ? get_download_target_path(request.installPath, dxmt.downloadUrl, `${request.versionId}.zip`)
+      : dxmt.path;
+    const cacheRoot = path.resolve(expand_user_home_path(request.installPath));
+    const resolvedPath = targetPath ? path.resolve(expand_user_home_path(targetPath)) : "";
+    const deletedPaths: string[] = [];
+
+    try {
+      if (resolvedPath && is_safe_cache_delete_path(resolvedPath, cacheRoot) && existsSync(resolvedPath)) {
+        rmSync(resolvedPath, { recursive: true, force: true });
+        deletedPaths.push(resolvedPath);
+      }
+
+      this.cachedVersions = this.cachedVersions.map((version) =>
+        version.id === request.versionId
+          ? {
+              ...version,
+              status: "available",
+              progress: 0,
+              path: undefined,
+            }
+          : version,
+      );
+
+      return {
+        ok: true,
+        deletedPaths,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        deletedPaths,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  clearRuntimeMetadata(): void {
+    // DXMT install state is cached archive metadata. After deleting the cache
+    // folder, clear the in-memory path/status so the renderer does not keep
+    // showing "already downloaded".
+    this.cachedVersions = this.cachedVersions.map((version) => ({
+      ...version,
+      status: "available",
+      progress: 0,
+      path: undefined,
+    }));
+  }
+
   private sendStatus(sender: WebContents | undefined, payload: DxmtStatusPayload): void {
     sender?.send(IPC_CHANNELS.DXMT.STATUS_UPDATE.channelName, payload);
+  }
+
+  private async clearQuarantineAttribute(versionId: string, targetPath: string): Promise<void> {
+    const result = await remove_quarantine_xattr(targetPath);
+
+    if (result.skipped) {
+      return;
+    }
+
+    if (result.ok) {
+      this.logger.debug("removed quarantine xattr", { versionId, targetPath });
+      return;
+    }
+
+    this.logger.warn("failed to remove quarantine xattr", {
+      versionId,
+      targetPath,
+      error: result.error,
+    });
   }
 }
 
@@ -146,6 +252,59 @@ function file_name_from_url(url: string, fallback: string): string {
     return decodeURIComponent(pathname.split("/").pop() || fallback);
   } catch {
     return fallback;
+  }
+}
+
+function is_safe_cache_delete_path(targetPath: string, cacheRoot: string): boolean {
+  const parsed = path.parse(targetPath);
+
+  return targetPath !== parsed.root
+    && targetPath !== cacheRoot
+    && targetPath.startsWith(`${cacheRoot}${path.sep}`);
+}
+
+function is_downloaded_dxmt_package(targetPath: string): boolean {
+  try {
+    const stats = statSync(targetPath);
+
+    if (!stats.isFile() || stats.size <= 0) {
+      return false;
+    }
+
+    const header = read_file_header(targetPath, 6);
+
+    if (/\.zip$/i.test(targetPath)) {
+      return header[0] === 0x50 && header[1] === 0x4b;
+    }
+
+    if (/\.tar\.gz$/i.test(targetPath) || /\.tgz$/i.test(targetPath)) {
+      return header[0] === 0x1f && header[1] === 0x8b;
+    }
+
+    if (/\.7z$/i.test(targetPath)) {
+      return header[0] === 0x37
+        && header[1] === 0x7a
+        && header[2] === 0xbc
+        && header[3] === 0xaf
+        && header[4] === 0x27
+        && header[5] === 0x1c;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function read_file_header(targetPath: string, length: number): Buffer {
+  const fd = openSync(targetPath, "r");
+  const buffer = Buffer.alloc(length);
+
+  try {
+    readSync(fd, buffer, 0, length, 0);
+    return buffer;
+  } finally {
+    closeSync(fd);
   }
 }
 

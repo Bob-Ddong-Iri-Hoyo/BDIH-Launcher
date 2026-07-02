@@ -79,6 +79,7 @@ export function AppUpdatePanel({
   const DialogIcon = icon_from_status(dialogStatus?.status);
   const isChecking = status?.status === "checking";
   const isDownloading = status?.status === "downloading";
+  const isDialogWorking = dialogStatus?.status === "checking" || dialogStatus?.status === "downloading";
   const progress = Math.round(status?.progress ?? 0);
   const dialogProgress = Math.round(dialogStatus?.progress ?? 0);
 
@@ -165,7 +166,7 @@ export function AppUpdatePanel({
         title={t(`preferences.appUpdate.dialog.${dialogStatusKey}.title`)}
         description={t(`preferences.appUpdate.dialog.${dialogStatusKey}.description`)}
         tone={dialog_tone_from_status(dialogStatus?.status)}
-        icon={DialogIcon}
+        icon={isDialogWorking ? undefined : DialogIcon}
         placement="center"
         widthClassName="max-w-lg"
         onClose={() => setIsResultDialogOpen(false)}
@@ -179,9 +180,12 @@ export function AppUpdatePanel({
       >
         <Stack className="gap-3">
           <Inline className="items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-            <InlineText className="text-xs font-semibold text-slate-400">
-              {t("preferences.appUpdate.title")}
-            </InlineText>
+            <Inline className="items-center gap-2">
+              {isDialogWorking ? <RefreshCw size={14} className="animate-spin text-sky-300" /> : null}
+              <InlineText className="text-xs font-semibold text-slate-400">
+                {t("preferences.appUpdate.title")}
+              </InlineText>
+            </Inline>
             <StatusBadge label={t(`preferences.appUpdate.status.${dialogStatusKey}`)} tone={STATUS_TONE_MAP[dialogStatusKey]} />
           </Inline>
 

@@ -1,6 +1,8 @@
 import { readConfigFile, readUserSettings, writeUserSettings } from "../FileIO/IO";
 import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LauncherLogLevel, LAUNCHER_SHORTCUT_ACTIONS, LauncherPreferencePayload, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
+import path from "path";
 import {
+  get_default_data_root_path,
   get_default_bottle_prefix_path,
   get_default_dxmt_cache_path,
   get_default_wine_install_path,
@@ -10,6 +12,7 @@ import {
 
 export type LauncherPreference = LauncherPreferencePayload;
 
+const DEFAULT_DATA_ROOT_PATH = get_default_data_root_path();
 const DEFAULT_WINE_INSTALL_PATH = get_default_wine_install_path();
 const DEFAULT_BOTTLE_PREFIX_PATH = get_default_bottle_prefix_path();
 const DEFAULT_DXMT_CACHE_PATH = get_default_dxmt_cache_path();
@@ -18,9 +21,13 @@ const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   logs: "Command + L",
   preferences: "Command + ,",
 };
+const ACCENT_COLORS = ["rose", "sky", "emerald", "violet", "amber"] as const;
+type AccentColorPreference = (typeof ACCENT_COLORS)[number];
 
 export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   language: "ko",
+  accentColor: "rose",
+  dataRootPath: DEFAULT_DATA_ROOT_PATH,
   wineInstallPath: DEFAULT_WINE_INSTALL_PATH,
   bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
   dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
@@ -35,10 +42,19 @@ export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   shortcuts: DEFAULT_SHORTCUTS,
 };
 
+/**
+ * Reads and writes launcher preferences.
+ *
+ * Preference values are cached because many managers need paths during IPC
+ * calls. Any operation that deletes or rewrites settings must clear this cache
+ * before the renderer asks for fresh values.
+ */
 export class PreferenceManager {
   private cache: LauncherPreference | null = null;
 
   async getPreference(forceReload = false): Promise<LauncherPreference> {
+    // `forceReload` bypasses the in-memory cache when callers know settings may
+    // have changed outside PreferenceManager.
     if (this.cache && !forceReload) {
       return this.cache;
     }
@@ -104,12 +120,18 @@ export class PreferenceManager {
 
   private normalizePreference(value: unknown): LauncherPreference {
     const record = this.isRecord(value) ? value : {};
+    const dataRootPath = this.stringOrDefault(
+      record.dataRootPath,
+      this.inferDataRootPath(record) ?? DEFAULT_DATA_ROOT_PATH,
+    );
 
     return {
       language: this.stringOrDefault(record.language, "ko"),
-      wineInstallPath: this.stringOrDefault(record.wineInstallPath, DEFAULT_WINE_INSTALL_PATH),
-      bottlePrefixPath: this.stringOrDefault(record.bottlePrefixPath, DEFAULT_BOTTLE_PREFIX_PATH),
-      dxmtCachePath: this.stringOrDefault(record.dxmtCachePath, DEFAULT_DXMT_CACHE_PATH),
+      accentColor: this.accentColorOrDefault(record.accentColor, "rose"),
+      dataRootPath,
+      wineInstallPath: get_default_wine_install_path(dataRootPath),
+      bottlePrefixPath: this.stringOrDefault(record.bottlePrefixPath, get_default_bottle_prefix_path(dataRootPath)),
+      dxmtCachePath: get_default_dxmt_cache_path(dataRootPath),
       gameInstallPath: this.stringOrDefault(record.gameInstallPath, ""),
       autoCheckUpdates: this.booleanOrDefault(record.autoCheckUpdates, true),
       closeToTray: this.booleanOrDefault(record.closeToTray, false),
@@ -152,6 +174,12 @@ export class PreferenceManager {
       : fallback;
   }
 
+  private accentColorOrDefault(value: unknown, fallback: AccentColorPreference): AccentColorPreference {
+    return typeof value === "string" && ACCENT_COLORS.includes(value as AccentColorPreference)
+      ? (value as AccentColorPreference)
+      : fallback;
+  }
+
   private shortcutsOrDefault(value: unknown): LauncherShortcutMap {
     const record = this.isRecord(value) ? value : {};
 
@@ -159,6 +187,32 @@ export class PreferenceManager {
       shortcuts[action] = this.stringOrDefault(record[action], DEFAULT_SHORTCUTS[action]);
       return shortcuts;
     }, { ...DEFAULT_SHORTCUTS });
+  }
+
+  private inferDataRootPath(record: Record<string, unknown>): string | undefined {
+    const roots = [
+      this.parentPathIfNamed(record.wineInstallPath, "Wine"),
+      this.parentPathIfNamed(record.bottlePrefixPath, "Bottles"),
+      this.parentPathIfNamed(record.dxmtCachePath, "DXMT"),
+    ].filter((candidate): candidate is string => Boolean(candidate));
+
+    if (roots.length === 0) {
+      return undefined;
+    }
+
+    const normalizedRoots = [...new Set(roots.map((root) => root.replace(/\/+$/, "")))];
+
+    return normalizedRoots.length === 1 ? normalizedRoots[0] : undefined;
+  }
+
+  private parentPathIfNamed(value: unknown, expectedName: string): string | undefined {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return undefined;
+    }
+
+    const trimmed = value.trim().replace(/\/+$/, "");
+
+    return path.basename(trimmed) === expectedName ? path.dirname(trimmed) : undefined;
   }
 
   private isMissingFileError(error: unknown): boolean {

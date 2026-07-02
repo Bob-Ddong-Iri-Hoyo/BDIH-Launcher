@@ -1,9 +1,7 @@
 import React from "react";
-import { Monitor, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { join_classes } from "../../Common/Util/ClassName";
 import {
-  Badge,
   Box,
   Button,
   CenterOverlay,
@@ -11,14 +9,13 @@ import {
   ImageFrame,
   Inline,
   InlineText,
-  MediaOverlay,
   PrimitiveImage,
   Stack,
   Text,
 } from "./Primitives";
 
 /** Visual presets for image-backed buttons. */
-export type ImageButtonPreset = "app" | "compact" | "tile";
+export type ImageButtonPreset = "app" | "compact" | "tile" | "desktop";
 /** Border radius preset for image-backed button surfaces. */
 export type ImageButtonRadius = "sm" | "md" | "lg" | "xl" | "full";
 /** Border treatment preset for image-backed button surfaces. */
@@ -100,11 +97,11 @@ export function ImageButton({
       onMouseMove={onMouseHover}
       onContextMenu={onContextMenu}
       className={join_classes(
-        "group relative isolate h-full w-full flex-col overflow-hidden text-center",
+        "group relative isolate h-full w-full flex-col text-center",
         presetClass,
         image_button_radius_class(resolvedRadius),
         image_button_border_class(resolvedBorder),
-        image_button_tone({ isActive, isRunning, hasError }),
+        image_button_tone({ preset, isActive, isRunning, hasError }),
         className,
       )}
       aria-label={`${name} ${resolvedActionLabel}`}
@@ -112,34 +109,84 @@ export function ImageButton({
       <ImageFrame
         size={resolvedImageSize}
         shape={resolvedImageShape}
-        className={join_classes(image_frame_spacing_class(preset), "group-hover:scale-[1.04]", image_frame_tone({ isRunning, hasError }))}
+        className={join_classes(
+          "relative",
+          image_frame_spacing_class(preset),
+          "transition-transform duration-150 ease-out group-hover:scale-[1.04]",
+          !isRunning && "group-hover:blur-[1.5px]",
+          image_frame_tone({ isRunning, hasError }),
+          isRunning && "running-app-icon-frame",
+        )}
       >
         <AppImage src={src} name={name} />
-        <ActionOverlay isRunning={isRunning} actionLabel={resolvedActionLabel} />
-        {isRunning ? <RunningEffects /> : null}
       </ImageFrame>
       <InlineText tone="strong" size="sm" className="line-clamp-2 text-center font-semibold">
         {name}
       </InlineText>
-      {subtitle ? (
+      {subtitle && preset !== "desktop" ? (
         <Text tone="muted" size="xs" truncate className="mt-1 max-w-full text-center">
           {subtitle}
         </Text>
       ) : null}
+      {preset === "desktop" && isRunning ? (
+        <Inline className="mt-1 items-center rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-200/20">
+          <RunningBeacon />
+          {t("main.appContext.running")}
+        </Inline>
+      ) : null}
+      {preset === "desktop" && hasError ? (
+        <InlineText className="mt-1 rounded-full bg-red-400/15 px-2 py-0.5 text-[10px] font-semibold text-red-200">
+          {t("main.appContext.launchFailed")}
+        </InlineText>
+      ) : null}
+      <ActionOverlay isRunning={isRunning} actionLabel={resolvedActionLabel} />
     </Button>
   );
 }
 
 function AppImage({ src, name }: { src?: string; name: string }) {
+  const [hasImageError, setHasImageError] = React.useState(false);
+
   if (src) {
-    return <PrimitiveImage src={src} alt={name} />;
+    return (
+      <>
+        {!hasImageError ? (
+          <PrimitiveImage
+            src={src}
+            alt={name}
+            onError={() => setHasImageError(true)}
+          />
+        ) : (
+          <TextIconFallback name={name} />
+        )}
+      </>
+    );
   }
 
+  return <TextIconFallback name={name} />;
+}
+
+function TextIconFallback({ name }: { name: string }) {
   return (
-    <IconSlot>
-      <Monitor className="text-slate-300" size={30} />
+    <IconSlot className="grid h-full w-full place-items-center bg-gradient-to-br from-slate-700 via-slate-800 to-slate-950 text-white">
+      <InlineText className="text-center text-sm font-black uppercase leading-none tracking-tight text-white drop-shadow">
+        {app_initials(name)}
+      </InlineText>
     </IconSlot>
   );
+}
+
+function app_initials(name: string): string {
+  const normalizedWords = name
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+
+  if (normalizedWords.length >= 2) {
+    return `${normalizedWords[0][0] ?? ""}${normalizedWords[1][0] ?? ""}`.toUpperCase();
+  }
+
+  return (normalizedWords[0] ?? name).slice(0, 2).toUpperCase() || "APP";
 }
 
 function ActionOverlay({
@@ -150,10 +197,9 @@ function ActionOverlay({
   actionLabel: string;
 }) {
   return (
-    <CenterOverlay className={isRunning ? "opacity-0" : "opacity-0 transition group-hover:opacity-100"}>
-      <Inline className="text-xs font-medium text-emerald-300">
-        <Play size={13} fill="currentColor" />
-        <InlineText tone="strong" size="xs">
+    <CenterOverlay className={`pointer-events-none transition-opacity duration-150 ease-out ${isRunning ? "opacity-0" : "opacity-0 group-hover:opacity-100"}`}>
+      <Inline className="min-w-0 max-w-[86%] items-center justify-center rounded-full bg-black/82 px-2 py-1 text-[10px] font-black text-white shadow-[0_8px_22px_rgba(0,0,0,0.48)] ring-1 ring-white/20 backdrop-blur-md">
+        <InlineText tone="strong" size="xs" className="min-w-0 truncate whitespace-nowrap text-center leading-none text-white">
           {actionLabel}
         </InlineText>
       </Inline>
@@ -161,26 +207,11 @@ function ActionOverlay({
   );
 }
 
-function RunningEffects() {
+function RunningBeacon() {
   return (
-    <>
-      <MediaOverlay className="pointer-events-none bg-gradient-to-br from-emerald-300/55 via-cyan-300/20 to-transparent mix-blend-screen" />
-      <MediaOverlay className="pointer-events-none bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.42),transparent_46%)]" />
-      <RunningBadge />
-    </>
-  );
-}
-
-function RunningBadge() {
-  const { t } = useTranslation();
-
-  return (
-    <Badge className="absolute bottom-1.5 max-w-[4.4rem] bg-black/40 text-emerald-50 shadow-[0_0_12px_rgba(16,185,129,0.35)] ring-1 ring-emerald-200/25 backdrop-blur-md">
+    <Box className="grid h-3 w-3 place-items-center">
       <RunningDot />
-      <InlineText tone="strong" size="xs" truncate>
-        {t("main.appContext.running")}
-      </InlineText>
-    </Badge>
+    </Box>
   );
 }
 
@@ -198,6 +229,7 @@ function image_button_preset_class(preset: ImageButtonPreset): string {
     app: "min-h-40 p-4",
     compact: "min-h-28 p-3",
     tile: "min-h-36 p-4",
+    desktop: "min-h-28 max-w-28 p-2",
   }[preset];
 }
 
@@ -206,6 +238,7 @@ function image_button_default_radius(preset: ImageButtonPreset): ImageButtonRadi
     app: "xl",
     compact: "lg",
     tile: "md",
+    desktop: "lg",
   }[preset];
 }
 
@@ -214,6 +247,7 @@ function image_button_default_border(preset: ImageButtonPreset): ImageButtonBord
     app: "subtle",
     compact: "subtle",
     tile: "strong",
+    desktop: "none",
   }[preset];
 }
 
@@ -222,6 +256,7 @@ function image_button_default_image_shape(preset: ImageButtonPreset): ImageButto
     app: "circle",
     compact: "rounded",
     tile: "rounded",
+    desktop: "circle",
   }[preset];
 }
 
@@ -230,6 +265,7 @@ function image_button_default_image_size(preset: ImageButtonPreset): ImageButton
     app: "md",
     compact: "sm",
     tile: "lg",
+    desktop: "lg",
   }[preset];
 }
 
@@ -257,6 +293,7 @@ function image_frame_spacing_class(preset: ImageButtonPreset): string {
     app: "mb-3",
     compact: "mb-2",
     tile: "mb-3",
+    desktop: "mb-2",
   }[preset];
 }
 
@@ -264,13 +301,31 @@ function image_button_tone({
   isActive,
   isRunning,
   hasError,
+  preset,
 }: {
+  preset: ImageButtonPreset;
   isActive: boolean;
   isRunning: boolean;
   hasError: boolean;
 }) {
+  if (preset === "desktop") {
+    if (isRunning) {
+      return "bg-transparent text-white hover:bg-white/[0.045]";
+    }
+
+    if (hasError) {
+      return "bg-transparent text-red-100 hover:bg-red-500/[0.08]";
+    }
+
+    if (isActive) {
+      return "bg-white/[0.04] text-white hover:bg-white/[0.07]";
+    }
+
+    return "bg-transparent hover:bg-white/[0.045]";
+  }
+
   if (isRunning) {
-    return "running-app-card border-emerald-300/70 bg-emerald-500/[0.10] shadow-[0_0_34px_rgba(16,185,129,0.24)]";
+    return "border-emerald-300/70 bg-emerald-500/[0.10] shadow-[0_0_34px_rgba(16,185,129,0.24)]";
   }
 
   if (hasError) {

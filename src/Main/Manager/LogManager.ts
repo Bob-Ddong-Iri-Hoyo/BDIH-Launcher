@@ -1,10 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import path from "path";
 import util from "util";
 import {
+  LauncherLogLevel,
   LauncherLogEntryPayload,
   LauncherLogSnapshotPayload,
   LauncherLogSourcePayload,
+  RendererLogPayload,
 } from "../../Common/Types/IPC";
 import { get_default_log_dir } from "../Environment/AppPaths";
 
@@ -60,12 +62,37 @@ const DEFAULT_OPTIONS: Required<Omit<LogManagerOptions, "logDir" | "sessionName"
   minLevel: "debug",
   patchConsole: true,
 };
+const BOTTLE_LOG_DIR_NAME = "bottles";
 
+export function log_level_from_preference(loggingLevel: LauncherLogLevel): LogLevel {
+  if (loggingLevel === "all") {
+    return "debug";
+  }
+
+  return loggingLevel;
+}
+
+function renderer_log_level_to_log_level(level: RendererLogPayload["level"]): LogLevel {
+  return level === "log" ? "info" : level;
+}
+
+/**
+ * Central log writer and log-history indexer.
+ *
+ * Logs are stored by app session directory. `app.log` is launcher-wide, while
+ * `wine.log` and `wine-*.log` are Wine/bottle scoped. Renderer log views consume
+ * snapshots through IPC instead of reading files directly.
+ *
+ * @see ./IPCManager.ts handles APP.GET_LOG_SNAPSHOT and APP.LOG_UPDATE.
+ */
 export class LogManager {
   private initialized = false;
   private options: Required<LogManagerOptions> | null = null;
   private originalConsole: Pick<Console, "debug" | "info" | "log" | "warn" | "error"> | null = null;
   private listeners = new Set<LogEntryListener>();
+  private logFileNameAliases = new Map<string, string>();
+  private logFilePrefixAliases = new Map<string, string>();
+  private bottleNameAliases = new Map<string, string>();
   private entrySequence = 0;
 
   init(options: LogManagerOptions = {}): void {
@@ -139,6 +166,21 @@ export class LogManager {
     this.write(normalize_logger_options(scope), "error", "error", args);
   }
 
+  rendererLog(payload: RendererLogPayload): void {
+    const source = payload.source?.trim() || "renderer";
+    const args = Array.isArray(payload.args) ? payload.args : [payload.args];
+
+    this.write(
+      {
+        file: "app",
+        source,
+      },
+      renderer_log_level_to_log_level(payload.level),
+      undefined,
+      args.length > 0 ? args : [""],
+    );
+  }
+
   getSessionDir(): string {
     return this.requireOptions().logDir;
   }
@@ -154,10 +196,29 @@ export class LogManager {
 
   private getLoggerLogFilePath(loggerOptions: LoggerOptions): string {
     const options = this.requireOptions();
-    return path.join(options.logDir, loggerOptions.fileName ?? `${loggerOptions.file}.log`);
+    const fileName = loggerOptions.fileName ?? `${loggerOptions.file}.log`;
+    return path.join(options.logDir, this.resolveLogFileNameAlias(fileName));
+  }
+
+  private resolveLogFileNameAlias(fileName: string): string {
+    const directAlias = this.logFileNameAliases.get(fileName);
+
+    if (directAlias) {
+      return directAlias;
+    }
+
+    for (const [previousPrefix, nextPrefix] of this.logFilePrefixAliases.entries()) {
+      if (fileName.startsWith(previousPrefix)) {
+        return `${nextPrefix}${fileName.slice(previousPrefix.length)}`;
+      }
+    }
+
+    return fileName;
   }
 
   getSnapshot(): LauncherLogSnapshotPayload {
+    // Snapshot discovery intentionally includes previous session folders so the
+    // UI can show log history after app restart.
     const options = this.requireOptions();
     const sessions = this.discoverLogSessions(options);
     const entries = sessions.flatMap((session) =>
@@ -174,6 +235,153 @@ export class LogManager {
       })),
       sources: create_source_payloads(entries),
     };
+  }
+
+  deleteBottleLogs(target: { bottleId: string; bottleName?: string }): string[] {
+    // Bottle deletion should remove bottle-scoped logs without wiping the whole
+    // app log history. Dedicated wine app logs are deleted; shared app/wine logs
+    // are pruned line-by-line when they mention the target bottle.
+    const options = this.options;
+
+    if (!options) {
+      return [];
+    }
+
+    const tokens = create_bottle_log_delete_tokens(target);
+
+    if (tokens.length === 0) {
+      return [];
+    }
+
+    const deletedOrCleanedPaths: string[] = [];
+    const logRootDir = path.dirname(options.logDir);
+    const sessionDirs = new Set<string>([options.logDir]);
+
+    try {
+      for (const entry of readdirSync(logRootDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          sessionDirs.add(path.join(logRootDir, entry.name));
+        }
+      }
+    } catch {
+      sessionDirs.add(options.logDir);
+    }
+
+    for (const sessionDir of sessionDirs) {
+      for (const token of tokens) {
+        const bottleLogDirPath = path.join(sessionDir, BOTTLE_LOG_DIR_NAME, token);
+
+        try {
+          if (existsSync(bottleLogDirPath)) {
+            rmSync(bottleLogDirPath, { recursive: true, force: true });
+            deletedOrCleanedPaths.push(bottleLogDirPath);
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      for (const logFileName of get_log_file_names(sessionDir)) {
+        const logFilePath = path.join(sessionDir, logFileName);
+
+        try {
+          if ((/^wine-.+\.log$/i.test(logFileName) || logFileName.startsWith(`${BOTTLE_LOG_DIR_NAME}/`)) && log_text_matches_tokens(logFileName, tokens)) {
+            rmSync(logFilePath, { force: true });
+            deletedOrCleanedPaths.push(logFilePath);
+            continue;
+          }
+
+          if ((logFileName === "app.log" || logFileName === "wine.log") && prune_bottle_log_lines(logFilePath, tokens)) {
+            deletedOrCleanedPaths.push(logFilePath);
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    return deletedOrCleanedPaths;
+  }
+
+  renameBottleLogs(target: { bottleId: string; previousBottleName: string; nextBottleName: string }): string[] {
+    const previousBottlePart = safe_log_file_part(target.previousBottleName, target.bottleId);
+    const nextBottlePart = safe_log_file_part(target.nextBottleName, target.bottleId);
+
+    if (target.bottleId) {
+      this.bottleNameAliases.set(target.bottleId, target.nextBottleName);
+    }
+
+    if (previousBottlePart === nextBottlePart) {
+      return [];
+    }
+
+    const options = this.options;
+
+    if (!options) {
+      return [];
+    }
+
+    const renamedPaths: string[] = [];
+    const previousFolderPrefix = `${BOTTLE_LOG_DIR_NAME}/${previousBottlePart}/`;
+    const nextFolderPrefix = `${BOTTLE_LOG_DIR_NAME}/${nextBottlePart}/`;
+    const previousFlatPrefix = `wine-${previousBottlePart}__`;
+    const logRootDir = path.dirname(options.logDir);
+    const sessionDirs = new Set<string>([options.logDir]);
+
+    this.logFilePrefixAliases.set(previousFolderPrefix, nextFolderPrefix);
+    this.logFilePrefixAliases.set(previousFlatPrefix, nextFolderPrefix);
+
+    try {
+      for (const entry of readdirSync(logRootDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          sessionDirs.add(path.join(logRootDir, entry.name));
+        }
+      }
+    } catch {
+      sessionDirs.add(options.logDir);
+    }
+
+    for (const sessionDir of sessionDirs) {
+      const previousBottleDirPath = path.join(sessionDir, BOTTLE_LOG_DIR_NAME, previousBottlePart);
+      const nextBottleDirPath = path.join(sessionDir, BOTTLE_LOG_DIR_NAME, nextBottlePart);
+
+      try {
+        if (existsSync(previousBottleDirPath) && !existsSync(nextBottleDirPath)) {
+          mkdirSync(path.dirname(nextBottleDirPath), { recursive: true });
+          renameSync(previousBottleDirPath, nextBottleDirPath);
+          renamedPaths.push(nextBottleDirPath);
+        }
+      } catch {
+        // Individual files below can still be migrated if the folder move fails.
+      }
+
+      for (const logFileName of get_log_file_names(sessionDir)) {
+        const nextLogFileName = next_bottle_log_file_name(logFileName, previousFolderPrefix, previousFlatPrefix, nextFolderPrefix);
+
+        if (!nextLogFileName) {
+          continue;
+        }
+
+        const currentPath = path.join(sessionDir, logFileName);
+        const nextPath = path.join(sessionDir, nextLogFileName);
+
+        this.logFileNameAliases.set(logFileName, nextLogFileName);
+
+        if (currentPath === nextPath || !existsSync(currentPath) || existsSync(nextPath)) {
+          continue;
+        }
+
+        try {
+          mkdirSync(path.dirname(nextPath), { recursive: true });
+          renameSync(currentPath, nextPath);
+          renamedPaths.push(nextPath);
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    return renamedPaths;
   }
 
   onEntry(listener: LogEntryListener): () => void {
@@ -223,6 +431,7 @@ export class LogManager {
 
     try {
       this.rotateIfNeeded(logFilePath);
+      mkdirSync(path.dirname(logFilePath), { recursive: true });
       writeFileSync(logFilePath, `${line}\n`, { flag: "a" });
     } catch (error) {
       this.originalConsole?.error("Failed to write log file:", error);
@@ -238,6 +447,9 @@ export class LogManager {
     const timestamp = new Date().toISOString();
     const message = args.map((arg) => this.formatValue(arg)).join(" ");
     const sessionId = loggerOptions.sessionId ?? options.sessionName;
+    const bottleName = loggerOptions.bottleId
+      ? this.bottleNameAliases.get(loggerOptions.bottleId) ?? loggerOptions.bottleName
+      : loggerOptions.bottleName;
 
     return {
       id: `${sessionId}:${loggerOptions.file}:${Date.now()}:${this.entrySequence++}`,
@@ -248,7 +460,7 @@ export class LogManager {
       source: loggerOptions.source,
       message,
       bottleId: loggerOptions.bottleId,
-      bottleName: loggerOptions.bottleName,
+      bottleName,
     };
   }
 
@@ -265,6 +477,8 @@ export class LogManager {
   private discoverLogSessions(
     options: Required<LogManagerOptions>,
   ): DiscoveredLogSession[] {
+    // Discover both current and historical session directories. Each log file is
+    // projected as its own selectable session in the renderer log viewer.
     const logRootDir = path.dirname(options.logDir);
     const sessionDirs = new Set<string>([options.logDir]);
 
@@ -308,11 +522,11 @@ export class LogManager {
           });
         }
 
-        for (const logFileName of logFileNames.filter((fileName) => fileName === "wine.log" || /^wine-.+\.log$/i.test(fileName))) {
+        for (const logFileName of logFileNames.filter(is_bottle_log_file_name)) {
           const metadata = wine_log_session_metadata(logFileName);
 
           sessions.push({
-            id: `${sessionId}:${logFileName.replace(/\.log$/i, "")}`,
+            id: `${sessionId}:${logFileName.replace(/\.log$/i, "").replace(/[\\/]+/g, ":")}`,
             label: metadata.label,
             startedAt: session_started_at(sessionId),
             logFileName,
@@ -521,29 +735,156 @@ function normalize_logger_options(scopeOrOptions: string | LoggerOptions): Logge
 }
 
 function get_log_file_names(sessionDir: string): string[] {
+  return collect_log_file_names(sessionDir)
+    .filter((fileName) => fileName === "app.log" || is_bottle_log_file_name(fileName))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function collect_log_file_names(currentDir: string, relativeDir = "", depth = 0): string[] {
+  if (depth > 2) {
+    return [];
+  }
+
   try {
-    return readdirSync(sessionDir, { withFileTypes: true })
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name)
-      .filter((fileName) => fileName === "app.log" || fileName === "wine.log" || /^wine-.+\.log$/i.test(fileName))
-      .sort((left, right) => left.localeCompare(right));
+    return readdirSync(currentDir, { withFileTypes: true }).flatMap((entry) => {
+      const relativePath = relativeDir ? path.join(relativeDir, entry.name) : entry.name;
+      const absolutePath = path.join(currentDir, entry.name);
+
+      if (entry.isDirectory() && (relativeDir === "" || relativeDir === BOTTLE_LOG_DIR_NAME)) {
+        return collect_log_file_names(absolutePath, relativePath, depth + 1);
+      }
+
+      return entry.isFile() ? [relativePath] : [];
+    });
   } catch {
     return [];
   }
+}
+
+function is_bottle_log_file_name(fileName: string): boolean {
+  const normalizedFileName = fileName.replace(/\\/g, "/");
+
+  return normalizedFileName === "wine.log"
+    || /^wine-.+\.log$/i.test(normalizedFileName)
+    || new RegExp(`^${BOTTLE_LOG_DIR_NAME}/[^/]+/[^/]+\\.log$`, "i").test(normalizedFileName);
+}
+
+function next_bottle_log_file_name(
+  logFileName: string,
+  previousFolderPrefix: string,
+  previousFlatPrefix: string,
+  nextFolderPrefix: string,
+): string | undefined {
+  const normalizedLogFileName = logFileName.replace(/\\/g, "/");
+
+  if (normalizedLogFileName.startsWith(previousFolderPrefix)) {
+    return `${nextFolderPrefix}${normalizedLogFileName.slice(previousFolderPrefix.length)}`;
+  }
+
+  if (normalizedLogFileName.startsWith(previousFlatPrefix)) {
+    return `${nextFolderPrefix}${normalizedLogFileName.slice(previousFlatPrefix.length)}`;
+  }
+
+  return undefined;
+}
+
+function create_bottle_log_delete_tokens(target: { bottleId: string; bottleName?: string }): string[] {
+  return unique_strings([
+    target.bottleId,
+    target.bottleName,
+    safe_log_match_part(target.bottleId),
+    target.bottleName ? safe_log_match_part(target.bottleName) : undefined,
+  ]
+    .filter((token): token is string => Boolean(token && token.trim()))
+    .map((token) => token.trim().toLowerCase()));
+}
+
+function safe_log_match_part(value: string): string {
+  return value
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function safe_log_file_part(value: string, fallback = "unknown"): string {
+  const normalized = value
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (normalized) {
+    return normalized;
+  }
+
+  return fallback
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+    .replace(/^-+|-+$/g, "") || "unknown";
+}
+
+function log_text_matches_tokens(value: string, tokens: string[]): boolean {
+  const loweredValue = value.toLowerCase();
+  const safeValue = safe_log_match_part(value);
+
+  return tokens.some((token) =>
+    loweredValue.includes(token) || Boolean(safeValue && safeValue.includes(token)),
+  );
+}
+
+function prune_bottle_log_lines(logFilePath: string, tokens: string[]): boolean {
+  const content = readFileSync(logFilePath, "utf8");
+  const hasTrailingNewline = content.endsWith("\n");
+  const lines = content.split(/\r?\n/);
+  const prunedLines = lines.filter((line) => !log_text_matches_tokens(line, tokens));
+
+  if (prunedLines.length === lines.length) {
+    return false;
+  }
+
+  writeFileSync(
+    logFilePath,
+    `${prunedLines.join("\n")}${hasTrailingNewline && prunedLines.length > 0 ? "\n" : ""}`,
+    "utf8",
+  );
+
+  return true;
+}
+
+function unique_strings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function wine_log_session_metadata(logFileName: string): {
   label: string;
   bottleName?: string;
 } {
-  if (logFileName === "wine.log") {
+  const normalizedLogFileName = logFileName.replace(/\\/g, "/");
+
+  if (normalizedLogFileName === "wine.log") {
     return {
       label: "Wine",
       bottleName: "Wine",
     };
   }
 
-  const rawName = logFileName.replace(/^wine-/i, "").replace(/\.log$/i, "");
+  if (normalizedLogFileName.startsWith(`${BOTTLE_LOG_DIR_NAME}/`)) {
+    const [, bottlePart = "", appPart = ""] = normalizedLogFileName.replace(/\.log$/i, "").split("/");
+    const bottleName = humanize_log_file_part(bottlePart);
+    const appName = humanize_log_file_part(appPart);
+
+    return {
+      label: appName ? `${bottleName} / ${appName}` : bottleName,
+      bottleName,
+    };
+  }
+
+  const rawName = normalizedLogFileName.replace(/^wine-/i, "").replace(/\.log$/i, "");
   const [bottlePart, appPart] = rawName.split("__");
   const bottleName = humanize_log_file_part(bottlePart);
   const appName = appPart ? humanize_log_file_part(appPart) : "";

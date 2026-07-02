@@ -59,6 +59,8 @@ export const DetailPanel: StoryObj<typeof BottleDetailPanel> = {
       <BottleDetailPanel
         bottle={mockBottles[1]}
         selectedWineVersionId={mockWineVersions[0].id}
+        wineVersions={mockWineVersions}
+        dxmtVersions={mockDxmtVersions}
         wineRuntimePath="~/Library/Application Support/BDIH/Wine/wine-9.0-stable"
         appLogoSrc="https://bdih.faby.day/favicon.ico"
         onRevealBottle={() => undefined}
@@ -68,6 +70,9 @@ export const DetailPanel: StoryObj<typeof BottleDetailPanel> = {
         onStopBottleApp={() => undefined}
         onDeleteBottleApp={() => undefined}
         onRegisterBottleExecutable={() => undefined}
+        onChangeBottleRecipe={() => undefined}
+        onInstallWineVersion={() => undefined}
+        onInstallDxmtVersion={() => undefined}
       />
     </div>
   ),

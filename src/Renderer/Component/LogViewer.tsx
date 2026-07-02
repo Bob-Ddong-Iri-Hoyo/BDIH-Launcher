@@ -7,7 +7,7 @@ import {
   Search,
   ScrollText,
 } from "lucide-react";
-import { Badge, Box, Button, CodeBlock, Input, Inline, InlineText, RelativeBox, Select, SelectMenuOption, Stack, Text } from "./Primitives";
+import { Badge, Box, Button, CodeBlock, Input, Inline, InlineText, List, ListItem, ListItemBody, ListItemDescription, ListItemTitle, RelativeBox, Select, SelectMenuOption, Stack, Text } from "./Primitives";
 
 /** Supported severity levels rendered by the log viewer. */
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -23,7 +23,15 @@ export type LogSourceFilter = "all" | string;
 export type LogSessionKind = "app" | "bottle";
 /** Controls whether the current log target is selectable or read-only. */
 export type LogTargetDisplayMode = "picker" | "label";
+export type LogViewerMode = "app" | "bottle";
 type LogTargetKind = "app" | "bottle";
+
+export interface LogBottleAppFilterOption {
+  value: string;
+  label: string;
+  count: number;
+  isRunning: boolean;
+}
 
 /**
  * Selectable target for a log viewer instance.
@@ -154,19 +162,32 @@ export function LogViewer({
     [sortedSessions],
   );
   const [localTargetId, setLocalTargetId] = useState("");
+  const [localMode, setLocalMode] = useState<LogViewerMode>(() =>
+    selectedTargetId?.startsWith("bottle:") ? "bottle" : "app",
+  );
   const [localSessionId, setLocalSessionId] = useState("");
   const [localSourceId, setLocalSourceId] = useState<LogSourceFilter>("all");
   const [localLevel, setLocalLevel] = useState<LogLevelFilter>("all");
   const [localSearch, setLocalSearch] = useState("");
   const [localFavoriteTargetIds, setLocalFavoriteTargetIds] = useState<string[]>(favoriteTargetIds ?? []);
+  const [localBottleAppFilterValues, setLocalBottleAppFilterValues] = useState<string[]>([]);
   const [contextMenuState, setContextMenuState] = useState<{
     x: number;
     y: number;
     session: LogSession;
   } | null>(null);
 
-  const targetId = resolve_target_id(
-    targets,
+  const visibleMode = targetDisplayMode === "label"
+    ? selectedTargetId?.startsWith("bottle:") || localTargetId.startsWith("bottle:")
+      ? "bottle"
+      : "app"
+    : localMode;
+  const targetCandidates = visibleMode === "app"
+    ? targets.filter((candidate) => candidate.kind === "app")
+    : targets.filter((candidate) => candidate.kind === "bottle");
+  const targetId = resolve_target_id_for_mode(
+    targetCandidates,
+    visibleMode,
     selectedTargetId ?? localTargetId,
   );
   const target = targets.find((candidate) => candidate.id === targetId);
@@ -174,11 +195,22 @@ export function LogViewer({
     () => sessions_for_target(sortedSessions, targetId),
     [sortedSessions, targetId],
   );
+  const bottleAppFilterOptions = useMemo(
+    () => create_bottle_app_filter_options(targetSessions),
+    [targetSessions],
+  );
+  const bottleAppFilterValues = normalize_bottle_app_filter_values(
+    bottleAppFilterOptions,
+    localBottleAppFilterValues,
+  );
+  const visibleTargetSessions = visibleMode === "bottle"
+    ? filter_sessions_by_bottle_app(targetSessions, bottleAppFilterValues)
+    : targetSessions;
   const sessionId = resolve_session_id(
-    targetSessions,
+    visibleTargetSessions,
     selectedSessionId ?? localSessionId,
   );
-  const session = targetSessions.find(
+  const session = visibleTargetSessions.find(
     (candidate) => candidate.id === sessionId,
   );
   const sessionEntries = useMemo(
@@ -226,6 +258,11 @@ export function LogViewer({
   function change_target(nextTargetId: string) {
     const nextSessions = sessions_for_target(sortedSessions, nextTargetId);
     const nextSessionId = nextSessions[0]?.id ?? "";
+    const nextTarget = targets.find((candidate) => candidate.id === nextTargetId);
+
+    if (nextTarget?.kind) {
+      setLocalMode(nextTarget.kind);
+    }
 
     if (selectedTargetId === undefined) {
       setLocalTargetId(nextTargetId);
@@ -239,6 +276,36 @@ export function LogViewer({
       setLocalSourceId("all");
     }
 
+    setLocalBottleAppFilterValues([]);
+    onTargetChange?.(nextTargetId);
+
+    if (nextSessionId) {
+      onSessionChange?.(nextSessionId);
+    }
+  }
+
+  function change_mode(nextMode: LogViewerMode) {
+    const nextTargetId = nextMode === "app"
+      ? targets.find((candidate) => candidate.kind === "app")?.id ?? "app"
+      : targets.find((candidate) => candidate.kind === "bottle")?.id ?? "";
+    const nextSessions = sessions_for_target(sortedSessions, nextTargetId);
+    const nextSessionId = nextSessions[0]?.id ?? "";
+
+    setLocalMode(nextMode);
+
+    if (selectedTargetId === undefined) {
+      setLocalTargetId(nextTargetId);
+    }
+
+    if (selectedSessionId === undefined) {
+      setLocalSessionId(nextSessionId);
+    }
+
+    if (selectedSourceId === undefined) {
+      setLocalSourceId("all");
+    }
+
+    setLocalBottleAppFilterValues([]);
     onTargetChange?.(nextTargetId);
 
     if (nextSessionId) {
@@ -284,42 +351,63 @@ export function LogViewer({
 
   return (
     <Box
-      className={`flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0b1020] text-slate-100 shadow-2xl shadow-black/20 ${className}`}
+      className={`min-h-0 w-full overflow-auto rounded-lg border border-white/10 bg-[#0b1020] text-slate-100 shadow-2xl shadow-black/20 ${className}`}
     >
-      <LogTargetHeader
-        targets={targets}
-        selectedTarget={target}
-        selectedTargetId={targetId}
-        displayMode={targetDisplayMode}
-        label={targetLabel}
-        onTargetChange={change_target}
-        favoriteTargetIds={activeFavoriteTargetIds}
-        onFavoriteTargetIdsChange={change_favorite_target_ids}
-      />
-      <Box className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
-        <LogHistoryPane
-          sessions={targetSessions}
-          selectedSessionId={sessionId}
-          onSessionChange={change_session}
-          onSessionContextMenu={open_session_context_menu}
-        />
-        <LogContent
-          entries={filteredEntries}
-          logText={logText}
-          selectedSession={session}
-          sources={sourceOptions}
-          selectedSourceId={sourceId}
-          selectedLevel={level}
-          searchValue={search}
-          visibleCount={filteredEntries.length}
-          totalCount={sessionEntries.length}
-          onSourceChange={change_source}
-          onLevelChange={change_level}
-          onSearchChange={change_search}
-          onOpenLogFolder={onOpenLogFolder}
-          onOpenLogFile={onOpenLogFile}
-          onRevealLogFile={onRevealLogFile}
-        />
+      <Box className="flex h-full min-h-[34rem] min-w-[54rem] flex-col">
+        {targetDisplayMode === "picker" ? (
+          <LogModeMenu
+            mode={visibleMode}
+            appCount={targets.find((candidate) => candidate.kind === "app")?.count ?? 0}
+            bottleCount={targets.filter((candidate) => candidate.kind === "bottle").reduce((count, candidate) => count + candidate.count, 0)}
+            onModeChange={change_mode}
+          />
+        ) : null}
+        {targetDisplayMode === "label" || visibleMode === "bottle" ? (
+          <LogTargetHeader
+            targets={targetCandidates}
+            selectedTarget={target}
+            selectedTargetId={targetId}
+            displayMode={targetDisplayMode}
+            label={targetLabel}
+            onTargetChange={change_target}
+            favoriteTargetIds={activeFavoriteTargetIds}
+            onFavoriteTargetIdsChange={change_favorite_target_ids}
+          />
+        ) : targetDisplayMode === "picker" ? (
+          <LogAppSummaryHeader target={target} />
+        ) : null}
+        {targetDisplayMode === "picker" && visibleMode === "bottle" ? (
+          <LogBottleAppFilter
+            options={bottleAppFilterOptions}
+            selectedValues={bottleAppFilterValues}
+            onSelectedValuesChange={setLocalBottleAppFilterValues}
+          />
+        ) : null}
+        <Box className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)] overflow-hidden">
+          <LogHistoryPane
+            sessions={visibleTargetSessions}
+            selectedSessionId={sessionId}
+            onSessionChange={change_session}
+            onSessionContextMenu={open_session_context_menu}
+          />
+          <LogContent
+            entries={filteredEntries}
+            logText={logText}
+            selectedSession={session}
+            sources={sourceOptions}
+            selectedSourceId={sourceId}
+            selectedLevel={level}
+            searchValue={search}
+            visibleCount={filteredEntries.length}
+            totalCount={sessionEntries.length}
+            onSourceChange={change_source}
+            onLevelChange={change_level}
+            onSearchChange={change_search}
+            onOpenLogFolder={onOpenLogFolder}
+            onOpenLogFile={onOpenLogFile}
+            onRevealLogFile={onRevealLogFile}
+          />
+        </Box>
       </Box>
       <LogSessionContextMenu
         state={contextMenuState}
@@ -331,7 +419,169 @@ export function LogViewer({
   );
 }
 
-function LogTargetHeader({
+export function LogModeMenu({
+  mode,
+  appCount,
+  bottleCount,
+  onModeChange,
+}: {
+  mode: LogViewerMode;
+  appCount: number;
+  bottleCount: number;
+  onModeChange: (mode: LogViewerMode) => void;
+}) {
+  return (
+    <Box className="border-b border-white/10 bg-[#0f172a] px-3 py-3">
+      <Inline className="w-full max-w-md items-center gap-2 rounded-lg border border-white/10 bg-[#08101f] p-1">
+        <LogModeButton
+          active={mode === "app"}
+          label="App logs"
+          count={appCount}
+          onClick={() => onModeChange("app")}
+        />
+        <LogModeButton
+          active={mode === "bottle"}
+          label="Bottle logs"
+          count={bottleCount}
+          onClick={() => onModeChange("bottle")}
+        />
+      </Inline>
+    </Box>
+  );
+}
+
+function LogModeButton({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md px-3 text-xs font-semibold transition ${
+        active
+          ? "accent-primary text-white shadow-lg shadow-black/20"
+          : "text-slate-400 hover:bg-white/[0.06] hover:text-white"
+      }`}
+    >
+      <InlineText>{label}</InlineText>
+      <InlineText className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums ${active ? "bg-white/20 text-white" : "bg-white/10 text-slate-400"}`}>
+        {count}
+      </InlineText>
+    </Button>
+  );
+}
+
+export function LogAppSummaryHeader({
+  target,
+}: {
+  target?: LogTarget;
+}) {
+  return (
+    <Box className="border-b border-white/10 bg-[#101827] px-4 py-3">
+      <Inline className="min-w-0 items-center justify-between gap-3">
+        <Stack className="min-w-0 gap-1">
+          <Inline className="min-w-0 items-center gap-2 text-sm font-semibold text-slate-100">
+            <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+            <InlineText className="truncate text-sm font-semibold text-slate-100">
+              Launcher app logs
+            </InlineText>
+          </Inline>
+          <Text className="truncate text-xs text-slate-500">
+            Overall launcher logging, preferences, updates, renderer, and app lifecycle events
+          </Text>
+        </Stack>
+        {target ? <CountPill value={target.count} suffix="sessions" /> : null}
+      </Inline>
+    </Box>
+  );
+}
+
+export function LogBottleAppFilter({
+  options,
+  selectedValues,
+  onSelectedValuesChange,
+}: {
+  options: LogBottleAppFilterOption[];
+  selectedValues: string[];
+  onSelectedValuesChange: (values: string[]) => void;
+}) {
+  const selectedValueSet = new Set(selectedValues);
+  const isAllSelected = selectedValues.length === 0;
+  const totalCount = options.reduce((count, option) => count + option.count, 0);
+
+  function toggle_value(value: string) {
+    if (selectedValueSet.has(value)) {
+      onSelectedValuesChange(selectedValues.filter((selectedValue) => selectedValue !== value));
+      return;
+    }
+
+    onSelectedValuesChange([...selectedValues, value]);
+  }
+
+  return (
+    <Box className="border-b border-white/10 bg-[#101827] px-3 pb-3">
+      <Stack className="gap-2 rounded-lg border border-white/10 bg-[#08101f] p-2">
+        <Inline className="items-center justify-between gap-3">
+          <InlineText className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            App executable filter
+          </InlineText>
+          <InlineText className="text-[11px] tabular-nums text-slate-500">
+            {isAllSelected ? "All apps" : `${selectedValues.length} selected`}
+          </InlineText>
+        </Inline>
+        <Inline className="flex-wrap gap-2">
+          <Button
+            type="button"
+            onClick={() => onSelectedValuesChange([])}
+            className={`inline-flex h-8 items-center justify-center gap-2 rounded-md border px-3 text-xs font-semibold transition ${
+              isAllSelected
+                ? "accent-primary text-white"
+                : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+            }`}
+          >
+            All
+            <InlineText className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums ${isAllSelected ? "bg-white/20 text-white" : "bg-white/10 text-slate-400"}`}>
+              {totalCount}
+            </InlineText>
+          </Button>
+          {options.map((option) => {
+            const selected = selectedValueSet.has(option.value);
+
+            return (
+              <Button
+                key={option.value}
+                type="button"
+                onClick={() => toggle_value(option.value)}
+                title={option.label}
+                className={`inline-flex h-8 max-w-56 items-center justify-center gap-2 rounded-md border px-3 text-xs font-semibold transition ${
+                  selected
+                    ? "border-emerald-300/40 bg-emerald-400/20 text-emerald-50"
+                    : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                }`}
+              >
+                {option.isRunning ? <LiveDot /> : null}
+                <InlineText className="truncate">{option.label}</InlineText>
+                <InlineText className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums ${selected ? "bg-emerald-300/20 text-emerald-50" : "bg-white/10 text-slate-400"}`}>
+                  {option.count}
+                </InlineText>
+              </Button>
+            );
+          })}
+        </Inline>
+      </Stack>
+    </Box>
+  );
+}
+
+export function LogTargetHeader({
   targets,
   selectedTarget,
   selectedTargetId,
@@ -355,15 +605,15 @@ function LogTargetHeader({
   if (displayMode === "label") {
     return (
       <Box className="border-b border-white/10 bg-[#101827] px-4 py-3">
-        <Inline justify="between" gap="md" className="min-w-0">
-          <Stack gap="xs" className="min-w-0">
-            <Inline gap="sm" className="text-sm font-semibold text-slate-100">
+        <Inline className="min-w-0 items-center justify-between gap-3">
+          <Stack className="min-w-0 gap-1">
+            <Inline className="items-center gap-2 text-sm font-semibold text-slate-100">
               <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-              <InlineText tone="strong" size="sm" truncate>
+              <InlineText className="truncate text-sm font-semibold text-slate-100">
                 {label ?? selectedTarget?.label ?? "Logs"}
               </InlineText>
             </Inline>
-            <Text tone="muted" size="xs">
+            <Text className="text-xs text-slate-500">
               {selectedTarget?.kind === "bottle" ? "Bottle logs" : "Application logs"}
             </Text>
           </Stack>
@@ -375,10 +625,10 @@ function LogTargetHeader({
 
   return (
     <Box className="border-b border-white/10 bg-[#101827] px-3 py-3">
-      <Inline justify="between" gap="md" className="mb-2">
-        <Inline gap="sm" className="min-w-0 text-sm font-semibold text-slate-200">
+      <Inline className="mb-2 items-center justify-between gap-3">
+        <Inline className="min-w-0 items-center gap-2 text-sm font-semibold text-slate-200">
           <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-          <InlineText tone="body" size="sm" truncate>Log targets</InlineText>
+          <InlineText className="truncate text-sm text-slate-200">Log targets</InlineText>
         </Inline>
         <Badge className="min-w-[5.5rem] rounded bg-white/[0.05] text-center text-xs font-normal tabular-nums text-slate-500">
           {targets.length} targets
@@ -399,7 +649,7 @@ function LogTargetHeader({
   );
 }
 
-function LogHistoryPane({
+export function LogHistoryPane({
   sessions,
   selectedSessionId,
   onSessionChange,
@@ -411,12 +661,12 @@ function LogHistoryPane({
   onSessionContextMenu: (event: React.MouseEvent, session: LogSession) => void;
 }) {
   return (
-    <Box className="flex min-h-0 flex-col border-r border-white/10 bg-[#08101f] p-3">
-      <Inline gap="sm" className="mb-2 text-sm font-semibold text-slate-200">
+    <Box className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/10 bg-[#08101f] p-3">
+      <Inline className="mb-2 items-center gap-2 text-sm font-semibold text-slate-200">
         <CalendarDays className="h-4 w-4 text-slate-400" />
-        <InlineText tone="body" size="sm">History</InlineText>
+        <InlineText className="text-sm text-slate-200">History</InlineText>
       </Inline>
-      <Stack gap="xs" className="min-h-0 flex-1 overflow-y-auto pr-1">
+      <List className="min-h-0 flex-1 overflow-y-auto pr-1">
         {sessions.length === 0 ? <EmptyListMessage>No log sessions</EmptyListMessage> : null}
         {sessions.map((session) => (
           <SessionButton
@@ -427,12 +677,12 @@ function LogHistoryPane({
             onContextMenu={(event) => onSessionContextMenu(event, session)}
           />
         ))}
-      </Stack>
+      </List>
     </Box>
   );
 }
 
-function SessionButton({
+export function SessionButton({
   session,
   selected,
   onClick,
@@ -444,32 +694,32 @@ function SessionButton({
   onContextMenu: (event: React.MouseEvent) => void;
 }) {
   return (
-    <Button
-      variant="listbox"
-      selected={selected}
+    <ListItem
+      as="button"
+      type="button"
+      tone={selected ? "selected" : "default"}
+      interactive
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={session_title(session)}
-      className={`grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3 py-2 text-left font-normal ${
-        selected
-          ? "accent-selection text-white"
-          : "border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/[0.06] hover:text-slate-200"
-      }`}
+      className="min-h-[5.25rem] w-full flex-col px-3 py-2"
     >
-      <Stack gap="xs" className="min-w-0">
-        <Inline gap="sm" className="min-w-0 text-sm font-semibold">
+      <Inline className="min-w-0 shrink-0 items-center justify-between gap-2">
+        <ListItemBody className="min-w-0 flex-row items-center gap-2">
           {session.isRunning ? <LiveDot /> : null}
-          <InlineText tone="strong" size="sm" truncate>{session.label}</InlineText>
-        </Inline>
-        <InlineText tone="muted" size="xs" truncate>{log_file_name(session)}</InlineText>
-        <InlineText tone="muted" size="xs" truncate className="text-[11px]">{format_session_time(session.startedAt)}</InlineText>
-      </Stack>
-      {session.count !== undefined ? <CountPill value={session.count} suffix="lines" /> : null}
-    </Button>
+          <ListItemTitle className="leading-5">{session.label}</ListItemTitle>
+        </ListItemBody>
+        {session.count !== undefined ? <CountPill value={session.count} suffix="lines" /> : null}
+      </Inline>
+      <ListItemBody className="mt-1 flex-1 justify-end gap-0 overflow-hidden">
+        <ListItemDescription>{log_file_name(session)}</ListItemDescription>
+        <ListItemDescription className="text-[11px]">{format_session_time(session.startedAt)}</ListItemDescription>
+      </ListItemBody>
+    </ListItem>
   );
 }
 
-function LogContent({
+export function LogContent({
   entries,
   logText,
   selectedSession,
@@ -529,7 +779,7 @@ function LogContent({
   );
 }
 
-function LogToolbar({
+export function LogToolbar({
   selectedSession,
   sources,
   selectedSourceId,
@@ -570,49 +820,52 @@ function LogToolbar({
 
   return (
     <Box className="border-b border-white/10 bg-[#101827] p-3">
-      <Inline align="start" justify="between" gap="md" className="mb-3 min-w-0">
-        <Stack gap="xs" className="min-w-0">
-          <Inline gap="sm" className="min-w-0 text-sm font-semibold text-slate-100">
+      <Inline className="mb-3 min-w-0 items-start justify-between gap-3">
+        <Stack className="min-w-0 gap-1">
+          <Inline className="min-w-0 items-center gap-2 text-sm font-semibold text-slate-100">
             <ScrollText className="h-4 w-4 shrink-0 text-slate-400" />
-            <InlineText tone="strong" size="sm" truncate>{selectedSession?.label ?? "No session selected"}</InlineText>
+            <InlineText className="truncate text-sm font-semibold text-slate-100">{selectedSession?.label ?? "No session selected"}</InlineText>
           </Inline>
-          <Text tone="muted" size="xs" truncate>
+          <Text className="truncate text-xs text-slate-500">
             {selectedSession ? log_file_name(selectedSession) : "Select a target and history item"}
           </Text>
         </Stack>
-        <Inline justify="end" gap="sm" wrap className="shrink-0">
-          <Button variant="glass" size="xs" icon={<FolderOpen size={14} />} onClick={onOpenLogFolder}>Log folder</Button>
-          <Button
-            variant="glass"
-            size="xs"
-            disabled={!hasSelectedSessionFolder}
-            icon={<FileText size={14} />}
-            onClick={() => selectedSession && onOpenLogFile?.(selectedSession)}
-          >
-            Open file
+        <Inline className="shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button variant="glass" size="xs" onClick={onOpenLogFolder}>
+            <FolderOpen size={14} />
+            Log folder
           </Button>
           <Button
             variant="glass"
             size="xs"
             disabled={!hasSelectedSessionFile}
-            icon={<ExternalLink size={14} />}
+            onClick={() => selectedSession && onOpenLogFile?.(selectedSession)}
+          >
+            <FileText size={14} />
+            Open file
+          </Button>
+          <Button
+            variant="glass"
+            size="xs"
+            disabled={!hasSelectedSessionFolder}
             onClick={() => selectedSession && onRevealLogFile?.(selectedSession)}
           >
+            <ExternalLink size={14} />
             Show in folder
           </Button>
-          <Badge className="min-w-[5.75rem] rounded-md bg-white/[0.05] text-center text-xs font-normal tabular-nums text-slate-400">
+          <Badge className="inline-flex h-7 min-w-[5.75rem] items-center justify-center rounded-md bg-white/[0.05] px-2 text-center text-xs font-normal tabular-nums text-slate-400">
             {visibleCount} / {totalCount}
           </Badge>
         </Inline>
       </Inline>
-      <Inline gap="sm" wrap className="min-w-0">
+      <Inline className="min-w-0 flex-wrap gap-2">
         <RelativeBox className="min-w-52 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <Input
             value={searchValue}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Filter text"
-            className="h-9 pl-9"
+            className="h-9 w-full rounded-md border border-white/10 bg-[#0b1020] px-3 pl-9 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
           />
         </RelativeBox>
         <Select
@@ -622,7 +875,7 @@ function LogToolbar({
           className="min-w-36 flex-1"
           searchPlaceholder="Search sources"
         />
-        <Inline gap="xs" className="h-9 shrink-0 rounded-md border border-white/10 bg-[#0b1020] p-1">
+        <Inline className="h-9 shrink-0 items-center gap-1 rounded-md border border-white/10 bg-[#0b1020] p-1">
           {LEVELS.map((level) => (
             <Button
               key={level}
@@ -639,7 +892,7 @@ function LogToolbar({
   );
 }
 
-function LogSessionContextMenu({
+export function LogSessionContextMenu({
   state,
   onClose,
   onOpenLogFile,
@@ -673,8 +926,7 @@ function LogSessionContextMenu({
 
   return (
     <Stack
-      gap="xs"
-      className="fixed z-50 min-w-44 overflow-hidden rounded-lg border border-white/10 bg-[#0f172a] p-1 text-sm text-slate-200 shadow-2xl shadow-black/45"
+      className="fixed z-50 gap-1 min-w-44 overflow-hidden rounded-lg border border-white/10 bg-[#0f172a] p-1 text-sm text-slate-200 shadow-2xl shadow-black/45"
       style={{ left: state.x, top: state.y }}
       onContextMenu={(event) => event.preventDefault()}
     >
@@ -683,12 +935,12 @@ function LogSessionContextMenu({
         size="sm"
         disabled={!hasSessionFile}
         className="w-full justify-start px-3 text-left"
-        icon={<FileText size={15} />}
         onClick={() => {
           onOpenLogFile?.(state.session);
           onClose();
         }}
       >
+        <FileText size={15} />
         Open log file
       </Button>
       <Button
@@ -696,12 +948,12 @@ function LogSessionContextMenu({
         size="sm"
         disabled={!hasSessionFolder}
         className="w-full justify-start px-3 text-left"
-        icon={<FolderOpen size={15} />}
         onClick={() => {
           onRevealLogFile?.(state.session);
           onClose();
         }}
       >
+        <FolderOpen size={15} />
         Open containing folder
       </Button>
     </Stack>
@@ -770,7 +1022,7 @@ export function LogTextPanel({
   );
 }
 
-function EmptyListMessage({ children }: { children: React.ReactNode }) {
+export function EmptyListMessage({ children }: { children: React.ReactNode }) {
   return (
     <Box className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
       {children}
@@ -778,7 +1030,7 @@ function EmptyListMessage({ children }: { children: React.ReactNode }) {
   );
 }
 
-function LiveDot() {
+export function LiveDot() {
   return (
     <Box className="relative flex h-2 w-2 shrink-0">
       <Box className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
@@ -787,9 +1039,9 @@ function LiveDot() {
   );
 }
 
-function CountPill({ value, suffix }: { value: number; suffix?: string }) {
+export function CountPill({ value, suffix }: { value: number; suffix?: string }) {
   return (
-    <Badge className={`shrink-0 justify-center rounded bg-white/10 px-1.5 py-0.5 text-center text-[11px] font-normal tabular-nums text-slate-300 ${suffix ? "min-w-[4.25rem]" : "min-w-8"}`}>
+    <Badge className={`inline-flex h-5 shrink-0 items-center justify-center rounded bg-white/10 px-1.5 text-center text-[11px] font-normal tabular-nums text-slate-300 ${suffix ? "min-w-[4.25rem]" : "min-w-8"}`}>
       {suffix ? `${value} ${suffix}` : value}
     </Badge>
   );
@@ -865,16 +1117,20 @@ function target_to_select_option(target: LogTarget): SelectMenuOption {
   };
 }
 
-function resolve_target_id(targets: LogTarget[], requestedTargetId: string) {
+function resolve_target_id_for_mode(
+  targets: LogTarget[],
+  mode: LogViewerMode,
+  requestedTargetId: string,
+) {
+  if (mode === "app") {
+    return targets.find((target) => target.kind === "app")?.id ?? "app";
+  }
+
   if (targets.some((target) => target.id === requestedTargetId)) {
     return requestedTargetId;
   }
 
-  return (
-    targets.find((target) => target.kind === "app")?.id ??
-    targets[0]?.id ??
-    ""
-  );
+  return targets[0]?.id ?? "";
 }
 
 function resolve_session_id(sessions: LogSession[], requestedSessionId: string) {
@@ -963,6 +1219,102 @@ function create_source_options(
       count,
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function create_bottle_app_filter_options(sessions: LogSession[]): LogBottleAppFilterOption[] {
+  const options = new Map<string, LogBottleAppFilterOption>();
+
+  sessions.forEach((session) => {
+    const value = bottle_app_filter_value(session);
+    const current = options.get(value);
+
+    if (current) {
+      current.count += 1;
+      current.isRunning = current.isRunning || Boolean(session.isRunning);
+      return;
+    }
+
+    options.set(value, {
+      value,
+      label: bottle_app_filter_label(session),
+      count: 1,
+      isRunning: Boolean(session.isRunning),
+    });
+  });
+
+  return [...options.values()].sort((left, right) => {
+    if (left.isRunning !== right.isRunning) {
+      return left.isRunning ? -1 : 1;
+    }
+
+    return left.label.localeCompare(right.label);
+  });
+}
+
+function normalize_bottle_app_filter_values(
+  options: LogBottleAppFilterOption[],
+  values: string[],
+): string[] {
+  const optionValues = new Set(options.map((option) => option.value));
+
+  return values.filter((value) => optionValues.has(value));
+}
+
+function filter_sessions_by_bottle_app(
+  sessions: LogSession[],
+  selectedValues: string[],
+): LogSession[] {
+  if (selectedValues.length === 0) {
+    return sessions;
+  }
+
+  const selectedValueSet = new Set(selectedValues);
+
+  return sessions.filter((session) => selectedValueSet.has(bottle_app_filter_value(session)));
+}
+
+function bottle_app_filter_value(session: LogSession): string {
+  return normalize_filter_value(raw_bottle_app_name(session));
+}
+
+function bottle_app_filter_label(session: LogSession): string {
+  const rawName = raw_bottle_app_name(session);
+  const withoutExtension = rawName.replace(/\.(log|exe)$/i, "");
+  const readable = withoutExtension
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return readable || "Unknown app";
+}
+
+function raw_bottle_app_name(session: LogSession): string {
+  const fileName = session.logFileName ?? "";
+  const explicitAppName = fileName.match(/__([^/\\]+?)(?:\.log)?$/i)?.[1];
+
+  if (explicitAppName) {
+    return explicitAppName;
+  }
+
+  if (session.label && !looks_like_generic_log_session_label(session.label)) {
+    return session.label;
+  }
+
+  const idPart = session.id.split(":").pop() || session.id;
+
+  return idPart || "Unknown app";
+}
+
+function looks_like_generic_log_session_label(label: string): boolean {
+  return /^(running|current|app logs?|wine logs?|\d{4}[-_/]\d{2}[-_/]\d{2})$/i.test(label.trim());
+}
+
+function normalize_filter_value(value: string): string {
+  return value
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}._-]+/gu, "-") || "unknown-app";
 }
 
 function filter_entries(

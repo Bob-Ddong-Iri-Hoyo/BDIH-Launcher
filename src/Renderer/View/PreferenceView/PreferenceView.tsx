@@ -1,17 +1,22 @@
 import React, { useMemo, useState } from "react";
-import { ExternalLink, FolderOpen, Globe2, Keyboard, MonitorCog, Radio, RotateCcw, Save, Trash2, Wine } from "lucide-react";
+import { FolderOpen, Keyboard, MonitorCog, RotateCcw, Save, Trash2, Wine } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateStatusPayload, DebugFlagMode, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
+import { AppUpdateStatusPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
+import { I18N_RESOURCES } from "../../I18n/Resources";
 import { AppUpdatePanel } from "../../Component/AppUpdatePanel";
+import { DeveloperLinkGroup } from "../../Component/DeveloperLinks";
 import { Dialog } from "../../Component/Dialog";
+import { ProgressBar } from "../../Component/ProgressBar";
+import { PathAutocompleteInput } from "../../Component/PathAutocompleteInput";
 import { SelectMenu } from "../../Component/SelectMenu";
 import { StatusBadge } from "../../Component/StatusBadge";
+import { Box, Button, FieldLabel, InlineText, Input, Text } from "../../Component/Primitives";
 import { is_supported_locale, LOCALE_OPTIONS, SupportedLocale } from "../../I18n";
-import { AccentColor } from "../../Theme";
+import { ACCENT_COLOR_ITEMS, AccentColor, is_accent_color } from "../../Theme";
 
 type PreferenceCategory = "general" | "wine" | "shortcut";
-export type PreferencePathKey = "wineInstallPath" | "bottlePrefixPath" | "dxmtCachePath";
+export type PreferencePathKey = "dataRootPath" | "bottlePrefixPath";
 
 const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   launch: "Command + Return",
@@ -20,6 +25,7 @@ const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
 };
 
 export interface PreferenceViewProps {
+  dataRootPath?: string;
   installPath?: string;
   bottlePrefixPath?: string;
   dxmtCachePath?: string;
@@ -32,6 +38,7 @@ export interface PreferenceViewProps {
   wineDebugArgs?: string;
   shortcuts?: LauncherShortcutMap;
   autoUpdateEnabled?: boolean;
+  closeToTray?: boolean;
   appUpdateStatus?: AppUpdateStatusPayload;
   developerSiteUrl?: string;
   developerGitHubUrl?: string;
@@ -39,6 +46,7 @@ export interface PreferenceViewProps {
   isDeveloperOnAir?: boolean;
   initialCategory?: PreferenceCategory;
   initialHasChanges?: boolean;
+  onDataRootPathChange?: (dataRootPath: string) => void;
   onInstallPathChange?: (installPath: string) => void;
   onBottlePrefixPathChange?: (bottlePrefixPath: string) => void;
   onDxmtCachePathChange?: (dxmtCachePath: string) => void;
@@ -51,21 +59,21 @@ export interface PreferenceViewProps {
   onWineDebugArgsChange?: (wineDebugArgs: string) => void;
   onShortcutChange?: (action: LauncherShortcutAction, shortcut: string) => void;
   onAutoUpdateEnabledChange?: (enabled: boolean) => void;
+  onCloseToTrayChange?: (enabled: boolean) => void;
   onCheckForUpdates?: () => void;
   onBrowsePath?: (pathKey: PreferencePathKey) => void;
   onResetPath?: (pathKey: PreferencePathKey) => void;
-  onDeleteLauncherData?: (targets: LauncherDataDeleteTarget[]) => void;
-  onReset?: () => void;
+  onDeleteLauncherData?: (targets: LauncherDataDeleteTarget[]) => Promise<DeleteLauncherDataResultPayload | undefined> | DeleteLauncherDataResultPayload | undefined;
   onSave?: () => void;
 }
 
 function SettingField({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
   return (
-    <div className="min-w-0">
-      <p className="text-sm font-semibold text-slate-100">{title}</p>
-      <p className="mt-1 min-h-10 text-xs leading-5 text-slate-500">{description}</p>
-      <div className="mt-3">{children}</div>
-    </div>
+    <Box className="min-w-0">
+      <Text className="text-sm font-semibold text-slate-100">{title}</Text>
+      <Text className="mt-1 min-h-10 text-xs leading-5 text-slate-500">{description}</Text>
+      <Box className="mt-3">{children}</Box>
+    </Box>
   );
 }
 
@@ -79,13 +87,13 @@ function PreferenceSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-      <div className="mb-5">
-        <h3 className="text-base font-semibold text-white">{title}</h3>
-        <p className="mt-1 text-sm text-slate-400">{description}</p>
-      </div>
+    <Box as="section" className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+      <Box className="mb-5">
+        <Text as="h3" className="text-base font-semibold text-white">{title}</Text>
+        <Text className="mt-1 text-sm text-slate-400">{description}</Text>
+      </Box>
       {children}
-    </section>
+    </Box>
   );
 }
 
@@ -109,30 +117,31 @@ function PathSettingRow({
   const { t } = useTranslation();
 
   return (
-    <div>
-      <label className="block text-sm font-semibold text-slate-100" htmlFor={id}>
+    <Box>
+      <FieldLabel className="block text-sm font-semibold text-slate-100" htmlFor={id}>
         {title}
-      </label>
-      <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
-      <div className="mt-3 flex gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/10 bg-[#0b1020] px-3">
+      </FieldLabel>
+      <Text className="mt-1 text-xs leading-5 text-slate-500">{description}</Text>
+      <Box className="mt-3 flex gap-2">
+        <Box className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/10 bg-[#0b1020] px-3">
           <FolderOpen size={16} className="shrink-0 text-slate-500" />
-          <input
+          <PathAutocompleteInput
             id={id}
             value={value}
-            onChange={(event) => onChange?.(event.target.value)}
+            defaultPath={value}
+            onChange={(nextValue) => onChange?.(nextValue)}
             className="h-11 min-w-0 flex-1 bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-600"
           />
-        </div>
-        <button
+        </Box>
+        <Button
           type="button"
           className="inline-flex h-11 shrink-0 items-center gap-2 rounded-md border border-white/10 px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/5"
           onClick={onBrowse}
         >
           <FolderOpen size={16} />
           {t("common.actions.browse")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-white/10 text-slate-300 transition hover:bg-white/5 hover:text-white"
           aria-label={t("common.actions.reset")}
@@ -140,125 +149,16 @@ function PathSettingRow({
           onClick={onReset}
         >
           <RotateCcw size={16} />
-        </button>
-      </div>
-    </div>
+        </Button>
+      </Box>
+    </Box>
   );
 }
 
-function GitHubMark({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
-      <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.29 9.4 7.86 10.93.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.88-1.54-3.88-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.16 1.18.92-.26 1.9-.38 2.88-.39.98.01 1.96.13 2.88.39 2.19-1.49 3.15-1.18 3.15-1.18.63 1.58.24 2.75.12 3.04.74.8 1.18 1.83 1.18 3.08 0 4.42-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
-    </svg>
-  );
-}
+function create_data_root_child_path(dataRootPath: string, childName: string): string {
+  const trimmedRoot = dataRootPath.trim().replace(/\/+$/, "") || "~/Library/Application Support/BDIH Launcher";
 
-function YouTubeMark({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
-      <rect x="2" y="5" width="20" height="14" rx="4" fill="currentColor" />
-      <path d="M10 9.1v5.8l5.2-2.9L10 9.1Z" fill="#fff" />
-    </svg>
-  );
-}
-
-export function DeveloperYouTubeLink({ url, isOnAir }: { url: string; isOnAir: boolean }) {
-  const { t } = useTranslation();
-
-  function openDeveloperYouTube() {
-    open_external_url(url);
-  }
-
-  return (
-    <button
-      type="button"
-      className={`relative isolate ml-auto flex max-w-full items-center gap-3 overflow-visible rounded-lg border px-3 py-2 text-left transition ${
-        isOnAir
-          ? "border-red-300/45 bg-red-500/10 text-red-100 shadow-[0_0_28px_rgba(248,113,113,0.32)] hover:bg-red-500/15"
-          : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06] hover:text-white"
-      }`}
-      onClick={openDeveloperYouTube}
-    >
-      {isOnAir ? (
-        <span className="pointer-events-none absolute -inset-1 -z-10 rounded-xl bg-red-500/25 blur-xl animate-pulse" />
-      ) : null}
-
-      <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-md bg-white/5">
-        <YouTubeMark className={isOnAir ? "h-6 w-6 text-red-400" : "h-6 w-6 text-red-500"} />
-        {isOnAir ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex h-3 w-3 rounded-full bg-red-400" />
-          </span>
-        ) : null}
-      </span>
-
-      <span className="min-w-0">
-        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500">
-          <Radio size={12} />
-          {isOnAir ? t("preferences.developerYouTube.onAir") : t("preferences.developerYouTube.offAir")}
-        </span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-sm font-semibold">
-          <span className="truncate">{t("preferences.developerYouTube.open")}</span>
-          <ExternalLink size={13} className="shrink-0 text-slate-500" />
-        </span>
-      </span>
-    </button>
-  );
-}
-
-function DeveloperExternalLink({ url, label, icon }: { url: string; label: string; icon: React.ReactNode }) {
-  function open_link() {
-    open_external_url(url);
-  }
-
-  return (
-    <button
-      type="button"
-      className="flex max-w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
-      onClick={open_link}
-    >
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-white/5">
-        {icon}
-      </span>
-      <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
-        <span className="truncate">{label}</span>
-        <ExternalLink size={13} className="shrink-0 text-slate-500" />
-      </span>
-    </button>
-  );
-}
-
-function open_external_url(url: string) {
-  if (!window.BTIH_API) {
-    window.open(url, "_blank", "noopener,noreferrer");
-    return;
-  }
-
-  void window.BTIH_API?.invoke(IPC_CHANNELS.APP.OPEN_EXTERNAL_URL.channelName, { url });
-}
-
-function DeveloperLinkGroup({
-  siteUrl,
-  githubUrl,
-  youtubeUrl,
-  isYouTubeOnAir,
-}: {
-  siteUrl: string;
-  githubUrl: string;
-  youtubeUrl: string;
-  isYouTubeOnAir: boolean;
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="flex flex-wrap justify-end gap-2">
-      <DeveloperExternalLink url={siteUrl} label={t("preferences.developerLinks.site")} icon={<Globe2 className="h-5 w-5 text-sky-200" />} />
-      <DeveloperExternalLink url={githubUrl} label={t("preferences.developerLinks.github")} icon={<GitHubMark className="h-5 w-5 text-slate-200" />} />
-      <DeveloperYouTubeLink url={youtubeUrl} isOnAir={isYouTubeOnAir} />
-    </div>
-  );
+  return `${trimmedRoot}/${childName}`;
 }
 
 function shortcut_key_label_from_code(code: string): string {
@@ -369,15 +269,15 @@ function ShortcutCaptureButton({
   }, [isCapturing, value]);
 
   return (
-    <div className="flex w-56 min-w-0 flex-col items-end">
-    <button
+    <Box className="flex w-56 min-w-0 flex-col items-end">
+    <Button
       type="button"
       className={`inline-flex h-10 w-full items-center justify-center rounded-full border px-4 font-mono text-xs transition ${
         errorMessage
           ? "border-red-400/45 bg-red-500/10 text-red-100"
           :
         isCapturing
-          ? "accent-border bg-white/[0.08] text-white shadow-[0_0_24px_rgb(var(--accent-rgb)/0.18)]"
+          ? "accent-selection shadow-[0_0_24px_rgb(var(--accent-rgb)/0.18)]"
           : isConflict
             ? "border-red-400/45 bg-red-500/10 text-red-100"
             : "border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.07]"
@@ -465,13 +365,14 @@ function ShortcutCaptureButton({
       {isCapturing
         ? draftValue || t("preferences.shortcuts.recording")
         : value || t("preferences.shortcuts.unassigned")}
-    </button>
-      <p className="mt-1 min-h-4 max-w-full truncate text-right text-xs text-red-300">{errorMessage}</p>
-    </div>
+    </Button>
+      <Text className="mt-1 min-h-4 max-w-full truncate text-right text-xs text-red-300">{errorMessage}</Text>
+    </Box>
   );
 }
 
 export function PreferenceView({
+  dataRootPath = "~/Library/Application Support/BDIH Launcher",
   installPath = "~/Library/Application Support/BDIH Launcher/Wine",
   bottlePrefixPath = "~/Library/Application Support/BDIH Launcher/Bottles",
   dxmtCachePath = "~/Library/Application Support/BDIH Launcher/DXMT",
@@ -484,6 +385,7 @@ export function PreferenceView({
   wineDebugArgs = "",
   shortcuts = DEFAULT_SHORTCUTS,
   autoUpdateEnabled = true,
+  closeToTray = false,
   appUpdateStatus,
   developerSiteUrl = BDIH_SITE_URL,
   developerGitHubUrl = BDIH_GITHUB_URL,
@@ -491,9 +393,8 @@ export function PreferenceView({
   isDeveloperOnAir = false,
   initialCategory = "general",
   initialHasChanges = false,
-  onInstallPathChange,
+  onDataRootPathChange,
   onBottlePrefixPathChange,
-  onDxmtCachePathChange,
   onLocaleChange,
   onAccentColorChange,
   onThemeModeChange,
@@ -503,29 +404,54 @@ export function PreferenceView({
   onWineDebugArgsChange,
   onShortcutChange,
   onAutoUpdateEnabledChange,
+  onCloseToTrayChange,
   onCheckForUpdates,
   onBrowsePath,
   onResetPath,
   onDeleteLauncherData,
-  onReset,
   onSave,
 }: PreferenceViewProps) {
   const { t, i18n } = useTranslation();
   const [activeCategory, setActiveCategory] = useState<PreferenceCategory>(initialCategory);
-  const [hasChanges, setHasChanges] = useState(initialHasChanges);
+  const [localHasChanges, setLocalHasChanges] = useState(false);
+  const hasChanges = initialHasChanges || localHasChanges;
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleteWorking, setIsDeleteWorking] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState(0);
+  const [deleteResult, setDeleteResult] = useState<DeleteLauncherDataResultPayload | undefined>();
   const [deleteTargets, setDeleteTargets] = useState<LauncherDataDeleteTarget[]>(["all"]);
   const [shortcutValidationErrors, setShortcutValidationErrors] = useState<Partial<Record<LauncherShortcutAction, boolean>>>({});
   const [shortcutDuplicateConflictActions, setShortcutDuplicateConflictActions] = useState<LauncherShortcutAction[]>([]);
+  const defaultBottlePrefixPath = useMemo(() => create_data_root_child_path(dataRootPath, "Bottles"), [dataRootPath]);
+  const [isAdvancedStorageOpen, setIsAdvancedStorageOpen] = useState(() =>
+    bottlePrefixPath.trim().replace(/\/+$/, "") !== defaultBottlePrefixPath.trim().replace(/\/+$/, ""),
+  );
+
+  React.useEffect(() => {
+    if (bottlePrefixPath.trim().replace(/\/+$/, "") !== defaultBottlePrefixPath.trim().replace(/\/+$/, "")) {
+      setIsAdvancedStorageOpen(true);
+    }
+  }, [bottlePrefixPath, defaultBottlePrefixPath]);
+
+  React.useEffect(() => {
+    if (!initialHasChanges) {
+      setLocalHasChanges(false);
+    }
+  }, [initialHasChanges]);
   const currentLanguage = i18n.language.split("-")[0];
   const selectedLocale = locale ?? (is_supported_locale(currentLanguage) ? currentLanguage : "ko");
   const localeOptions = LOCALE_OPTIONS.map((supportedLocale) => ({
     value: supportedLocale.value,
-    label: supportedLocale.nativeLabel,
+    label: I18N_RESOURCES[supportedLocale.value]?.translation.localeMeta?.nativeName
+      ?? supportedLocale.fallbackNativeName,
   }));
   const themeModeOptions = RENDERER_THEME_MODES.map((mode) => ({
     value: mode,
     label: t(`theme.mode.${mode}`),
+  }));
+  const accentColorOptions = ACCENT_COLOR_ITEMS.map((item) => ({
+    value: item.id,
+    label: t(`theme.accent.${item.id}`),
   }));
   const loggingLevelOptions = LAUNCHER_LOG_LEVELS.map((level) => ({
     value: level,
@@ -562,7 +488,7 @@ export function PreferenceView({
   ] as const;
 
   function markChanged() {
-    setHasChanges(true);
+    setLocalHasChanges(true);
   }
 
   function handleSave() {
@@ -571,7 +497,7 @@ export function PreferenceView({
     }
 
     onSave?.();
-    setHasChanges(false);
+    setLocalHasChanges(false);
   }
 
   function handleShortcutInvalidChange(action: LauncherShortcutAction, isInvalid: boolean) {
@@ -598,14 +524,47 @@ export function PreferenceView({
     setShortcutDuplicateConflictActions(duplicateAction ? [action, duplicateAction] : []);
   }
 
-  function handleDeleteLauncherData() {
-    onDeleteLauncherData?.(deleteTargets);
+  async function handleDeleteLauncherData() {
     setIsDeleteDialogOpen(false);
-    setHasChanges(false);
+    setDeleteProgress(8);
+    setIsDeleteWorking(true);
+
+    const progressStep = Math.max(3, Math.floor(70 / Math.max(1, launcherDataPaths.length)));
+    const progressTimer = window.setInterval(() => {
+      setDeleteProgress((currentProgress) => Math.min(92, currentProgress + progressStep));
+    }, 220);
+
+    try {
+      const result = await onDeleteLauncherData?.(deleteTargets);
+      setDeleteResult(result ?? {
+        deletedPaths: [],
+        skippedPaths: [],
+        failedPaths: [],
+      });
+    } catch (error) {
+      setDeleteResult({
+        deletedPaths: [],
+        skippedPaths: [],
+        failedPaths: [
+          {
+            path: deleteTargets.join(", "),
+            error: error instanceof Error ? error.message : String(error),
+          },
+        ],
+      });
+    } finally {
+      window.clearInterval(progressTimer);
+      setDeleteProgress(100);
+      window.setTimeout(() => {
+        setIsDeleteWorking(false);
+        setDeleteProgress(0);
+      }, 260);
+    }
   }
 
   function openDeleteDialog(targets: LauncherDataDeleteTarget[]) {
     setDeleteTargets(targets);
+    setDeleteProgress(0);
     setIsDeleteDialogOpen(true);
   }
 
@@ -652,48 +611,52 @@ export function PreferenceView({
   const hasInvalidShortcuts = Object.values(shortcutValidationErrors).some(Boolean);
 
   return (
-    <div className="relative min-h-full p-6 pb-24">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex justify-end">
-          <DeveloperLinkGroup
-            siteUrl={developerSiteUrl}
-            githubUrl={developerGitHubUrl}
-            youtubeUrl={developerYouTubeUrl}
-            isYouTubeOnAir={isDeveloperOnAir}
-          />
-        </div>
+    <Box className="flex h-full min-h-0 flex-col p-6">
+      <Box className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-4">
+        <Box className="shrink-0 space-y-3">
+          <Box className="flex justify-end">
+            <DeveloperLinkGroup
+              siteUrl={developerSiteUrl}
+              githubUrl={developerGitHubUrl}
+              youtubeUrl={developerYouTubeUrl}
+              isYouTubeOnAir={isDeveloperOnAir}
+            />
+          </Box>
 
-        <div className="overflow-x-auto pb-2">
-          <div className="flex min-w-max gap-2">
-            {categories.map((category) => {
-              const Icon = category.icon;
-              const isActive = activeCategory === category.id;
+          <Box className="overflow-x-auto rounded-xl border border-white/10 bg-[#080d19]/95 px-2 py-2 shadow-xl shadow-black/20 backdrop-blur">
+            <Box className="flex min-w-max gap-2">
+              {categories.map((category) => {
+                const Icon = category.icon;
+                const isActive = activeCategory === category.id;
 
-              return (
-                <button
-                  key={category.id}
-                  type="button"
-                  className={`flex w-52 items-start gap-3 rounded-lg border p-3 text-left transition ${
-                    isActive
-                      ? "accent-border bg-white/[0.08] text-white"
-                      : "border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.06] hover:text-slate-100"
-                  }`}
-                  onClick={() => setActiveCategory(category.id)}
-                >
-                  <Icon size={18} className={isActive ? "accent-text mt-0.5 shrink-0" : "mt-0.5 shrink-0 text-slate-500"} />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">{category.label}</span>
-                    <span className="mt-1 block line-clamp-2 text-xs leading-4 text-slate-500">{category.description}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+                return (
+                  <Button
+                    key={category.id}
+                    type="button"
+                    className={`flex w-52 items-start gap-3 rounded-lg border p-3 text-left transition ${
+                      isActive
+                        ? "accent-selection"
+                        : "border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.06] hover:text-slate-100"
+                    }`}
+                    onClick={() => setActiveCategory(category.id)}
+                  >
+                    <Icon size={18} className={isActive ? "accent-text mt-0.5 shrink-0" : "mt-0.5 shrink-0 text-slate-500"} />
+                    <InlineText className="min-w-0">
+                      <InlineText className="block text-sm font-semibold">{category.label}</InlineText>
+                      <InlineText className="mt-1 block line-clamp-2 text-xs leading-4 text-slate-500">{category.description}</InlineText>
+                    </InlineText>
+                  </Button>
+                );
+              })}
+            </Box>
+          </Box>
+        </Box>
+
+        <Box className="min-h-0 flex-1 overflow-y-auto pb-28 pr-1">
 
         {activeCategory === "general" ? (
           <PreferenceSection title={t("preferences.generalTitle")} description={t("preferences.generalDescription")}>
-            <div className="grid gap-5 md:grid-cols-2">
+            <Box className="grid gap-5 md:grid-cols-2">
               <SettingField title={t("preferences.languageTitle")} description={t("preferences.languageDescription")}>
                 <SelectMenu
                   value={selectedLocale}
@@ -721,9 +684,78 @@ export function PreferenceView({
                   }}
                 />
               </SettingField>
-            </div>
 
-            <div className="mt-5">
+              <SettingField title={t("preferences.accentColorTitle")} description={t("preferences.accentColorDescription")}>
+                <SelectMenu
+                  value={accentColor}
+                  label={t("preferences.accentColorTitle")}
+                  options={accentColorOptions}
+                  onChange={(value) => {
+                    if (is_accent_color(value)) {
+                      onAccentColorChange?.(value);
+                      markChanged();
+                    }
+                  }}
+                />
+              </SettingField>
+            </Box>
+
+            <Box className="mt-5">
+              <SettingField title={t("preferences.closeBehavior.title")} description={t("preferences.closeBehavior.description")}>
+                <Box className="grid gap-3 md:grid-cols-2">
+                  <FieldLabel
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition ${
+                      !closeToTray ? "accent-selection" : "border-white/10 bg-[#0b1020] hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <Input
+                      type="radio"
+                      name="close-behavior"
+                      checked={!closeToTray}
+                      className="accent-checkbox mt-1 h-4 w-4"
+                      onChange={() => {
+                        onCloseToTrayChange?.(false);
+                        markChanged();
+                      }}
+                    />
+                    <InlineText className="min-w-0">
+                      <InlineText className="block text-sm font-semibold text-slate-100">
+                        {t("preferences.closeBehavior.quitTitle")}
+                      </InlineText>
+                      <InlineText className="mt-1 block text-xs leading-5 text-slate-500">
+                        {t("preferences.closeBehavior.quitDescription")}
+                      </InlineText>
+                    </InlineText>
+                  </FieldLabel>
+                  <FieldLabel
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition ${
+                      closeToTray ? "accent-selection" : "border-white/10 bg-[#0b1020] hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <Input
+                      type="radio"
+                      name="close-behavior"
+                      checked={closeToTray}
+                      className="accent-checkbox mt-1 h-4 w-4"
+                      onChange={() => {
+                        onCloseToTrayChange?.(true);
+                        markChanged();
+                      }}
+                    />
+                    <InlineText className="min-w-0">
+                      <InlineText className="block text-sm font-semibold text-slate-100">
+                        {t("preferences.closeBehavior.trayTitle")}
+                      </InlineText>
+                      <InlineText className="mt-1 block text-xs leading-5 text-slate-500">
+                        {t("preferences.closeBehavior.trayDescription")}
+                      </InlineText>
+                    </InlineText>
+                  </FieldLabel>
+                </Box>
+              </SettingField>
+            </Box>
+
+            <Box className="mt-5">
               <SettingField title={t("preferences.appLoggingTitle")} description={t("preferences.appLoggingDescription")}>
                 <SelectMenu
                   value={appLoggingLevel}
@@ -737,9 +769,9 @@ export function PreferenceView({
                   }}
                 />
               </SettingField>
-            </div>
+            </Box>
 
-            <div className="mt-5">
+            <Box className="mt-5">
               <AppUpdatePanel
                 autoUpdateEnabled={autoUpdateEnabled}
                 status={appUpdateStatus}
@@ -749,133 +781,128 @@ export function PreferenceView({
                 }}
                 onCheckForUpdates={onCheckForUpdates}
               />
-            </div>
+            </Box>
 
-            <div className="mt-5 rounded-lg border border-red-400/20 bg-red-500/[0.06] p-4">
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-red-100">{t("preferences.dangerZone.title")}</p>
-                  <p className="mt-1 text-xs leading-5 text-red-100/65">{t("preferences.dangerZone.description")}</p>
-                </div>
-                <button
+            <Box className="mt-5 rounded-lg border border-red-400/20 bg-red-500/[0.06] p-4">
+              <Box className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <Box className="min-w-0">
+                  <Text className="text-sm font-semibold text-red-100">{t("preferences.dangerZone.title")}</Text>
+                  <Text className="mt-1 text-xs leading-5 text-red-100/65">{t("preferences.dangerZone.description")}</Text>
+                </Box>
+                <Button
                   type="button"
                   className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-red-400/25 bg-red-500/15 px-4 text-sm font-semibold text-red-100 transition hover:bg-red-500/25"
                   onClick={() => openDeleteDialog(["all"])}
                 >
                   <Trash2 size={16} />
                   {t("preferences.dangerZone.deleteAction")}
-                </button>
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                </Button>
+              </Box>
+              <Box className="mt-4 grid gap-3 md:grid-cols-2">
                 {deleteTargetOptions.map((option) => (
-                  <div key={option.id} className="rounded-lg border border-white/10 bg-[#0b1020]/70 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-100">{option.title}</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-500">{option.description}</p>
-                      </div>
-                      <button
+                  <Box key={option.id} className="rounded-lg border border-white/10 bg-[#0b1020]/70 p-3">
+                    <Box className="flex items-start justify-between gap-3">
+                      <Box className="min-w-0">
+                        <Text className="text-sm font-semibold text-slate-100">{option.title}</Text>
+                        <Text className="mt-1 text-xs leading-5 text-slate-500">{option.description}</Text>
+                      </Box>
+                      <Button
                         type="button"
                         className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-red-400/20 px-3 text-xs font-semibold text-red-100 transition hover:bg-red-500/15"
                         onClick={() => openDeleteDialog([option.id])}
                       >
                         <Trash2 size={14} />
                         {t("common.actions.delete")}
-                      </button>
-                    </div>
-                  </div>
+                      </Button>
+                    </Box>
+                  </Box>
                 ))}
-              </div>
-            </div>
+              </Box>
+            </Box>
           </PreferenceSection>
         ) : null}
 
         {activeCategory === "wine" ? (
-          <div className="space-y-6">
+          <Box className="space-y-6">
             <PreferenceSection title={t("preferences.storagePaths.title")} description={t("preferences.storagePaths.description")}>
-              <div className="mb-4 flex justify-end">
-                <StatusBadge label={t("common.local")} tone="neutral" />
-              </div>
-              <div className="grid gap-5">
+              <Box className="grid gap-5">
                 <PathSettingRow
-                  id="install-path"
-                  title={t("preferences.storagePaths.wineInstallTitle")}
-                  description={t("preferences.storagePaths.wineInstallDescription")}
-                  value={installPath}
+                  id="data-root-path"
+                  title={t("preferences.storagePaths.dataRootTitle")}
+                  description={t("preferences.storagePaths.dataRootDescription")}
+                  value={dataRootPath}
                   onChange={(value) => {
-                    onInstallPathChange?.(value);
+                    onDataRootPathChange?.(value);
+                    if (isAdvancedStorageOpen) {
+                      onBottlePrefixPathChange?.(bottlePrefixPath);
+                    }
                     markChanged();
                   }}
                   onBrowse={() => {
-                    onBrowsePath?.("wineInstallPath");
+                    onBrowsePath?.("dataRootPath");
                     markChanged();
                   }}
                   onReset={() => {
-                    onResetPath?.("wineInstallPath");
+                    onResetPath?.("dataRootPath");
                     markChanged();
                   }}
                 />
-                <PathSettingRow
-                  id="bottle-prefix-path"
-                  title={t("preferences.storagePaths.bottlePrefixTitle")}
-                  description={t("preferences.storagePaths.bottlePrefixDescription")}
-                  value={bottlePrefixPath}
-                  onChange={(value) => {
-                    onBottlePrefixPathChange?.(value);
-                    markChanged();
-                  }}
-                  onBrowse={() => {
-                    onBrowsePath?.("bottlePrefixPath");
-                    markChanged();
-                  }}
-                  onReset={() => {
-                    onResetPath?.("bottlePrefixPath");
-                    markChanged();
-                  }}
-                />
-                <PathSettingRow
-                  id="dxmt-cache-path"
-                  title={t("preferences.storagePaths.dxmtCacheTitle")}
-                  description={t("preferences.storagePaths.dxmtCacheDescription")}
-                  value={dxmtCachePath}
-                  onChange={(value) => {
-                    onDxmtCachePathChange?.(value);
-                    markChanged();
-                  }}
-                  onBrowse={() => {
-                    onBrowsePath?.("dxmtCachePath");
-                    markChanged();
-                  }}
-                  onReset={() => {
-                    onResetPath?.("dxmtCachePath");
-                    markChanged();
-                  }}
-                />
-                <div>
-                  <button
-                    type="button"
-                    className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/5"
-                    onClick={() => {
-                      onReset?.();
+                <FieldLabel className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-[#0b1020] p-4 transition hover:bg-white/[0.04]">
+                  <Input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 accent-[rgb(var(--accent-rgb))]"
+                    checked={isAdvancedStorageOpen}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+
+                      setIsAdvancedStorageOpen(checked);
+                      if (!checked) {
+                        onBottlePrefixPathChange?.(defaultBottlePrefixPath);
+                      }
                       markChanged();
                     }}
-                  >
-                    <RotateCcw size={16} />
-                    {t("preferences.storagePaths.resetAll")}
-                  </button>
-                </div>
-              </div>
+                  />
+                  <InlineText className="min-w-0">
+                    <InlineText className="block text-sm font-semibold text-slate-100">
+                      {t("preferences.storagePaths.advancedBottleRoot")}
+                    </InlineText>
+                    <InlineText className="mt-1 block text-xs leading-5 text-slate-500">
+                      {t("preferences.storagePaths.advancedBottleRootDescription")}
+                    </InlineText>
+                  </InlineText>
+                </FieldLabel>
+                {isAdvancedStorageOpen ? (
+                  <PathSettingRow
+                    id="bottle-prefix-path"
+                    title={t("preferences.storagePaths.bottleRootTitle")}
+                    description={t("preferences.storagePaths.bottleRootDescription")}
+                    value={bottlePrefixPath}
+                    onChange={(value) => {
+                      onBottlePrefixPathChange?.(value);
+                      markChanged();
+                    }}
+                    onBrowse={() => {
+                      onBrowsePath?.("bottlePrefixPath");
+                      markChanged();
+                    }}
+                    onReset={() => {
+                      onBottlePrefixPathChange?.(defaultBottlePrefixPath);
+                      markChanged();
+                    }}
+                  />
+                ) : null}
+              </Box>
             </PreferenceSection>
 
             <PreferenceSection title={t("preferences.logging.title")} description={t("preferences.logging.description")}>
-              <div className="grid gap-3">
-                <label
+              <Box className="grid gap-3">
+                <FieldLabel
                   className={`grid gap-3 rounded-lg border p-4 transition md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] ${
-                    debugFlagMode === "preset" ? "accent-border bg-white/[0.08]" : "border-white/10 bg-[#0b1020] hover:bg-white/[0.04]"
+                    debugFlagMode === "preset" ? "accent-selection" : "border-white/10 bg-[#0b1020] hover:bg-white/[0.04]"
                   }`}
                 >
-                  <span className="flex min-w-0 gap-3">
-                    <input
+                  <InlineText className="flex min-w-0 gap-3">
+                    <Input
                       type="radio"
                       name="debug-flag-mode"
                       checked={debugFlagMode === "preset"}
@@ -885,12 +912,12 @@ export function PreferenceView({
                         markChanged();
                       }}
                     />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-slate-100">{t("preferences.logging.modePresetTitle")}</span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">{t("preferences.logging.modePresetDescription")}</span>
-                    </span>
-                  </span>
-                  <span className={debugFlagMode === "preset" ? "min-w-0" : "pointer-events-none min-w-0 opacity-45"}>
+                    <InlineText className="min-w-0">
+                      <InlineText className="block text-sm font-semibold text-slate-100">{t("preferences.logging.modePresetTitle")}</InlineText>
+                      <InlineText className="mt-1 block text-xs leading-5 text-slate-500">{t("preferences.logging.modePresetDescription")}</InlineText>
+                    </InlineText>
+                  </InlineText>
+                  <InlineText className={debugFlagMode === "preset" ? "min-w-0" : "pointer-events-none min-w-0 opacity-45"}>
                     <SelectMenu
                       value={loggingLevel}
                       label={t("preferences.logging.modePresetTitle")}
@@ -902,15 +929,15 @@ export function PreferenceView({
                         }
                       }}
                     />
-                  </span>
-                </label>
-                <label
+                  </InlineText>
+                </FieldLabel>
+                <FieldLabel
                   className={`grid gap-3 rounded-lg border p-4 transition md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] ${
-                    debugFlagMode === "wineDebug" ? "accent-border bg-white/[0.08]" : "border-white/10 bg-[#0b1020] hover:bg-white/[0.04]"
+                    debugFlagMode === "wineDebug" ? "accent-selection" : "border-white/10 bg-[#0b1020] hover:bg-white/[0.04]"
                   }`}
                 >
-                  <span className="flex min-w-0 gap-3">
-                    <input
+                  <InlineText className="flex min-w-0 gap-3">
+                    <Input
                       type="radio"
                       name="debug-flag-mode"
                       checked={debugFlagMode === "wineDebug"}
@@ -920,13 +947,13 @@ export function PreferenceView({
                         markChanged();
                       }}
                     />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-slate-100">{t("preferences.logging.modeWineDebugTitle")}</span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">{t("preferences.logging.modeWineDebugDescription")}</span>
-                    </span>
-                  </span>
-                  <span className={debugFlagMode === "wineDebug" ? "min-w-0 rounded-lg border border-white/10 bg-[#0b1020] px-3" : "pointer-events-none min-w-0 rounded-lg border border-white/10 bg-[#0b1020] px-3 opacity-45"}>
-                    <input
+                    <InlineText className="min-w-0">
+                      <InlineText className="block text-sm font-semibold text-slate-100">{t("preferences.logging.modeWineDebugTitle")}</InlineText>
+                      <InlineText className="mt-1 block text-xs leading-5 text-slate-500">{t("preferences.logging.modeWineDebugDescription")}</InlineText>
+                    </InlineText>
+                  </InlineText>
+                  <InlineText className={debugFlagMode === "wineDebug" ? "min-w-0 rounded-lg border border-white/10 bg-[#0b1020] px-3" : "pointer-events-none min-w-0 rounded-lg border border-white/10 bg-[#0b1020] px-3 opacity-45"}>
+                    <Input
                       value={wineDebugArgs}
                       placeholder={t("preferences.logging.wineDebugPlaceholder")}
                       spellCheck={false}
@@ -936,21 +963,21 @@ export function PreferenceView({
                         markChanged();
                       }}
                     />
-                  </span>
-                </label>
-              </div>
+                  </InlineText>
+                </FieldLabel>
+              </Box>
             </PreferenceSection>
-          </div>
+          </Box>
         ) : null}
 
         {activeCategory === "shortcut" ? (
           <PreferenceSection title={t("preferences.shortcuts.title")} description={t("preferences.shortcuts.description")}>
-            <div className="grid gap-3">
+            <Box className="grid gap-3">
               {shortcutItems.map(([action, titleKey, descriptionKey]) => {
                 const isShortcutConflict = shortcutDuplicateConflictActions.includes(action);
 
                 return (
-                  <div
+                  <Box
                     key={action}
                     className={`grid gap-3 rounded-lg border p-4 transition md:grid-cols-[minmax(0,1fr)_14rem] ${
                       isShortcutConflict
@@ -958,10 +985,10 @@ export function PreferenceView({
                         : "border-white/10 bg-[#0b1020]"
                     }`}
                   >
-                    <div className="min-w-0">
-                      <p className={isShortcutConflict ? "text-sm font-semibold text-red-100" : "text-sm font-semibold text-slate-100"}>{t(titleKey)}</p>
-                      <p className={isShortcutConflict ? "mt-1 text-xs leading-5 text-red-100/65" : "mt-1 text-xs leading-5 text-slate-500"}>{t(descriptionKey)}</p>
-                    </div>
+                    <Box className="min-w-0">
+                      <Text className={isShortcutConflict ? "text-sm font-semibold text-red-100" : "text-sm font-semibold text-slate-100"}>{t(titleKey)}</Text>
+                      <Text className={isShortcutConflict ? "mt-1 text-xs leading-5 text-red-100/65" : "mt-1 text-xs leading-5 text-slate-500"}>{t(descriptionKey)}</Text>
+                    </Box>
                     <ShortcutCaptureButton
                       value={shortcuts[action] ?? ""}
                       isConflict={isShortcutConflict}
@@ -980,27 +1007,28 @@ export function PreferenceView({
                       }}
                       onInvalidChange={(isInvalid) => handleShortcutInvalidChange(action, isInvalid)}
                     />
-                  </div>
+                  </Box>
                 );
               })}
-            </div>
+            </Box>
           </PreferenceSection>
         ) : null}
-      </div>
+      </Box>
+      </Box>
 
-      <div
+      <Box
         className={`fixed inset-x-0 bottom-0 z-20 border-t border-white/10 bg-[#080d19]/95 px-6 py-4 shadow-2xl shadow-black/30 backdrop-blur transition duration-200 ${
           hasChanges ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-full opacity-0"
         }`}
       >
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-100">{t("preferences.unsavedTitle")}</p>
-            <p className={`mt-0.5 truncate text-xs ${hasInvalidShortcuts ? "text-red-300" : "text-slate-500"}`}>
+        <Box className="mx-auto flex max-w-5xl items-center justify-between gap-4">
+          <Box className="min-w-0">
+            <Text className="text-sm font-semibold text-slate-100">{t("preferences.unsavedTitle")}</Text>
+            <Text className={`mt-0.5 truncate text-xs ${hasInvalidShortcuts ? "text-red-300" : "text-slate-500"}`}>
               {hasInvalidShortcuts ? t("preferences.shortcuts.saveBlocked") : t("preferences.unsavedDescription")}
-            </p>
-          </div>
-          <button
+            </Text>
+          </Box>
+          <Button
             type="button"
             disabled={hasInvalidShortcuts}
             className="accent-primary inline-flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
@@ -1008,9 +1036,9 @@ export function PreferenceView({
           >
             <Save size={16} />
             {t("common.actions.save")}
-          </button>
-        </div>
-      </div>
+          </Button>
+        </Box>
+      </Box>
 
       <Dialog
         open={isDeleteDialogOpen}
@@ -1030,23 +1058,87 @@ export function PreferenceView({
             label: t("preferences.dangerZone.confirmAction"),
             icon: Trash2,
             variant: "danger",
-            onClick: handleDeleteLauncherData,
+            onClick: () => void handleDeleteLauncherData(),
           },
         ]}
       >
-        <div className="rounded-lg border border-red-400/15 bg-black/20 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-red-100/70">
+        <Box className="rounded-lg border border-red-400/15 bg-black/20 p-3">
+          <Text className="text-xs font-semibold uppercase tracking-wide text-red-100/70">
             {t("preferences.dangerZone.pathsTitle")}
-          </p>
-          <ul className="mt-3 space-y-2">
+          </Text>
+          <Box as="ul" className="mt-3 space-y-2">
             {launcherDataPaths.map((dataPath) => (
-              <li key={dataPath} className="break-all rounded-md bg-white/[0.04] px-3 py-2 font-mono text-xs text-slate-300">
+              <Box as="li" key={dataPath} className="break-all rounded-md bg-white/[0.04] px-3 py-2 font-mono text-xs text-slate-300">
                 {dataPath}
-              </li>
+              </Box>
             ))}
-          </ul>
-        </div>
+          </Box>
+        </Box>
       </Dialog>
-    </div>
+      <Dialog
+        open={isDeleteWorking}
+        title={t("preferences.dangerZone.deleteWorkingTitle", "Deleting data")}
+        description={t("preferences.dangerZone.deleteWorkingDescription", "Please wait until the launcher finishes deleting the selected data.")}
+        tone="danger"
+        icon={Trash2}
+        placement="center"
+        widthClassName="max-w-lg"
+        onClose={() => undefined}
+        closeOnBackdrop={false}
+        showCloseButton={false}
+        actions={[]}
+      >
+        <Box className="grid gap-3 rounded-lg border border-red-400/15 bg-black/20 p-4 text-sm text-slate-300">
+          <Box>
+            {t("preferences.dangerZone.deleteWorkingBody", "Deletion is in progress. Keep this window open for a moment.")}
+          </Box>
+          <ProgressBar
+            progressValue={deleteProgress}
+            showValue
+            size="sm"
+            tone="blue"
+            animated={deleteProgress < 100}
+          />
+        </Box>
+      </Dialog>
+      <Dialog
+        open={Boolean(deleteResult) && !isDeleteWorking}
+        title={t("preferences.dangerZone.deleteCompleteTitle", "Delete complete")}
+        description={t("preferences.dangerZone.deleteCompleteDescription", "The selected launcher data deletion request has finished.")}
+        tone={deleteResult?.failedPaths.length ? "danger" : undefined}
+        icon={Trash2}
+        placement="center"
+        widthClassName="max-w-2xl"
+        onClose={() => undefined}
+        closeOnBackdrop={false}
+        showCloseButton={false}
+        actions={[
+          {
+            label: t("common.actions.close"),
+            onClick: () => setDeleteResult(undefined),
+          },
+        ]}
+      >
+        <Box className="grid gap-3 text-sm text-slate-300">
+          <Box className="rounded-lg border border-white/10 bg-white/[0.04] p-3">
+            {t("preferences.dangerZone.deleteCompleteCounts", {
+              defaultValue: "Deleted {{deleted}} / skipped {{skipped}} / failed {{failed}}",
+              deleted: deleteResult?.deletedPaths.length ?? 0,
+              skipped: deleteResult?.skippedPaths.length ?? 0,
+              failed: deleteResult?.failedPaths.length ?? 0,
+            })}
+          </Box>
+          {deleteResult?.failedPaths.length ? (
+            <Box as="ul" className="space-y-2">
+              {deleteResult.failedPaths.map((failedPath) => (
+                <Box as="li" key={`${failedPath.path}-${failedPath.error}`} className="break-all rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-100">
+                  {failedPath.path}: {failedPath.error}
+                </Box>
+              ))}
+            </Box>
+          ) : null}
+        </Box>
+      </Dialog>
+    </Box>
   );
 }

@@ -16,6 +16,7 @@ const commonConfig: Configuration = {
     filename: "[name].bundle.js",
     assetModuleFilename: "assets/[name][ext]",
     globalObject: "globalThis",
+    clean: true,
   },
   module: {
     rules: [

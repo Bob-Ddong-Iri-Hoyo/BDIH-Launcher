@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
@@ -14,6 +14,9 @@ on:
 concurrency:
   group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   cancel-in-progress: false
+
+env:
+  SOURCE_BRANCH: main
 
 jobs:
   release:
@@ -31,7 +34,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -52,6 +57,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
+          set -euo pipefail
+
           TAG="${RELEASE_TAG}"
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
 
@@ -61,6 +68,14 @@ jobs:
           fi
 
           VERSION="${TAG#v}"
+
+          git fetch origin "refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}" --tags --force
+          TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
+
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" "origin/${SOURCE_BRANCH}"; then
+            echo "Release tag $TAG must point to a commit reachable from origin/${SOURCE_BRANCH}." >&2
+            exit 1
+          fi
 
           if [[ "$PACKAGE_VERSION" != "$VERSION" ]]; then
             echo "Tag version ($VERSION) must match package.json version ($PACKAGE_VERSION)." >&2

@@ -14,3 +14,4 @@ export * from "./Radio";
 export * from "./Checkbox";
 
 export * from "./Textarea";
+export * from "./List";

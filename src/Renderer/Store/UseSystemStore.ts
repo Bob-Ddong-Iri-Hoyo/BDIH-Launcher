@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { PREDEFINED_WINE_VERSIONS } from "../../Common/Constant/WineCatalog";
 import { IPC_CHANNELS, WineStatusPayload } from "../../Common/Types/IPC";
-import { DxmtVersion, WineVersion } from "../../Common/Types/Wine";
+import { DxmtVersion, JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
 import i18n from "../I18n/I18n";
 
 export interface SystemSummary {
@@ -13,22 +13,36 @@ export interface SystemSummary {
 export interface SystemStoreState {
   wineVersions: WineVersion[];
   dxmtVersions: DxmtVersion[];
+  jadeiteVersions: JadeiteVersion[];
   selectedWineVersionId: string;
   selectedDxmtVersionId: string;
+  selectedJadeiteVersionId: string;
   installPath: string;
   dxmtCachePath: string;
+  jadeiteInstallPath: string;
   isLoadingWineVersions: boolean;
   isLoadingDxmtVersions: boolean;
+  isLoadingJadeiteVersions: boolean;
   lastStatusMessage: string;
   systemSummary: SystemSummary;
   loadWineVersions: () => Promise<void>;
   loadDxmtVersions: () => Promise<void>;
+  loadJadeiteVersions: () => Promise<void>;
   installWineVersion: (versionId: string) => Promise<void>;
   installDxmtVersion: (versionId: string) => Promise<void>;
+  installJadeiteVersion: (versionId: string) => Promise<void>;
+  deleteWineVersion: (versionId: string) => Promise<void>;
+  deleteDxmtVersion: (versionId: string) => Promise<void>;
+  deleteJadeiteVersion: (versionId: string) => Promise<void>;
   selectWineVersion: (versionId: string) => void;
   selectDxmtVersion: (versionId: string) => void;
+  selectJadeiteVersion: (versionId: string) => void;
   setInstallPath: (installPath: string) => void;
   setDxmtCachePath: (dxmtCachePath: string) => void;
+  setJadeiteInstallPath: (jadeiteInstallPath: string) => void;
+  clearWineRuntimeMetadata: () => void;
+  clearDxmtRuntimeMetadata: () => void;
+  clearJadeiteRuntimeMetadata: () => void;
   subscribeWineStatus: () => () => void;
 }
 
@@ -36,6 +50,8 @@ const DEFAULT_WINE_INSTALL_PATH =
   "~/Library/Application Support/BDIH Launcher/Wine";
 const DEFAULT_DXMT_CACHE_PATH =
   "~/Library/Application Support/BDIH Launcher/DXMT";
+const DEFAULT_JADEITE_INSTALL_PATH =
+  "~/Library/Application Support/BDIH Launcher/dependencies/jadeite";
 
 function get_bith_api() {
   if (typeof window === "undefined") {
@@ -77,10 +93,16 @@ function normalize_dxmt_versions(versions: unknown): DxmtVersion[] {
   return Array.isArray(versions) ? (versions as DxmtVersion[]) : [];
 }
 
-function update_runtime_status<T extends WineVersion | DxmtVersion>(
+function normalize_jadeite_versions(versions: unknown): JadeiteVersion[] {
+  return Array.isArray(versions) ? (versions as JadeiteVersion[]) : [];
+}
+
+function update_runtime_status<T extends WineVersion | DxmtVersion | JadeiteVersion>(
   versions: T[],
   payload: WineStatusPayload,
 ): T[] {
+  const shouldKeepInstalledPaths = payload.status === "installed" || payload.status === "completed";
+
   return versions.map((version) => {
     if (version.id !== payload.versionId) {
       return version;
@@ -90,7 +112,13 @@ function update_runtime_status<T extends WineVersion | DxmtVersion>(
       ...version,
       status: payload.status,
       progress: payload.progress,
-      path: payload.path ?? version.path,
+      path: shouldKeepInstalledPaths ? payload.path ?? version.path : payload.path,
+      metadataPath: shouldKeepInstalledPaths
+        ? payload.metadataPath ?? ("metadataPath" in version ? version.metadataPath : undefined)
+        : undefined,
+      launcherOptionsManifest: shouldKeepInstalledPaths
+        ? payload.launcherOptionsManifest ?? ("launcherOptionsManifest" in version ? version.launcherOptionsManifest : undefined)
+        : undefined,
     } as T;
   });
 }
@@ -98,12 +126,16 @@ function update_runtime_status<T extends WineVersion | DxmtVersion>(
 export const useSystemStore = create<SystemStoreState>((set, get) => ({
   wineVersions: PREDEFINED_WINE_VERSIONS,
   dxmtVersions: [],
+  jadeiteVersions: [],
   selectedWineVersionId: PREDEFINED_WINE_VERSIONS[0]?.id ?? "",
   selectedDxmtVersionId: "",
+  selectedJadeiteVersionId: "",
   installPath: DEFAULT_WINE_INSTALL_PATH,
   dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
+  jadeiteInstallPath: DEFAULT_JADEITE_INSTALL_PATH,
   isLoadingWineVersions: false,
   isLoadingDxmtVersions: false,
+  isLoadingJadeiteVersions: false,
   lastStatusMessage: i18n.t("store.catalogLocal"),
   systemSummary: create_system_summary(),
 
@@ -164,6 +196,33 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
         dxmtVersions: [],
         selectedDxmtVersionId: "",
         isLoadingDxmtVersions: false,
+      });
+    }
+  },
+
+  loadJadeiteVersions: async () => {
+    set({ isLoadingJadeiteVersions: true });
+
+    try {
+      const api = get_bith_api();
+      const versions = api
+        ? await api.invoke(
+            IPC_CHANNELS.JADEITE.GET_VERSION_LIST.channelName,
+            undefined as never,
+          )
+        : [];
+      const jadeiteVersions = normalize_jadeite_versions(versions);
+
+      set({
+        jadeiteVersions,
+        selectedJadeiteVersionId: jadeiteVersions[0]?.id ?? "",
+        isLoadingJadeiteVersions: false,
+      });
+    } catch {
+      set({
+        jadeiteVersions: [],
+        selectedJadeiteVersionId: "",
+        isLoadingJadeiteVersions: false,
       });
     }
   },
@@ -262,6 +321,168 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
     }
   },
 
+  installJadeiteVersion: async (versionId: string) => {
+    const { jadeiteInstallPath } = get();
+
+    set((state) => ({
+      jadeiteVersions: state.jadeiteVersions.map((version) =>
+        version.id === versionId
+          ? {
+              ...version,
+              status: "installing",
+              progress: Math.max(version.progress, 5),
+            }
+          : version,
+      ),
+      lastStatusMessage: i18n.t("store.installRequested", { versionId }),
+    }));
+
+    try {
+      const api = get_bith_api();
+
+      if (api) {
+        await api.invoke(IPC_CHANNELS.JADEITE.INSTALL.channelName, {
+          versionId,
+          installPath: jadeiteInstallPath,
+        });
+      }
+    } catch (error) {
+      set((state) => ({
+        jadeiteVersions: state.jadeiteVersions.map((version) =>
+          version.id === versionId
+            ? { ...version, status: "error", progress: version.progress }
+            : version,
+        ),
+        lastStatusMessage:
+          error instanceof Error
+            ? error.message
+            : i18n.t("store.installFailed"),
+      }));
+    }
+  },
+
+  deleteWineVersion: async (versionId: string) => {
+    const { installPath } = get();
+
+    try {
+      const api = get_bith_api();
+
+      if (api) {
+        const result = await api.invoke(IPC_CHANNELS.WINE.DELETE.channelName, {
+          versionId,
+          installPath,
+        });
+
+        if (!result?.ok) {
+          throw new Error(result?.error ?? i18n.t("store.deleteFailed"));
+        }
+      }
+
+      set((state) => ({
+        wineVersions: state.wineVersions.map((version) =>
+          version.id === versionId
+            ? {
+                ...version,
+                status: "available",
+                progress: 0,
+                path: undefined,
+                metadataPath: undefined,
+                launcherOptionsManifest: undefined,
+              }
+            : version,
+        ),
+        lastStatusMessage: i18n.t("store.deleteCompleted", { versionId }),
+      }));
+    } catch (error) {
+      set({
+        lastStatusMessage:
+          error instanceof Error
+            ? error.message
+            : i18n.t("store.deleteFailed"),
+      });
+    }
+  },
+
+  deleteDxmtVersion: async (versionId: string) => {
+    const { dxmtCachePath } = get();
+
+    try {
+      const api = get_bith_api();
+
+      if (api) {
+        const result = await api.invoke(IPC_CHANNELS.DXMT.DELETE.channelName, {
+          versionId,
+          installPath: dxmtCachePath,
+        });
+
+        if (!result?.ok) {
+          throw new Error(result?.error ?? i18n.t("store.deleteFailed"));
+        }
+      }
+
+      set((state) => ({
+        dxmtVersions: state.dxmtVersions.map((version) =>
+          version.id === versionId
+            ? {
+                ...version,
+                status: "available",
+                progress: 0,
+                path: undefined,
+              }
+            : version,
+        ),
+        lastStatusMessage: i18n.t("store.deleteCompleted", { versionId }),
+      }));
+    } catch (error) {
+      set({
+        lastStatusMessage:
+          error instanceof Error
+            ? error.message
+            : i18n.t("store.deleteFailed"),
+      });
+    }
+  },
+
+  deleteJadeiteVersion: async (versionId: string) => {
+    const { jadeiteInstallPath } = get();
+
+    try {
+      const api = get_bith_api();
+
+      if (api) {
+        const result = await api.invoke(IPC_CHANNELS.JADEITE.DELETE.channelName, {
+          versionId,
+          installPath: jadeiteInstallPath,
+        });
+
+        if (!result?.ok) {
+          throw new Error(result?.error ?? i18n.t("store.deleteFailed"));
+        }
+      }
+
+      set((state) => ({
+        jadeiteVersions: state.jadeiteVersions.map((version) =>
+          version.id === versionId
+            ? {
+                ...version,
+                status: "available",
+                progress: 0,
+                path: undefined,
+              }
+            : version,
+        ),
+        lastStatusMessage: i18n.t("store.deleteCompleted", { versionId }),
+      }));
+    } catch (error) {
+      set({
+        lastStatusMessage:
+          error instanceof Error
+            ? error.message
+            : i18n.t("store.deleteFailed"),
+      });
+    }
+  },
+
   selectWineVersion: (versionId: string) => {
     set({ selectedWineVersionId: versionId });
   },
@@ -270,12 +491,55 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
     set({ selectedDxmtVersionId: versionId });
   },
 
+  selectJadeiteVersion: (versionId: string) => {
+    set({ selectedJadeiteVersionId: versionId });
+  },
+
   setInstallPath: (installPath: string) => {
     set({ installPath });
   },
 
   setDxmtCachePath: (dxmtCachePath: string) => {
     set({ dxmtCachePath });
+  },
+
+  setJadeiteInstallPath: (jadeiteInstallPath: string) => {
+    set({ jadeiteInstallPath });
+  },
+
+  clearWineRuntimeMetadata: () => {
+    set((state) => ({
+      wineVersions: state.wineVersions.map((version) => ({
+        ...version,
+        status: "available",
+        progress: 0,
+        path: undefined,
+        metadataPath: undefined,
+        launcherOptionsManifest: undefined,
+      })),
+    }));
+  },
+
+  clearDxmtRuntimeMetadata: () => {
+    set((state) => ({
+      dxmtVersions: state.dxmtVersions.map((version) => ({
+        ...version,
+        status: "available",
+        progress: 0,
+        path: undefined,
+      })),
+    }));
+  },
+
+  clearJadeiteRuntimeMetadata: () => {
+    set((state) => ({
+      jadeiteVersions: state.jadeiteVersions.map((version) => ({
+        ...version,
+        status: "available",
+        progress: 0,
+        path: undefined,
+      })),
+    }));
   },
 
   subscribeWineStatus: () => {
@@ -305,10 +569,21 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
         }));
       },
     );
+    const unsubscribeJadeite = api.on(
+      IPC_CHANNELS.JADEITE.STATUS_UPDATE.channelName,
+      (_event, payload) => {
+        set((state) => ({
+          jadeiteVersions: update_runtime_status(state.jadeiteVersions, payload),
+          lastStatusMessage:
+            payload.message ?? `${payload.versionId}: ${payload.status}`,
+        }));
+      },
+    );
 
     return () => {
       unsubscribeWine?.();
       unsubscribeDxmt?.();
+      unsubscribeJadeite?.();
     };
   },
 }));

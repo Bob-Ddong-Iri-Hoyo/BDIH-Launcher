@@ -26,12 +26,14 @@ export function should_continue_path_autocomplete(
 
 export function resolve_direct_executable_autocomplete_action({
   key,
+  shiftKey = false,
   executablePath,
   pathSuggestions,
   selectedSuggestionIndex,
   isPathSuggestionOpen,
 }: {
   key: string;
+  shiftKey?: boolean;
   executablePath: string;
   pathSuggestions: PathSuggestionItemPayload[];
   selectedSuggestionIndex: number;
@@ -40,22 +42,15 @@ export function resolve_direct_executable_autocomplete_action({
   const selectedSuggestion = pathSuggestions[selectedSuggestionIndex] ?? pathSuggestions[0];
 
   if (key === "Tab") {
-    if (isPathSuggestionOpen && selectedSuggestion) {
-      if (
-        selectedSuggestion.path === executablePath.trim() &&
-        is_executable_path_target(executablePath, selectedSuggestion.isDirectory)
-      ) {
-        return { kind: "focus-arguments" };
-      }
-
-      return {
-        kind: "apply-suggestion",
-        suggestion: selectedSuggestion,
-        continueAutocomplete: should_continue_path_autocomplete(selectedSuggestion),
-      };
+    if (isPathSuggestionOpen && pathSuggestions.length > 0) {
+      return { kind: "move-selection", direction: shiftKey ? "previous" : "next" };
     }
 
-    if (is_executable_path_target(executablePath)) {
+    if (shiftKey) {
+      return { kind: "none" };
+    }
+
+    if (!shiftKey && is_executable_path_target(executablePath)) {
       return { kind: "focus-arguments" };
     }
 

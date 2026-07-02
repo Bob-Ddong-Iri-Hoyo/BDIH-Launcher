@@ -10,13 +10,14 @@ export const STEAM_WEBHELPER_ARGUMENTS = ` ${[
   "--no-sandbox",
   "--in-process-gpu",
   "--disable-gpu",
-  "--disable-ipv6",
-  "--disable-async-dns",
-  '--host-resolver-rules="MAP steamloopback.host 127.0.0.1,MAP *.steamloopback.host 127.0.0.1,EXCLUDE localhost"',
 ].join(" ")}`;
 export const HOYOPLAY_WINDOWS_INSTALLER_URL =
   "https://sg-public-api.hoyoverse.com/event/download_porter/trace/hyp_global/hyphoyoverse/default?url=https%3A%2F%2Fhoyoplay.hoyoverse.com%2F";
 export const HOYOPLAY_ICON_URL = "https://hoyoplay.hoyoverse.com/favicon.ico";
+
+export const JADEITE_DEFAULT_VERSION = "v5.0.1";
+export const JADEITE_DOWNLOAD_URL =
+  "https://codeberg.org/mkrsym1/jadeite/releases/download/v5.0.1/v5.0.1.zip";
 
 export const BDIH_WINE_REPOSITORY = {
   owner: "Bob-Ddong-Iri-Hoyo",

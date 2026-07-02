@@ -68,7 +68,7 @@ export function label_from_status(status: InstallStatus, translate: Translate = 
  */
 export function StatusBadge({ label, tone = "neutral", animated = false, className = "" }: StatusBadgeProps) {
   return (
-    <Badge className={`h-6 shrink-0 rounded-md border text-xs font-medium ${animated ? "badge-ripple" : ""} ${TONE_CLASS_MAP[tone]} ${className}`}>
+    <Badge className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md border px-2.5 text-center text-xs font-medium leading-none ${animated ? "badge-ripple" : ""} ${TONE_CLASS_MAP[tone]} ${className}`}>
       {label}
     </Badge>
   );

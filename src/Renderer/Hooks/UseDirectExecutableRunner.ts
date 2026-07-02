@@ -5,6 +5,7 @@ import {
   split_executable_args,
   to_wine_z_path,
 } from "../../Common/Util/ExecutablePath";
+import { create_bottle_app_prefix_path } from "../../Common/Util/BottlePath";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
 import type { PathSuggestionItemPayload } from "../../Common/Types/IPC";
 import type { Bottle } from "../Types/Bottle";
@@ -26,8 +27,10 @@ export interface DirectExecutableRunnerController {
   argsInputRef: React.RefObject<HTMLInputElement | null>;
   setExecutablePathFromInput: (value: string) => void;
   setExecutableArgs: (value: string) => void;
+  selectPathSuggestion?: (index: number) => void;
   closePathSuggestions: () => void;
   applyPathSuggestion: (suggestion: PathSuggestionItemPayload) => void;
+  registerExecutable: () => boolean;
   browseExecutable: () => Promise<void>;
   runExecutable: () => Promise<void>;
   handlePathKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => Promise<void>;
@@ -37,11 +40,13 @@ export interface DirectExecutableRunnerController {
 export function useDirectExecutableRunner({
   bottle,
   wineRuntimePath,
+  dxmtPackagePath,
   onRegisterBottleExecutable,
   onStarted,
 }: {
   bottle: Bottle;
   wineRuntimePath?: string;
+  dxmtPackagePath?: string;
   onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
   onStarted?: () => void;
 }): DirectExecutableRunnerController {
@@ -58,6 +63,12 @@ export function useDirectExecutableRunner({
   const pathInputRef = React.useRef<HTMLInputElement>(null);
   const argsInputRef = React.useRef<HTMLInputElement>(null);
   const canRun = executablePath.trim().length > 0;
+  const manualPrefixPath = create_bottle_app_prefix_path(bottle.path, {
+    id: "manual",
+    name: "Manual executable",
+    source: "manual",
+    executablePath,
+  });
 
   function closePathSuggestions() {
     setIsPathSuggestionOpen(false);
@@ -82,8 +93,7 @@ export function useDirectExecutableRunner({
         IPC_CHANNELS.APP.SUGGEST_PATHS.channelName,
         {
           value,
-          defaultPath: bottle.path,
-          limit: 12,
+          defaultPath: manualPrefixPath,
         },
       )) as { suggestions?: PathSuggestionItemPayload[] } | undefined;
       const suggestions = result?.suggestions ?? [];
@@ -129,15 +139,18 @@ export function useDirectExecutableRunner({
   function applyPathSuggestion(suggestion: PathSuggestionItemPayload) {
     setExecutablePath(suggestion.path);
     setStatusMessage("");
+    hidePathSuggestionsButKeepSession();
 
     if (is_executable_path_target(suggestion.path, suggestion.isDirectory)) {
-      hidePathSuggestionsButKeepSession();
       requestAnimationFrame(() => pathInputRef.current?.focus());
       return;
     }
 
-    void requestPathSuggestions(suggestion.path);
     requestAnimationFrame(() => pathInputRef.current?.focus());
+  }
+
+  function selectPathSuggestion(index: number) {
+    setSelectedSuggestionIndex(index);
   }
 
   async function runExecutable() {
@@ -158,9 +171,11 @@ export function useDirectExecutableRunner({
         {
           bottleId: bottle.id,
           bottleName: bottle.name,
-          bottlePath: bottle.path,
+          bottlePath: manualPrefixPath,
           wineVersionId: bottle.wineVersionId,
           wineRuntimePath,
+          dxmtVersionId: bottle.dxmtVersionId,
+          dxmtPackagePath,
           appName: app_name_from_executable_path(executablePath.trim()),
           executablePath: executablePath.trim(),
           executableArgs: split_executable_args(executableArgs),
@@ -181,9 +196,28 @@ export function useDirectExecutableRunner({
     setStatusMessage(result?.error || t("main.runner.failed"));
   }
 
+  function registerExecutable() {
+    if (!canRun) {
+      setStatusMessage(t("main.runner.pathRequired"));
+      return false;
+    }
+
+    onRegisterBottleExecutable?.(bottle.id, executablePath.trim());
+    setStatusMessage(t("main.runner.registered"));
+    return true;
+  }
+
   async function handlePathKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape" && (isPathSuggestionOpen || isAutocompleteActive)) {
+      event.preventDefault();
+      event.stopPropagation();
+      closePathSuggestions();
+      return;
+    }
+
     const action = resolve_direct_executable_autocomplete_action({
       key: event.key,
+      shiftKey: event.shiftKey,
       executablePath,
       pathSuggestions,
       selectedSuggestionIndex,
@@ -195,6 +229,7 @@ export function useDirectExecutableRunner({
     }
 
     event.preventDefault();
+    event.stopPropagation();
 
     if (action.kind === "focus-arguments") {
       hidePathSuggestionsButKeepSession();
@@ -208,12 +243,7 @@ export function useDirectExecutableRunner({
     }
 
     if (action.kind === "request-suggestions") {
-      const suggestions = await requestPathSuggestions(executablePath);
-
-      if (suggestions.length === 1) {
-        applyPathSuggestion(suggestions[0]);
-      }
-
+      await requestPathSuggestions(executablePath);
       return;
     }
 
@@ -252,7 +282,7 @@ export function useDirectExecutableRunner({
       IPC_CHANNELS.APP.SELECT_FILE.channelName,
       {
         title: t("main.runner.selectFileTitle"),
-        defaultPath: bottle.path,
+        defaultPath: manualPrefixPath,
         filters: [
           { name: "Windows executables", extensions: ["exe", "msi", "bat", "cmd"] },
           { name: "All files", extensions: ["*"] },
@@ -280,8 +310,10 @@ export function useDirectExecutableRunner({
     argsInputRef,
     setExecutablePathFromInput,
     setExecutableArgs,
+    selectPathSuggestion,
     closePathSuggestions,
     applyPathSuggestion,
+    registerExecutable,
     browseExecutable,
     runExecutable,
     handlePathKeyDown,

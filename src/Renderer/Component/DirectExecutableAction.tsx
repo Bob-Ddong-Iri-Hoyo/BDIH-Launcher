@@ -16,10 +16,12 @@ import { DirectExecutableActionForm } from "./DirectExecutableActionForm";
 export function DirectExecutableAction({
   bottle,
   wineRuntimePath,
+  dxmtPackagePath,
   onRegisterBottleExecutable,
 }: {
   bottle: Bottle;
   wineRuntimePath?: string;
+  dxmtPackagePath?: string;
   onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
 }) {
   const { t } = useTranslation();
@@ -27,6 +29,7 @@ export function DirectExecutableAction({
   const runner = useDirectExecutableRunner({
     bottle,
     wineRuntimePath,
+    dxmtPackagePath,
     onRegisterBottleExecutable,
     onStarted: () => setIsOpen(false),
   });
@@ -36,7 +39,7 @@ export function DirectExecutableAction({
       <Button
         variant="primary"
         size="md"
-        className="min-w-32"
+        className="w-full min-w-0 justify-center"
         icon={<ExternalLink size={16} />}
         onClick={() => setIsOpen(true)}
       >

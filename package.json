@@ -1,8 +1,14 @@
 {
-  "name": "EternalVinegarHoyo",
-  "version": "1.0.0",
+  "name": "BDIH-Launcher",
+  "version": "0.0.0",
   "description": "Play Steam, HoyoVerse, and other games. custom Wine Launcher for MacOS",
   "main": "dist/main/main.js",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
   "scripts": {
     "test": "pnpm test:jest",
     "test:main": "pnpm build && electron .",
@@ -14,8 +20,8 @@
     "build": "pnpm build:preload && pnpm build:renderer && pnpm build:main",
     "build:dev": "webpack --config scripts/webpack/preload.start.cjs && webpack --config scripts/webpack/main.start.cjs",
     "build:dev:renderer": "webpack --config scripts/webpack/renderer.start.cjs",
-    "pack": "pnpm build && electron-builder --dir",
-    "dist": "pnpm build && electron-builder",
+    "pack": "pnpm build && electron-builder --mac --arm64 --dir",
+    "dist": "pnpm build && electron-builder --mac --arm64",
     "start": "electron .",
     "start:allinone": "pnpm build && electron .",
     "storybook": "storybook dev -c ./src/Renderer/.storybook -p 6006",
@@ -39,37 +45,55 @@
   "license": "MIT",
   "build": {
     "appId": "com.fabyday.bdih-launcher",
-    "productName": "BDIH Launcher",
+    "productName": "BDIH-Launcher",
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
+        "from": "build/ko.lproj",
+        "to": "ko.lproj"
+      },
+      {
+        "from": "resouces/locales",
+        "to": "locales"
+      }
+    ],
     "files": [
       "dist/**/*",
       "package.json"
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.games"
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Game"
     }
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@babel/preset-env": "^7.29.2",
     "@babel/preset-typescript": "^7.28.5",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/dom": "^0.4.0",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@storybook/addon-essentials": "8.6.0",
     "@storybook/addon-interactions": "8.6.0",
     "@storybook/addon-postcss": "^2.0.0",
@@ -84,15 +108,24 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/webpack-dev-server": "^4.7.2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "autoprefixer": "^10.5.0",
     "babel-jest": "^30.3.0",
     "css-loader": "^7.1.4",
+    "dnd-kit": "^0.0.2",
     "electron": "^41.2.0",
     "electron-builder": "^26.8.1",
+    "electron-updater": "^6.8.3",
     "html-webpack-plugin": "^5.6.6",
+    "i18next": "^26.2.0",
     "jest": "^30.3.0",
+    "lucide-react": "^1.8.0",
     "postcss": "^8.5.10",
     "postcss-loader": "^8.2.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-i18next": "^17.0.8",
     "storybook": "8.6.0",
     "style-loader": "^4.0.0",
     "tailwind": "4",
@@ -105,7 +138,9 @@
     "webpack": "^5.106.1",
     "webpack-cli": "^7.0.2",
     "webpack-dev-server": "^5.2.3",
-    "webpack-merge": "^6.0.1"
+    "webpack-merge": "^6.0.1",
+    "xterm": "^5.3.0",
+    "zustand": "^5.0.12"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -114,21 +149,6 @@
     "overrides": {}
   },
   "dependencies": {
-    "@dnd-kit/core": "^6.3.1",
-    "@dnd-kit/dom": "^0.4.0",
-    "@dnd-kit/sortable": "^10.0.0",
-    "@dnd-kit/utilities": "^3.2.2",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
-    "dnd-kit": "^0.0.2",
-    "electron-updater": "^6.8.3",
-    "i18next": "^26.2.0",
-    "lucide-react": "^1.8.0",
-    "node-pty": "^1.1.0",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "react-i18next": "^17.0.8",
-    "xterm": "^5.3.0",
-    "zustand": "^5.0.12"
+    "node-pty": "^1.1.0"
   }
 }

@@ -1,0 +1,620 @@
+{
+  "translation": {
+    "localeMeta": {
+      "code": "en",
+      "nativeName": "English",
+      "englishName": "English"
+    },
+    "common": {
+      "appName": "BDIH Launcher",
+      "appSubtitle": "Custom Wine Launcher",
+      "macosWine": "macOS Wine",
+      "local": "local",
+      "ready": "Ready",
+      "syncing": "Syncing",
+      "actions": {
+        "refresh": "Refresh",
+        "quit": "Quit",
+        "install": "Install",
+        "reset": "Reset",
+        "browse": "Browse",
+        "save": "Save",
+        "apply": "Apply",
+        "run": "Run",
+        "download": "Download",
+        "createPrefix": "Create prefix",
+        "close": "Close",
+        "cancel": "Cancel",
+        "delete": "Delete"
+      }
+    },
+    "navigation": {
+      "dashboard": {
+        "label": "Bottles",
+        "description": "Bottles and Wine status",
+        "subtitle": "Manage bottles, apps, and Wine runtime status."
+      },
+      "terminal": {
+        "label": "Terminal",
+        "description": "Wine job logs",
+        "subtitle": "Inspect install, launch, and debug logs."
+      },
+      "logs": {
+        "label": "Logs",
+        "description": "App and bottle logs",
+        "subtitle": "Browse app sessions, bottle launches, and Wine process logs."
+      },
+      "preferences": {
+        "label": "Settings",
+        "description": "Paths and logging",
+        "subtitle": "Adjust Wine install paths and diagnostic logging."
+      }
+    },
+    "status": {
+      "title": "Status",
+      "idle": "Idle",
+      "available": "Available",
+      "downloading": "Downloading",
+      "installing": "Installing",
+      "extracting": "Extracting",
+      "installed": "Installed",
+      "completed": "Completed",
+      "error": "Error"
+    },
+    "store": {
+      "catalogLocal": "Wine catalog loaded from local defaults.",
+      "catalogMain": "Wine catalog loaded from main process.",
+      "catalogFailed": "Failed to load Wine catalog.",
+      "installRequested": "{{versionId}} install requested.",
+      "previewInstallComplete": "Preview mode: install marked as complete.",
+      "installFailed": "Wine install failed.",
+      "deleteCompleted": "{{versionId}} deleted.",
+      "deleteFailed": "Runtime delete failed."
+    },
+    "main": {
+      "heroTitle": "Ready to run Windows games on macOS",
+      "heroDescription": "Manage bottles and Wine status, with install work flowing into terminal logs.",
+      "metrics": {
+        "wineCatalog": "Wine catalog",
+        "installed": "Installed",
+        "apps": "Apps",
+        "bottles": "Bottles"
+      },
+      "selectedWine": "Selected Wine",
+      "selectedDxmt": "Selected DXMT",
+      "noWineSelected": "Select a Wine version.",
+      "setupProgress": "Bottle setup",
+      "taskProgress": {
+        "estimated": "Estimated step progress",
+        "download": "Download progress"
+      },
+      "workProgress": "Work progress",
+      "installProgress": "Install progress",
+      "gameLibrary": "Game library",
+      "breadcrumbLabel": "Bottle navigation",
+      "bottleLibrary": "Bottles",
+      "bottleHome": "Bottles Home",
+      "backToBottleHome": "Back to Bottles Home",
+      "bottleLibraryDescription": "{{count}} apps across bottles.",
+      "bottleApps": "{{count}} apps",
+      "bottleRunningApps": "{{count}} running",
+      "bottleRunningDescription": "{{count}} app(s) are still running in this bottle. Stop every Wine process before changing bottle-level settings.",
+      "bottleAppsEmpty": "Installed launchers and games will appear here as app icons.",
+      "bottleGames": "Apps in bottle",
+      "bottlePath": "Bottle path",
+      "bottleInfo": {
+        "title": "Bottle info",
+        "name": "Name",
+        "description": "Description",
+        "path": "Path",
+        "openInFinder": "Open in Finder"
+      },
+      "recipeSettings": "Recipe settings",
+      "recipeSettingsDescription": "Adjust the selected bottle recipe, runtime options, and launch preparation steps.",
+      "recipeViewAction": "View recipe",
+      "recipeInfo": {
+        "wineVersion": "Wine version",
+        "dxmtVersion": "DXMT version",
+        "prefixPath": "Prefix path",
+        "runtimeExists": "Installed",
+        "downloadRuntime": "Download",
+        "currentRecipe": "Current recipe",
+        "applyChanges": "Apply changes",
+        "pendingChanges": "Recipe changes are pending. Apply them before launching apps.",
+        "applied": "Recipe changes were applied.",
+        "applyModalTitle": "Applying recipe",
+        "applyModalDescription": "The bottle runtime recipe is being updated.",
+        "doNotQuit": "Please do not quit the launcher until this setup finishes.",
+        "applyPreparing": "Preparing recipe changes...",
+        "applySaving": "Saving bottle recipe...",
+        "applyRuntime": "Applying runtime settings...",
+        "applyComplete": "Recipe setup completed."
+      },
+      "openRecipeSettings": "Open recipe settings",
+      "bottleStatus": {
+        "ready": "Ready",
+        "needs-setup": "Setup needed",
+        "updating": "Updating",
+        "running": "Running"
+      },
+      "contextMenu": {
+        "openBottle": "Open bottle",
+        "launchOptions": "Launch options",
+        "recipeSettings": "Recipe settings",
+        "rename": "Rename",
+        "copyPath": "Copy path",
+        "revealFolder": "Reveal in folder",
+        "deleteBottle": "Delete bottle",
+        "deleteBottleConfirm": "Delete {{name}}?"
+      },
+      "renameBottle": {
+        "title": "Rename bottle",
+        "description": "Enter a new name for {{name}}.",
+        "nameLabel": "New bottle name",
+        "duplicateTitle": "Bottle name already exists",
+        "duplicateDescription": "{{name}} is already used by another bottle. Choose a different name and apply again.",
+        "runningTitle": "Bottle is running",
+        "runningDescription": "Stop every app and launcher in {{name}} before renaming the bottle.",
+        "successTitle": "Bottle renamed",
+        "successDescription": "Bottle name was changed to {{name}}."
+      },
+      "launchOptionsUnavailable": {
+        "title": "Launch options",
+        "description": "Launch options are not opened from the bottle list yet. Use bottle details for launcher actions."
+      },
+      "launchOptions": {
+        "title": "Launch options",
+        "description": "Adjust launch preset and Wine options for {{name}}.",
+        "emptyDescription": "Select an app in this bottle before editing launch options.",
+        "empty": "No apps are registered in this bottle yet.",
+        "targetApp": "Target app",
+        "searchApps": "Search apps",
+        "preset": "Preset",
+        "searchPresets": "Search presets",
+        "sections": "Sections",
+        "unsupportedByWine": "Unavailable for the selected Wine runtime metadata.",
+        "general": "General",
+        "timing": "Timing",
+        "network": "Network",
+        "enableMsync": "Enable msync",
+        "steamWebHelperArgs": "Steam WebHelper args",
+        "hoyoplayInProcessGpu": "HoYoPlay --in-process-gpu",
+        "enableTimeoutFix": "Wine timeout fix",
+        "leftCommandIsCtrl": "Left Command as Ctrl",
+        "retinaMode": "Retina mode",
+        "metalHud": "Metal HUD",
+        "dxmt": "DXMT",
+        "dxmtPreferredMaxFrameRate": "DXMT frame limit",
+        "dxmtMetalFxSpatialUpscale": "DXMT MetalFX spatial upscaling",
+        "dxmtMetalFxSpatialUpscaleFactor": "MetalFX upscale factor",
+        "earlyExitWaitMs": "Startup check ms",
+        "superviseWaitSeconds": "Supervisor wait seconds",
+        "networkGate": "HoYo network gate",
+        "networkGateSeconds": "Network gate seconds",
+        "waitForManualNetworkCut": "Manual network cut wait",
+        "autoNetworkCut": "Host auto network cut",
+        "autoNetworkReconnectSeconds": "Auto reconnect seconds",
+        "allowDuplicateGame": "Allow duplicate game",
+        "descriptions": {
+          "enableMsync": "Use the Wine build's Mach synchronization path when it supports WINEMSYNC.",
+          "steamWebHelperArgs": "Adds stable Chromium/CEF flags to Steam WebHelper so the Steam UI is more likely to render correctly under macOS Wine.",
+          "hoyoplayInProcessGpu": "Starts HoYoPlay with --in-process-gpu, which helps some CEF windows appear under Wine.",
+          "enableTimeoutFix": "Enables the packaged Wine timeout workaround for launchers that stall during startup.",
+          "leftCommandIsCtrl": "Maps the left Command key to Ctrl inside Wine for games that expect Windows shortcuts.",
+          "retinaMode": "Toggles Wine Mac Driver Retina rendering for sharper UI at high DPI.",
+          "metalHud": "Shows Apple's Metal performance HUD for graphics debugging.",
+          "dxmtPreferredMaxFrameRate": "Writes d3d11.preferredMaxFrameRate into DXMT_CONFIG. Use 60 for HoYoPlay-style fixed FPS; set 0 to remove the cap when DXMT honors that value.",
+          "dxmtMetalFxSpatialUpscale": "Enables DXMT_METALFX_SPATIAL_SWAPCHAIN for DXMT's MetalFX spatial upscale path.",
+          "dxmtMetalFxSpatialUpscaleFactor": "Writes d3d11.metalSpatialUpscaleFactor into DXMT_CONFIG when you want DXMT to upscale the swapchain.",
+          "earlyExitWaitMs": "How long the launcher waits before treating an immediate Wine exit as a startup failure.",
+          "superviseWaitSeconds": "How long launcher-side supervision waits for routed child processes.",
+          "networkGate": "Uses the HoYo network gate workaround for games that need a controlled reconnect window.",
+          "networkGateSeconds": "Duration of the network gate window in seconds.",
+          "waitForManualNetworkCut": "Waits for the user to cut the network manually before continuing a routed launch.",
+          "autoNetworkCut": "Allows launcher helper logic to cut and reconnect the host network automatically.",
+          "autoNetworkReconnectSeconds": "Seconds to wait before reconnecting after an automatic network cut.",
+          "allowDuplicateGame": "Allows the supervisor to start a game even if a matching game process is already tracked."
+        },
+        "presets": {
+          "auto": "Auto",
+          "steam": "Steam",
+          "hoyoplay": "HoYoPlay",
+          "zzz": "Zenless Zone Zero",
+          "hsr": "Honkai: Star Rail",
+          "genshin": "Genshin Impact",
+          "custom": "Custom"
+        }
+      },
+      "appContext": {
+        "run": "Run app",
+        "runWithArgs": "Run with arguments",
+        "launchOptions": "Launch options",
+        "stop": "Stop app",
+        "showLogs": "Show logs",
+        "delete": "Delete app",
+        "deleteFiles": "Delete app files",
+        "removeFromList": "Remove from app list",
+        "running": "Running",
+        "launchFailed": "Launch failed",
+        "appLogsTitle": "{{name}} logs",
+        "appLogsDescription": "Compact Wine launch log for this app.",
+        "loadingLogs": "Loading logs...",
+        "noLogs": "No logs for this app yet.",
+        "argumentsPrompt": "Arguments to append",
+        "deleteConfirm": "Delete {{name}} from this bottle?",
+        "deleteFilesTitle": "Delete {{name}} files?",
+        "deleteFilesConfirm": "Delete {{name}} from this bottle and remove its app files/prefix data when they are inside safe launcher-managed folders. This cannot be undone.",
+        "stopConfirmTitle": "Stop {{name}}?",
+        "stopConfirmDescription": "Stop the running Wine process for {{name}} before continuing.",
+        "removeFromListTitle": "Remove {{name}} from list?",
+        "removeFromListConfirm": "Remove {{name}} from this bottle's app list? Installed files will not be deleted."
+      },
+      "createBottle": {
+        "action": "Create bottle",
+        "title": "Create bottle",
+        "description": "Create a new bottle with a Wine runtime. Choose the prefix root; the bottle folder is created under it.",
+        "nameLabel": "Bottle name",
+        "namePlaceholder": "Raiden",
+        "randomName": "Random",
+        "wineLabel": "Wine runtime",
+        "dxmtLabel": "DXMT version",
+        "pathLabel": "Bottle prefix root",
+        "pathPlaceholder": "Folder that contains bottle prefixes",
+        "pathHint": "Bottle will be created at:",
+        "defaultPath": "Default",
+        "descriptionLabel": "Description",
+        "descriptionPlaceholder": "What this bottle is for",
+        "submit": "Create bottle"
+      },
+      "installers": {
+        "title": "Launcher installers",
+        "description": "The app downloads official Windows installers and starts them with this bottle prefix.",
+        "modalTitle": "Launcher installers",
+        "modalDescription": "Download, install, or run launcher apps inside this bottle.",
+        "openAction": "Open launcher installers",
+        "install": "Download installer",
+        "installSteam": "Download / run Steam installer",
+        "installHoyoplay": "Download / run HoYoPlay installer",
+        "installing": "Preparing installer...",
+        "downloading": "Downloading",
+        "running": "Running",
+        "alreadyAdded": "Already added",
+        "installedCount": "{{count}} ready",
+        "notInstalled": "Not installed",
+        "stage": {
+          "setup": "Setting up",
+          "dxmt": "DXMT",
+          "download": "Downloading",
+          "install": "Starting in Wine",
+          "ready": "Ready",
+          "error": "Error"
+        },
+        "steam": {
+          "title": "Steam",
+          "description": "Download SteamSetup.exe from Steam CDN and run it with Wine."
+        },
+        "hoyoplay": {
+          "title": "HoYoPlay",
+          "description": "Download HoYoPlay installer through HoYoverse download porter and run it with Wine."
+        }
+      },
+      "runner": {
+        "title": "Run executable",
+        "description": "Run a local Windows executable directly with this bottle prefix.",
+        "addManualApp": "Add app manually",
+        "addManualAppDescription": "Register an executable in this bottle when automatic app detection misses it.",
+        "pathPlaceholder": "C:\\Program Files\\App\\app.exe or /Users/me/Downloads/setup.exe",
+        "pathHint": "Use a Windows path inside the prefix or a local installer path on macOS.",
+        "pathAutocompleteHint": "Press Tab to open suggestions, Tab/arrow keys to move, Enter to choose, then Tab moves to arguments after an executable is selected. Scroll the list when a folder has many items.",
+        "manualTitle": "Enter path or find file",
+        "manualDescription": "Type a Windows path directly, or browse a macOS file and run it through Wine's Z: drive mapping.",
+        "manualAddTitle": "Choose app executable",
+        "manualAddFormDescription": "Select the executable that should appear in this bottle's app grid.",
+        "registerPathHint": "Use a Windows path inside the prefix or a local executable path on macOS.",
+        "pathAutocompleteRegisterHint": "Press Tab to open suggestions, Tab/arrow keys to move, and Enter to choose an executable.",
+        "browseFile": "Find file",
+        "selectFileTitle": "Select Windows executable",
+        "argumentsLabel": "Arguments",
+        "argumentsPlaceholder": "-windowed -language ko",
+        "argumentsHint": "Optional. Quotes are supported for arguments with spaces.",
+        "pathRequired": "Enter an executable path first.",
+        "wineRuntimeMissing": "Wine runtime is not installed or extracted: {{versionId}}",
+        "starting": "Starting executable...",
+        "started": "Executable started in this bottle.",
+        "registered": "Executable was added to this bottle.",
+        "failed": "Failed to start executable.",
+        "run": "Run in bottle",
+        "register": "Add to apps"
+      },
+      "searchReady": "Search ready",
+      "wineVersions": "Wine versions",
+      "runtimeDownloads": {
+        "title": "Runtime downloads",
+        "description": "Download Wine runtimes and DXMT packages from the BDIH release houses.",
+        "noWine": "No Wine release assets are available.",
+        "noDxmt": "No DXMT release assets are available."
+      },
+      "installedWine": {
+        "title": "Installed Wine",
+        "description": "Only Wine builds that are ready for bottle creation or game launch are shown here.",
+        "viewAction": "View installed Wine",
+        "empty": "No Wine builds are installed yet. Builds selected during bottle creation will appear here after installation."
+      },
+      "terminalWelcome": "BDIH Launcher terminal",
+      "lastPlayed": {
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "threeDaysAgo": "3 days ago",
+        "never": "Never launched"
+      }
+    },
+    "preferences": {
+      "generalTitle": "General",
+      "generalDescription": "Adjust Renderer language, theme, and app logging.",
+      "categories": {
+        "general": "General",
+        "generalDescription": "Language and display",
+        "wine": "Wine",
+        "wineDescription": "Data storage and diagnostics",
+        "shortcut": "Shortcuts",
+        "shortcutDescription": "Launcher control keys"
+      },
+      "installPathTitle": "Wine install path",
+      "installPathDescription": "Default location for new Wine builds and runtimes.",
+      "installPathLabel": "Install Path",
+      "storagePaths": {
+        "title": "Data storage location",
+        "description": "Choose one root folder for launcher-managed Wine runtimes, bottle prefixes, DXMT packages, app metadata, and logs.",
+        "dataRootTitle": "Data storage location",
+        "dataRootDescription": "The launcher stores Wine, Bottles, DXMT, logs, and appmeta.json under this folder.",
+        "advancedBottleRoot": "Use a separate Bottle root",
+        "advancedBottleRootDescription": "Keep Wine/DXMT/logs under the data location, but create bottle prefixes in a custom folder.",
+        "bottleRootTitle": "Bottle prefix root",
+        "bottleRootDescription": "Folder that contains launcher-managed bottle folders. Each bottle is created as root/bottle-name.",
+        "wineInstallTitle": "Wine runtime storage",
+        "wineInstallDescription": "Folder for downloaded Wine builds and runtimes.",
+        "bottlePrefixTitle": "Bottle prefix storage",
+        "bottlePrefixDescription": "Folder where bottle Wine prefixes are created and managed.",
+        "dxmtCacheTitle": "DXMT package storage",
+        "dxmtCacheDescription": "Folder for pre-downloaded DXMT packages and cached installers.",
+        "resetAll": "Reset data location"
+      },
+      "dangerZone": {
+        "title": "Danger zone",
+        "description": "Delete launcher-managed Wine runtimes, bottle prefixes, DXMT cache, settings, and logs.",
+        "deleteAction": "Delete all launcher data",
+        "confirmTitle": "Delete all launcher data?",
+        "confirmDescription": "This cannot be undone. Check the folders below before continuing, especially if you use custom paths.",
+        "pathsTitle": "Delete targets",
+        "confirmAction": "Delete data",
+        "targets": {
+          "wineRuntime": {
+            "title": "Wine runtime",
+            "description": "Delete downloaded Wine builds and runtime files."
+          },
+          "bottlePrefixes": {
+            "title": "Bottle prefixes",
+            "description": "Delete managed Wine prefixes for bottles."
+          },
+          "dxmtCache": {
+            "title": "DXMT cache",
+            "description": "Delete downloaded DXMT packages and installer cache."
+          },
+          "settings": {
+            "title": "Settings",
+            "description": "Delete launcher preferences and saved settings."
+          },
+          "logs": {
+            "title": "Logs",
+            "description": "Delete launcher and diagnostic log files."
+          }
+        }
+      },
+      "logging": {
+        "title": "Wine debug flags",
+        "description": "Choose a preset or pass raw WINEDEBUG arguments for Wine launches.",
+        "modePresetTitle": "Preset",
+        "modePresetDescription": "Use a prepared logging level.",
+        "modeWineDebugTitle": "Custom arguments",
+        "modeWineDebugDescription": "Type WINEDEBUG arguments directly.",
+        "levelTitle": "Preset",
+        "levelDescription": "Bottle-specific launch settings can override this global preset later.",
+        "wineDebugTitle": "WINEDEBUG",
+        "wineDebugDescription": "Raw WINEDEBUG arguments applied to Wine processes unless a bottle overrides them.",
+        "wineDebugPlaceholder": "-all,+seh,+tid",
+        "levels": {
+          "off": {
+            "label": "No logging",
+            "description": "Write no app log entries."
+          },
+          "error": {
+            "label": "ERROR",
+            "description": "Write ERROR entries only."
+          },
+          "warn": {
+            "label": "WARN",
+            "description": "Write WARN and ERROR entries."
+          },
+          "info": {
+            "label": "INFO",
+            "description": "Write INFO, WARN, and ERROR entries."
+          },
+          "debug": {
+            "label": "DEBUG",
+            "description": "Write DEBUG, INFO, WARN, and ERROR entries."
+          },
+          "all": {
+            "label": "ALL",
+            "description": "Write every supported level; currently same as DEBUG."
+          }
+        }
+      },
+      "languageTitle": "Language",
+      "languageDescription": "Language used by the Renderer UI.",
+      "themeModeTitle": "Theme",
+      "themeModeDescription": "Follow dark, light, or system settings.",
+      "accentColorTitle": "Accent color",
+      "accentColorDescription": "Color used for selected controls, actions, and highlights.",
+      "appLoggingTitle": "App logging",
+      "appLoggingDescription": "Choose how much launcher-level logging to write.",
+      "developerYouTube": {
+        "open": "Developer YouTube",
+        "onAir": "ON AIR",
+        "offAir": "OFFLINE"
+      },
+      "developerLinks": {
+        "site": "Site",
+        "github": "GitHub"
+      },
+      "appUpdate": {
+        "title": "App update",
+        "description": "Check for new versions and manage automatic update checks.",
+        "autoCheck": "Auto check",
+        "check": "Check updates",
+        "downloading": "Downloading update",
+        "restartHint": "The update has been downloaded. Restart the app to apply it.",
+        "version": "Version {{version}}",
+        "dialog": {
+          "disabled": {
+            "title": "Update check unavailable",
+            "description": "Update checks are disabled in this build."
+          },
+          "checking": {
+            "title": "Checking for updates",
+            "description": "Looking for the latest BDIH Launcher release."
+          },
+          "available": {
+            "title": "Update available",
+            "description": "A newer BDIH Launcher version is available."
+          },
+          "not-available": {
+            "title": "You're up to date",
+            "description": "You are already using the latest available BDIH Launcher version."
+          },
+          "downloading": {
+            "title": "Update available",
+            "description": "A newer version was found and is downloading."
+          },
+          "downloaded": {
+            "title": "Update ready",
+            "description": "The update has been downloaded."
+          },
+          "error": {
+            "title": "Update check failed",
+            "description": "BDIH Launcher could not check for updates."
+          }
+        },
+        "status": {
+          "disabled": "Idle",
+          "checking": "Checking",
+          "available": "Available",
+          "not-available": "Current",
+          "downloading": "Downloading",
+          "downloaded": "Ready",
+          "error": "Error"
+        }
+      },
+      "unsavedTitle": "Unsaved changes",
+      "unsavedDescription": "Save to apply these settings on the next run.",
+      "shortcuts": {
+        "title": "Shortcuts",
+        "description": "Key combinations for navigation and frequent launcher actions.",
+        "launchTitle": "Launch selected game",
+        "launchDescription": "Run the currently selected game or app.",
+        "terminalTitle": "Open terminal",
+        "terminalDescription": "Switch to the Wine task terminal.",
+        "logsTitle": "Open logs",
+        "logsDescription": "Switch to the current session log viewer.",
+        "preferencesTitle": "Open settings",
+        "preferencesDescription": "Switch to the settings view.",
+        "recording": "Press Ctrl, Command, or Option + key",
+        "unassigned": "Unassigned",
+        "modifierRequired": "Use Ctrl, Command, or Option with another key.",
+        "duplicate": "This shortcut is already assigned.",
+        "duplicateResolveConfirm": "{{shortcut}} is already assigned to {{action}}. Clear the existing shortcut and use it here?",
+        "saveBlocked": "Fix invalid shortcuts before saving."
+      },
+      "options": {
+        "dxmtTitle": "Prefer DXMT",
+        "dxmtDescription": "Prefer the Metal translation layer for DirectX 12 games.",
+        "keepLogTitle": "Keep terminal logs",
+        "keepLogDescription": "Keep install and launch logs after switching views.",
+        "prefixTitle": "Check prefix before launch",
+        "prefixDescription": "Automatically detect missing Wine prefixes.",
+        "catalogTitle": "Auto-refresh catalog",
+        "catalogDescription": "Reload the Wine catalog when the app starts."
+      },
+      "closeBehavior": {
+        "title": "Close button behavior",
+        "description": "Choose what happens when you press the launcher close button.",
+        "quitTitle": "Quit app",
+        "quitDescription": "Close the launcher and run normal shutdown cleanup.",
+        "trayTitle": "Move to tray",
+        "trayDescription": "Hide the launcher in the macOS menu bar. Click the tray icon to show it again."
+      }
+    },
+    "splash": {
+      "defaultMessage": "Preparing Renderer",
+      "checkingCatalog": "Checking Wine catalog",
+      "catalogReady": "Wine catalog ready",
+      "description": "A macOS Wine launcher for Steam, HoyoVerse, and Windows games",
+      "rosetta": {
+        "title": "Rosetta 2 is required",
+        "description": "This launcher needs Rosetta 2 to run x86_64 Wine on Apple Silicon Macs. Copy the command below, run it in Terminal, then check again.",
+        "instruction": "After the installation finishes in Terminal, click Check again.",
+        "copyCommand": "Copy command",
+        "openTerminal": "Open Terminal",
+        "checkAgain": "Check again",
+        "checking": "Checking...",
+        "copied": "Command copied. Open Terminal, paste it, then press Return.",
+        "terminalOpened": "Terminal opened. Paste the copied command and press Return.",
+        "terminalOpenFailed": "Failed to open Terminal.",
+        "stillMissing": "Rosetta is still not available. Finish the Terminal installation, then check again.",
+        "checkFailed": "Failed to check Rosetta status.",
+        "verified": "Rosetta verified. Opening launcher..."
+      }
+    },
+    "terminal": {
+      "defaultWelcome": "Welcome to Eternal Vinegar Hoyo Terminal",
+      "bridgeReady": "Wine command bridge is ready.",
+      "initialized": "Renderer terminal initialized."
+    },
+    "windowControls": {
+      "label": "Window controls"
+    },
+    "titleBar": {
+      "label": "macOS title bar",
+      "quit": "Quit app",
+      "minimize": "Minimize app",
+      "maximize": "Maximize app"
+    },
+    "wine": {
+      "official": "Official Wine",
+      "custom": "Custom build",
+      "noInstallPath": "Install path not set"
+    },
+    "locale": {
+      "ko": "Korean",
+      "en": "English",
+      "ja": "Japanese"
+    },
+    "theme": {
+      "mode": {
+        "dark": "Dark",
+        "light": "Light",
+        "system": "System settings"
+      },
+      "accent": {
+        "rose": "Rose",
+        "sky": "Sky",
+        "emerald": "Emerald",
+        "violet": "Violet",
+        "amber": "Amber"
+      }
+    },
+    "tray": {
+      "show": "Show Launcher",
+      "quit": "Quit Launcher"
+    }
+  }
+}

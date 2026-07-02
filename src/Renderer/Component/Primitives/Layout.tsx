@@ -9,6 +9,10 @@ export interface PrimitiveLayoutProps extends PrimitiveBoxProps {
   gapClassName?: string;
 }
 
+export interface FloatingLayerProps extends PrimitiveBoxProps {
+  strategy?: "absolute" | "fixed";
+}
+
 function join_class_names(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -97,8 +101,14 @@ RelativeBox.displayName = "RelativeBox";
 /**
  * Absolute/fixed layer primitive used by menus and floating UI.
  */
-export const FloatingLayer = React.forwardRef<HTMLElement, PrimitiveBoxProps>(
-  ({ className = "", ...props }, ref) => <Box ref={ref} className={join_class_names("absolute z-50", className)} {...props} />,
+export const FloatingLayer = React.forwardRef<HTMLElement, FloatingLayerProps>(
+  ({ className = "", strategy = "absolute", ...props }, ref) => (
+    <Box
+      ref={ref}
+      className={join_class_names(strategy === "fixed" ? "fixed" : "absolute", "z-50", className)}
+      {...props}
+    />
+  ),
 );
 
 FloatingLayer.displayName = "FloatingLayer";

@@ -1,15 +1,27 @@
-import { existsSync } from "fs";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "fs/promises";
+import { existsSync, type Dirent } from "fs";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import {
   BottleListPayload,
+  BottleLauncherKind,
   BottleMetadataPayload,
   BottleTaskStage,
+  DeleteBottleAppPayload,
+  DeleteBottleAppResultPayload,
   DeleteBottlePayload,
   DeleteBottleResultPayload,
   InstalledBottleAppPayload,
 } from "../../Common/Types/IPC";
 import { HOYOPLAY_ICON_URL, STEAM_GAME_LAUNCH_ARGUMENT, STEAM_ICON_URL } from "../../Common/Constant/RuntimeSources";
+import {
+  bottle_name_to_slug,
+  create_hoyo_game_prefix_path,
+  create_launcher_prefix_path,
+  hoyo_game_from_bottle_app,
+  is_internal_bottle_prefix_dir_name,
+  launcher_from_bottle_app,
+} from "../../Common/Util/BottlePath";
+import { normalize_launch_options } from "../../Common/Util/LaunchOptions";
 import { readConfigFile } from "../FileIO/IO";
 import {
   get_bottle_registry_path,
@@ -19,16 +31,75 @@ import {
   is_dev_resource_environment,
 } from "../Environment/AppPaths";
 import { preferenceManager } from "./PreferenceManager";
+import { logManager } from "./LogManager";
+import { iconManager } from "./IconManager";
 
 const REGISTRY_VERSION = 1;
+const HOYO_EXE_SCAN_MAX_DEPTH = 8;
+const HOYO_EXE_SCAN_MAX_ENTRIES = 5000;
+const HOYO_EXCLUDED_EXE_PATTERN = /(crash|crashreport|unitycrashhandler|browser|helper|setup|install|uninstall|update|launcher|plugin|cef|zfgamebrowser|iexplore|explorer|winebrowser|notepad|wordpad|regedit|rundll32|cmd|conhost|msiexec|control)/i;
+const HOYO_SCAN_SKIP_DIRECTORY_PATTERN = /^(windows|\$recycle\.bin|temp|tmp|_bdih_installers|logs?|steamapps|cache)$/i;
+const STEAM_GAME_EXE_SCAN_MAX_DEPTH = 5;
+const STEAM_GAME_EXE_SCAN_MAX_ENTRIES = 2000;
+const STEAM_GAME_EXCLUDED_EXE_PATTERN = /(crash|crashreport|unitycrashhandler|redist|redistributable|setup|install|uninstall|updater?|launcher|bootstrap|cef|helper|service|tool|vcredist|directx|dxsetup|eac|easyanticheat)/i;
+const STEAM_GAME_SKIP_DIRECTORY_PATTERN = /^(windows|\$recycle\.bin|temp|tmp|_commonredist|redist|redistributable|directx|vcredist|bin64_steamruntime)$/i;
+
+interface HoYoGameCatalogEntry {
+  id: "zzz" | "starrail" | "genshin";
+  name: string;
+  executableNames: string[];
+  pathTokens: string[];
+}
+
+const HOYO_GAME_CATALOG: HoYoGameCatalogEntry[] = [
+  {
+    id: "zzz",
+    name: "Zenless Zone Zero",
+    executableNames: ["ZenlessZoneZero.exe"],
+    pathTokens: ["zenlesszonezero", "zenless", "zzz"],
+  },
+  {
+    id: "starrail",
+    name: "Honkai: Star Rail",
+    executableNames: ["StarRail.exe"],
+    pathTokens: ["starrail", "star-rail", "honkaistarrail", "honkai", "hsr"],
+  },
+  {
+    id: "genshin",
+    name: "Genshin Impact",
+    executableNames: ["GenshinImpact.exe", "YuanShen.exe"],
+    pathTokens: ["genshinimpact", "genshin", "yuanshen"],
+  },
+];
 
 interface BottleRegistryState {
   bottles: BottleMetadataPayload[];
   deletedBottleKeys: string[];
 }
 
+/**
+ * Maintains bottle metadata across three sources:
+ *
+ * 1. The explicit bottle registry in app data.
+ * 2. Prefix-local `bdih-bottle.json` metadata.
+ * 3. Scanned Wine prefixes that look like bottles.
+ *
+ * Deletions must write tombstone keys because scanning can otherwise rediscover
+ * an old prefix or legacy registry entry and make it appear again.
+ */
 export class BottleManager {
   private cache: BottleMetadataPayload[] | null = null;
+
+  async bootstrapAppMetadata(): Promise<void> {
+    // Startup reconciliation runs while the splash window is visible. It makes
+    // the app-level registry (`appmeta.json`) match real prefix directories
+    // before the renderer asks for bottles, so deleted prefixes do not reappear.
+    const registry = await this.loadRegistryState();
+    const bottles = await this.buildBottleList([], registry);
+
+    this.cache = bottles;
+    await this.writeRegistryBottles(bottles, registry.deletedBottleKeys);
+  }
 
   async getBottleList(forceReload = false): Promise<BottleListPayload> {
     if (!this.cache || forceReload) {
@@ -44,8 +115,14 @@ export class BottleManager {
   }
 
   async saveBottleList(payload: BottleListPayload): Promise<BottleListPayload> {
-    const incomingBottles = normalize_bottle_array(payload?.bottles);
+    // Save is a merge operation, not a destructive replace. This preserves
+    // scanned/legacy bottles during normal app updates. Use deleteBottle or
+    // clearAllBottleData when data should actually disappear.
     const registry = await this.loadRegistryState();
+    const incomingBottles = await rename_incoming_bottle_directories(
+      normalize_bottle_array(payload?.bottles),
+      registry.bottles,
+    );
     const deletedBottleKeys = deleted_keys_without_incoming_bottles(
       registry.deletedBottleKeys,
       incomingBottles,
@@ -80,6 +157,15 @@ export class BottleManager {
       await rm(bottlePath, { recursive: true, force: true });
 
       const registry = await this.loadRegistryState();
+      const deletedBottle = registry.bottles.find((bottle) =>
+        bottle.id === payload.bottleId || path.resolve(expand_user_home_path(bottle.path)) === bottlePath,
+      );
+      const deletedLogPaths = logManager.deleteBottleLogs({
+        bottleId: payload.bottleId,
+        bottleName: payload.bottleName || deletedBottle?.name || path.basename(bottlePath),
+      });
+      // Registry tombstones prevent the deleted prefix from reappearing if a
+      // legacy registry or a later prefix scan still knows about it.
       const deletedBottleKeys = normalize_deleted_bottle_keys([
         ...registry.deletedBottleKeys,
         `id:${payload.bottleId}`,
@@ -97,6 +183,7 @@ export class BottleManager {
       return {
         ok: true,
         deletedPath: bottlePath,
+        deletedLogPaths,
       };
     } catch (error) {
       return {
@@ -107,6 +194,102 @@ export class BottleManager {
     }
   }
 
+  async deleteBottleApp(payload: DeleteBottleAppPayload): Promise<DeleteBottleAppResultPayload> {
+    const registry = await this.loadRegistryState();
+    const bottlePath = path.resolve(expand_user_home_path(payload.bottlePath));
+    const bottle = registry.bottles.find((candidateBottle) =>
+      candidateBottle.id === payload.bottleId ||
+      path.resolve(expand_user_home_path(candidateBottle.path)) === bottlePath,
+    );
+    const app = bottle?.apps.find((candidateApp) => candidateApp.id === payload.appId);
+
+    if (!bottle || !app) {
+      return {
+        ok: false,
+        deletedPaths: [],
+        skippedPaths: [],
+        error: "Bottle app was not found.",
+      };
+    }
+
+    const preference = await preferenceManager.getPreference();
+    const deletePlan = await resolve_bottle_app_delete_plan(bottle, app, preference.gameInstallPath);
+    const deletedPaths: string[] = [];
+    const skippedPaths: DeleteBottleAppResultPayload["skippedPaths"] = [];
+
+    for (const targetPath of deletePlan.targets) {
+      if (!existsSync(targetPath)) {
+        skippedPaths.push({ path: targetPath, reason: "missing" });
+        continue;
+      }
+
+      if (!is_safe_app_delete_path(targetPath, deletePlan.safeRoots)) {
+        skippedPaths.push({ path: targetPath, reason: "outside safe delete roots" });
+        continue;
+      }
+
+      try {
+        await rm(targetPath, { recursive: true, force: true });
+        deletedPaths.push(targetPath);
+      } catch (error) {
+        skippedPaths.push({
+          path: targetPath,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const bottles = registry.bottles.map((candidateBottle) =>
+      candidateBottle.id === bottle.id
+        ? {
+            ...candidateBottle,
+            apps: candidateBottle.apps.filter((candidateApp) => candidateApp.id !== app.id),
+            updatedAt: new Date().toISOString(),
+          }
+        : candidateBottle,
+    );
+
+    this.cache = this.cache?.map((candidateBottle) =>
+      candidateBottle.id === bottle.id
+        ? {
+            ...candidateBottle,
+            apps: candidateBottle.apps.filter((candidateApp) => candidateApp.id !== app.id),
+            updatedAt: new Date().toISOString(),
+          }
+        : candidateBottle,
+    ) ?? bottles;
+    await this.writeRegistryBottles(bottles, registry.deletedBottleKeys);
+
+    return {
+      ok: skippedPaths.length === 0,
+      deletedPaths,
+      skippedPaths,
+      error: skippedPaths.length > 0 ? "Some app files were not deleted." : undefined,
+    };
+  }
+
+  async clearAllBottleData(): Promise<void> {
+    // Used by the Preference danger zone when bottle prefixes are deleted.
+    // This bypasses saveBottleList's merge semantics and records every known
+    // bottle as deleted so a later scan cannot resurrect stale entries.
+    const registry = await this.loadRegistryState();
+    const knownBottles = merge_bottles(registry.bottles, this.cache ?? []);
+    const deletedBottleKeys = normalize_deleted_bottle_keys([
+      ...registry.deletedBottleKeys,
+      ...knownBottles.flatMap(bottle_identity_keys),
+    ]);
+
+    for (const bottle of knownBottles) {
+      logManager.deleteBottleLogs({
+        bottleId: bottle.id,
+        bottleName: bottle.name,
+      });
+    }
+
+    this.cache = [];
+    await this.writeRegistryBottles([], deletedBottleKeys);
+  }
+
   clearCache(): void {
     this.cache = null;
   }
@@ -115,6 +298,8 @@ export class BottleManager {
     incomingBottles: BottleMetadataPayload[] = [],
     registry?: BottleRegistryState,
   ): Promise<BottleMetadataPayload[]> {
+    // Order matters: explicit incoming renderer state wins, then registry, then
+    // scanned prefixes. Every candidate is filtered through deletedBottleKeys.
     const registryState = registry ?? await this.loadRegistryState();
     const deletedBottleKeys = new Set(registryState.deletedBottleKeys);
     const registryBottles = registryState.bottles.filter((bottle) => !is_deleted_bottle(bottle, deletedBottleKeys));
@@ -133,7 +318,8 @@ export class BottleManager {
     bottles: BottleMetadataPayload[],
     deletedBottleKeys: string[] = [],
   ): Promise<void> {
-    const registryPath = get_bottle_registry_path();
+    const preference = await preferenceManager.getPreference();
+    const registryPath = get_bottle_registry_path(preference.dataRootPath);
 
     await mkdir(path.dirname(registryPath), { recursive: true });
     await writeFile(
@@ -153,25 +339,25 @@ export class BottleManager {
   }
 
   private async loadRegistryState(): Promise<BottleRegistryState> {
+    const preference = await preferenceManager.getPreference();
+    const primaryRegistryPath = get_bottle_registry_path(preference.dataRootPath);
+    const primaryRegistryState = await this.readRegistryState(primaryRegistryPath);
+
+    if (primaryRegistryState) {
+      return this.validateRegistryState(primaryRegistryState);
+    }
+
     const registryPaths = unique_paths([
       get_bottle_registry_path(),
       ...get_legacy_bottle_registry_paths(),
-    ]);
+    ]).filter((registryPath) => path.resolve(registryPath) !== path.resolve(primaryRegistryPath));
     const states: BottleRegistryState[] = [];
 
     for (const registryPath of registryPaths) {
-      try {
-        states.push(parse_registry_state(await readFile(registryPath, "utf8")));
-      } catch (error) {
-        if (is_missing_file_error(error)) {
-          continue;
-        }
+      const state = await this.readRegistryState(registryPath);
 
-        if (error instanceof SyntaxError) {
-          continue;
-        }
-
-        throw error;
+      if (state) {
+        states.push(state);
       }
     }
 
@@ -182,10 +368,43 @@ export class BottleManager {
       };
     }
 
-    return merge_registry_states(states);
+    return this.validateRegistryState(merge_registry_states(states));
+  }
+
+  private async readRegistryState(registryPath: string): Promise<BottleRegistryState | null> {
+    try {
+      return parse_registry_state(await readFile(registryPath, "utf8"));
+    } catch (error) {
+      if (is_missing_file_error(error) || error instanceof SyntaxError) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  private validateRegistryState(registry: BottleRegistryState): BottleRegistryState {
+    const deletedBottleKeys = [...registry.deletedBottleKeys];
+    const bottles = registry.bottles.filter((bottle) => {
+      const bottlePath = path.resolve(expand_user_home_path(bottle.path));
+
+      if (existsSync(bottlePath)) {
+        return true;
+      }
+
+      deletedBottleKeys.push(...bottle_identity_keys(bottle), bottle_path_key(bottlePath));
+      return false;
+    });
+
+    return {
+      bottles,
+      deletedBottleKeys: normalize_deleted_bottle_keys(deletedBottleKeys),
+    };
   }
 
   private async scanDefaultPrefixBottles(registryBottles: BottleMetadataPayload[] = []): Promise<BottleMetadataPayload[]> {
+    // Scan both the current preference path and legacy/dev locations. This is
+    // helpful for migration, but it makes tombstones important after deletion.
     const preference = await preferenceManager.getPreference();
     const legacyPreferencePrefixPaths = await this.loadLegacyPreferenceBottlePrefixPaths();
     const registryBottlePaths = registryBottles
@@ -235,7 +454,7 @@ export class BottleManager {
       const entries = await readdir(prefixRoot, { withFileTypes: true });
       const bottles = await Promise.all(
         entries
-          .filter((entry) => entry.isDirectory())
+          .filter((entry) => entry.isDirectory() && !is_internal_bottle_prefix_dir_name(entry.name))
           .map((entry) => this.readPrefixBottleCandidate(path.join(prefixRoot, entry.name), entry.name)),
       );
 
@@ -246,6 +465,9 @@ export class BottleManager {
   }
 
   private async readPrefixBottleCandidate(bottlePath: string, fallbackName: string): Promise<BottleMetadataPayload | null> {
+    // Prefer launcher metadata when it exists. If not, a folder with normal Wine
+    // prefix markers is promoted into a scanned bottle and gets metadata written
+    // back for future launches.
     const metadataPath = path.join(bottlePath, "bdih-bottle.json");
 
     try {
@@ -320,6 +542,71 @@ function normalize_bottle_array(value: unknown): BottleMetadataPayload[] {
     .filter((bottle): bottle is BottleMetadataPayload => Boolean(bottle));
 }
 
+async function rename_incoming_bottle_directories(
+  incomingBottles: BottleMetadataPayload[],
+  registryBottles: BottleMetadataPayload[],
+): Promise<BottleMetadataPayload[]> {
+  const registryBottleById = new Map(registryBottles.map((bottle) => [bottle.id, bottle]));
+
+  return Promise.all(incomingBottles.map(async (bottle) => {
+    const previousBottle = registryBottleById.get(bottle.id);
+
+    if (!previousBottle || previousBottle.name.trim() === bottle.name.trim()) {
+      return bottle;
+    }
+
+    return rename_bottle_directory_for_name(bottle, previousBottle);
+  }));
+}
+
+async function rename_bottle_directory_for_name(
+  bottle: BottleMetadataPayload,
+  previousBottle: BottleMetadataPayload,
+): Promise<BottleMetadataPayload> {
+  const sourcePath = path.resolve(expand_user_home_path(previousBottle.path || bottle.path));
+  const parentPath = path.dirname(sourcePath);
+  const nextPath = path.resolve(parentPath, bottle_name_to_slug(bottle.name));
+
+  logManager.renameBottleLogs({
+    bottleId: bottle.id,
+    previousBottleName: previousBottle.name,
+    nextBottleName: bottle.name,
+  });
+
+  if (sourcePath === nextPath) {
+    return {
+      ...bottle,
+      path: sourcePath,
+      prefixPath: parentPath,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  if (path.dirname(nextPath) !== parentPath || !existsSync(sourcePath)) {
+    return bottle;
+  }
+
+  if (existsSync(nextPath)) {
+    if (sourcePath.toLowerCase() !== nextPath.toLowerCase()) {
+      return bottle;
+    }
+
+    const temporaryPath = path.join(parentPath, `.bdih-rename-${Date.now()}-${path.basename(sourcePath)}`);
+
+    await rename(sourcePath, temporaryPath);
+    await rename(temporaryPath, nextPath);
+  } else {
+    await rename(sourcePath, nextPath);
+  }
+
+  return {
+    ...bottle,
+    path: nextPath,
+    prefixPath: parentPath,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function normalize_bottle(value: unknown, fallbackPath = ""): BottleMetadataPayload | null {
   if (!is_record(value)) {
     return null;
@@ -340,6 +627,7 @@ function normalize_bottle(value: unknown, fallbackPath = ""): BottleMetadataPayl
     description: string_or_default(value.description, name),
     wineVersionId: string_or_default(value.wineVersionId, ""),
     dxmtVersionId: optional_string(value.dxmtVersionId),
+    jadeiteVersionId: optional_string(value.jadeiteVersionId),
     path: bottlePath,
     prefixPath: optional_string(value.prefixPath) ?? path.dirname(bottlePath),
     status: bottle_status_or_default(value.status, "ready"),
@@ -460,6 +748,9 @@ function normalize_apps(value: unknown): InstalledBottleAppPayload[] {
           : steamAppId
             ? steam_game_launch_args(steamAppId)
             : undefined,
+        launchOptions: normalize_launch_options(
+          is_record(app.launchOptions) ? app.launchOptions : undefined,
+        ),
         iconSrc: optional_string(app.iconSrc),
         source: app_source_or_default(app.source),
         steamAppId,
@@ -512,9 +803,65 @@ function create_scanned_bottle(name: string, bottlePath: string, createdAt: stri
 
 function is_bottle_prefix_path(bottlePath: string): boolean {
   return existsSync(path.join(bottlePath, "bdih-bottle.json"))
-    || existsSync(path.join(bottlePath, "system.reg"))
+    || is_wine_prefix_path(bottlePath);
+}
+
+function is_wine_prefix_path(bottlePath: string): boolean {
+  return existsSync(path.join(bottlePath, "system.reg"))
     || existsSync(path.join(bottlePath, "user.reg"))
     || existsSync(path.join(bottlePath, "drive_c"));
+}
+
+function primary_launcher_prefix_path(bottlePath: string, launcher: BottleLauncherKind): string {
+  return create_launcher_prefix_path(expand_user_home_path(bottlePath), launcher);
+}
+
+function launcher_prefix_candidates(bottlePath: string, launcher: BottleLauncherKind): string[] {
+  const expandedBottlePath = expand_user_home_path(bottlePath);
+  const candidates = [
+    primary_launcher_prefix_path(expandedBottlePath, launcher),
+    is_wine_prefix_path(expandedBottlePath) ? expandedBottlePath : undefined,
+  ];
+
+  return unique_paths(candidates.filter((candidate): candidate is string => Boolean(candidate)));
+}
+
+function launcher_executable_candidates(
+  bottlePath: string,
+  launcher: BottleLauncherKind,
+  candidateFactory: (prefixPath: string) => string[],
+): Array<{ prefixPath: string; executablePath: string }> {
+  return launcher_prefix_candidates(bottlePath, launcher).flatMap((prefixPath) =>
+    candidateFactory(prefixPath).map((executablePath) => ({
+      prefixPath,
+      executablePath,
+    })),
+  );
+}
+
+function bottle_app_prefix_candidates(
+  bottlePath: string,
+  app: Pick<InstalledBottleAppPayload, "id" | "name" | "source" | "executablePath">,
+): string[] {
+  const hoyoGame = hoyo_game_from_bottle_app(app);
+  const launcher = launcher_from_bottle_app(app);
+  const expandedBottlePath = expand_user_home_path(bottlePath);
+
+  if (hoyoGame) {
+    return unique_paths([
+      create_hoyo_game_prefix_path(expandedBottlePath, hoyoGame),
+      ...launcher_prefix_candidates(expandedBottlePath, "hoyoplay"),
+    ]);
+  }
+
+  if (launcher) {
+    return launcher_prefix_candidates(expandedBottlePath, launcher);
+  }
+
+  return unique_paths([
+    path.join(expandedBottlePath, "manual-prefix"),
+    is_wine_prefix_path(expandedBottlePath) ? expandedBottlePath : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate)));
 }
 
 async function safe_bottle_created_at(bottlePath: string): Promise<string> {
@@ -527,21 +874,139 @@ async function safe_bottle_created_at(bottlePath: string): Promise<string> {
 
 async function enrich_bottle_apps_from_prefix(bottle: BottleMetadataPayload): Promise<BottleMetadataPayload> {
   const detectedApps = await detect_installed_apps(bottle);
-  const existingApps = prune_unavailable_launcher_apps(bottle);
+  const existingApps = prune_unavailable_apps(bottle);
+  const mergedApps = merge_apps(existingApps, detectedApps);
+  const { apps, changed: iconsChanged } = await enrich_apps_with_executable_icons(bottle, mergedApps);
+  const launcherTasks = merge_launcher_download_tasks(
+    bottle.launcherTasks,
+    detect_downloaded_launcher_tasks(bottle, apps),
+  );
 
-  if (detectedApps.length === 0 && existingApps.length === bottle.apps.length) {
+  if (
+    detectedApps.length === 0 &&
+    existingApps.length === bottle.apps.length &&
+    !iconsChanged &&
+    launcherTasks === bottle.launcherTasks
+  ) {
     return bottle;
   }
 
   return {
     ...bottle,
-    apps: merge_apps(existingApps, detectedApps),
+    apps,
+    launcherTasks,
     updatedAt: new Date().toISOString(),
   };
 }
 
-function prune_unavailable_launcher_apps(bottle: BottleMetadataPayload): InstalledBottleAppPayload[] {
-  return bottle.apps.filter((app) => !is_unavailable_launcher_app(bottle, app));
+function detect_downloaded_launcher_tasks(
+  bottle: BottleMetadataPayload,
+  apps: InstalledBottleAppPayload[],
+): BottleMetadataPayload["launcherTasks"] {
+  const tasks: BottleMetadataPayload["launcherTasks"] = {};
+
+  if (
+    !apps.some((app) => app.id === "steam") &&
+    launcher_prefix_candidates(bottle.path, "steam").some((prefixPath) =>
+      existsSync(path.join(prefixPath, "_bdih_installers", "SteamSetup.exe")),
+    )
+  ) {
+    tasks.steam = {
+      stage: "ready",
+      progress: 100,
+      message: "Steam installer is downloaded.",
+    };
+  }
+
+  if (
+    !apps.some((app) => app.id === "hoyoplay") &&
+    launcher_prefix_candidates(bottle.path, "hoyoplay").some((prefixPath) =>
+      existsSync(path.join(prefixPath, "_bdih_installers", "HoYoPlaySetup.exe")),
+    )
+  ) {
+    tasks.hoyoplay = {
+      stage: "ready",
+      progress: 100,
+      message: "HoYoPlay installer is downloaded.",
+    };
+  }
+
+  return Object.keys(tasks).length > 0 ? tasks : undefined;
+}
+
+function merge_launcher_download_tasks(
+  currentTasks: BottleMetadataPayload["launcherTasks"],
+  downloadedTasks: BottleMetadataPayload["launcherTasks"],
+): BottleMetadataPayload["launcherTasks"] {
+  if (!downloadedTasks) {
+    return currentTasks;
+  }
+
+  const nextTasks: BottleMetadataPayload["launcherTasks"] = { ...currentTasks };
+  let changed = false;
+
+  for (const launcher of Object.keys(downloadedTasks) as BottleLauncherKind[]) {
+    const currentTask = nextTasks[launcher];
+    const downloadedTask = downloadedTasks[launcher];
+
+    if (currentTask && currentTask.stage !== "ready") {
+      continue;
+    }
+
+    if (
+      currentTask?.stage === downloadedTask?.stage &&
+      currentTask?.progress === downloadedTask?.progress &&
+      currentTask?.message === downloadedTask?.message
+    ) {
+      continue;
+    }
+
+    nextTasks[launcher] = downloadedTask;
+    changed = true;
+  }
+
+  return changed ? nextTasks : currentTasks;
+}
+
+async function enrich_apps_with_executable_icons(
+  bottle: BottleMetadataPayload,
+  apps: InstalledBottleAppPayload[],
+): Promise<{ apps: InstalledBottleAppPayload[]; changed: boolean }> {
+  let changed = false;
+  const enrichedApps = await Promise.all(apps.map(async (app) => {
+    if (app.iconSrc) {
+      return app;
+    }
+
+    if (app.source === "steam" && app.steamAppId) {
+      return app;
+    }
+
+    const executablePath = host_paths_from_app_executable(bottle.path, app).find((candidate) => existsSync(candidate));
+    const iconSrc = await iconManager.extractExecutableIcon(executablePath, bottle_icon_cache_path(bottle.path));
+
+    if (!iconSrc) {
+      return app;
+    }
+
+    changed = true;
+    return {
+      ...app,
+      iconSrc,
+    };
+  }));
+
+  return {
+    apps: enrichedApps,
+    changed,
+  };
+}
+
+function prune_unavailable_apps(bottle: BottleMetadataPayload): InstalledBottleAppPayload[] {
+  return bottle.apps.filter((app) =>
+    !is_unavailable_launcher_app(bottle, app) &&
+    !is_unavailable_hoyo_game_app(bottle, app),
+  );
 }
 
 function is_unavailable_launcher_app(
@@ -553,14 +1018,40 @@ function is_unavailable_launcher_app(
   }
 
   if (app.id === "steam") {
-    return !steam_executable_candidates(bottle.path).some((candidate) => existsSync(candidate));
+    return !launcher_executable_candidates(bottle.path, "steam", steam_executable_candidates).some((candidate) => existsSync(candidate.executablePath));
   }
 
   if (app.id === "hoyoplay") {
-    return !hoyoplay_executable_candidates(bottle.path).some((candidate) => existsSync(candidate));
+    return !launcher_executable_candidates(bottle.path, "hoyoplay", hoyoplay_executable_candidates).some((candidate) => existsSync(candidate.executablePath));
   }
 
   return false;
+}
+
+function is_unavailable_hoyo_game_app(
+  bottle: BottleMetadataPayload,
+  app: InstalledBottleAppPayload,
+): boolean {
+  if (!app.id.startsWith("hoyo:") && app.source !== "game") {
+    return false;
+  }
+
+  const game = hoyo_catalog_entry_from_app(app);
+
+  if (!game) {
+    return false;
+  }
+
+  const executablePaths = host_paths_from_app_executable(bottle.path, app).filter((candidate) => existsSync(candidate));
+
+  if (executablePaths.length === 0) {
+    return true;
+  }
+
+  return executablePaths.every((executablePath) =>
+    HOYO_EXCLUDED_EXE_PATTERN.test(path.basename(executablePath)) ||
+    !is_known_hoyo_game_executable(executablePath, game),
+  );
 }
 
 function is_launcher_installer_app(id: string, name: string, executablePath?: string): boolean {
@@ -573,44 +1064,48 @@ function is_launcher_installer_app(id: string, name: string, executablePath?: st
 
 async function detect_installed_apps(bottle: BottleMetadataPayload): Promise<InstalledBottleAppPayload[]> {
   const apps: InstalledBottleAppPayload[] = [];
-  const steamInstall = detect_steam_install(bottle);
+  const steamInstall = await detect_steam_install(bottle);
 
   if (steamInstall) {
     apps.push(steamInstall.app);
     apps.push(...await detect_steam_games(bottle, steamInstall));
   }
 
-  const hoyoplayInstall = detect_hoyoplay_install(bottle);
+  const hoyoplayInstall = await detect_hoyoplay_install(bottle);
 
   if (hoyoplayInstall) {
     apps.push(hoyoplayInstall);
   }
 
+  apps.push(...await detect_hoyo_games(bottle));
+
   return apps;
 }
 
-function detect_steam_install(bottle: BottleMetadataPayload): {
+async function detect_steam_install(bottle: BottleMetadataPayload): Promise<{
   app: InstalledBottleAppPayload;
   steamRootPath: string;
   executablePath: string;
-} | null {
-  const executablePath = steam_executable_candidates(bottle.path).find((candidate) => existsSync(candidate));
+} | null> {
+  const detected = launcher_executable_candidates(bottle.path, "steam", steam_executable_candidates)
+    .find((candidate) => existsSync(candidate.executablePath));
 
-  if (!executablePath) {
+  if (!detected) {
     return null;
   }
 
   return {
-    steamRootPath: path.dirname(executablePath),
-    executablePath,
+    steamRootPath: path.dirname(detected.executablePath),
+    executablePath: detected.executablePath,
     app: {
       id: "steam",
       name: "Steam",
       subtitle: "Windows game launcher",
       wineVersionId: bottle.wineVersionId,
-      executablePath: windows_path_from_drive_c(bottle.path, executablePath),
-      iconSrc: STEAM_ICON_URL,
+      executablePath: windows_path_from_drive_c(detected.prefixPath, detected.executablePath),
+      iconSrc: await iconManager.extractExecutableIcon(detected.executablePath, bottle_icon_cache_path(bottle.path)) ?? STEAM_ICON_URL,
       source: "launcher",
+      launchOptions: { presetId: "steam" },
       lastPlayed: "Never launched",
       lastPlayedKey: "main.lastPlayed.never",
       status: "ready",
@@ -618,10 +1113,11 @@ function detect_steam_install(bottle: BottleMetadataPayload): {
   };
 }
 
-function detect_hoyoplay_install(bottle: BottleMetadataPayload): InstalledBottleAppPayload | null {
-  const executablePath = hoyoplay_executable_candidates(bottle.path).find((candidate) => existsSync(candidate));
+async function detect_hoyoplay_install(bottle: BottleMetadataPayload): Promise<InstalledBottleAppPayload | null> {
+  const detected = launcher_executable_candidates(bottle.path, "hoyoplay", hoyoplay_executable_candidates)
+    .find((candidate) => existsSync(candidate.executablePath));
 
-  if (!executablePath) {
+  if (!detected) {
     return null;
   }
 
@@ -630,13 +1126,199 @@ function detect_hoyoplay_install(bottle: BottleMetadataPayload): InstalledBottle
     name: "HoYoPlay",
     subtitle: "HoYoverse game launcher",
     wineVersionId: bottle.wineVersionId,
-    executablePath: windows_path_from_drive_c(bottle.path, executablePath),
-    iconSrc: HOYOPLAY_ICON_URL,
+    executablePath: windows_path_from_drive_c(detected.prefixPath, detected.executablePath),
+    iconSrc: await iconManager.extractExecutableIcon(detected.executablePath, bottle_icon_cache_path(bottle.path)) ?? HOYOPLAY_ICON_URL,
     source: "launcher",
+    launchOptions: { presetId: "hoyoplay" },
     lastPlayed: "Never launched",
     lastPlayedKey: "main.lastPlayed.never",
     status: "ready",
   };
+}
+
+async function detect_hoyo_games(bottle: BottleMetadataPayload): Promise<InstalledBottleAppPayload[]> {
+  const candidates = await find_hoyo_game_executables(bottle.path);
+
+  return Promise.all(
+    candidates.map(async ({ game, executablePath, prefixPath }) => ({
+      id: `hoyo:${game.id}`,
+      name: game.name,
+      subtitle: "HoYoverse game",
+      wineVersionId: bottle.wineVersionId,
+      executablePath: windows_path_from_host(prefixPath, executablePath),
+      iconSrc: await iconManager.extractExecutableIcon(executablePath, bottle_icon_cache_path(bottle.path)),
+      source: "game" as const,
+      launchOptions: { presetId: game.id === "starrail" ? "hsr" : game.id },
+      lastPlayed: "Never launched",
+      lastPlayedKey: "main.lastPlayed.never",
+      status: "ready" as const,
+    })),
+  );
+}
+
+async function find_hoyo_game_executables(
+  bottlePath: string,
+): Promise<Array<{ game: HoYoGameCatalogEntry; executablePath: string; prefixPath: string }>> {
+  const expandedBottlePath = expand_user_home_path(bottlePath);
+  const preference = await preferenceManager.getPreference();
+  const gameInstallPath = preference.gameInstallPath.trim().length > 0
+    ? expand_user_home_path(preference.gameInstallPath)
+    : undefined;
+  const roots = unique_paths([
+    ...launcher_prefix_candidates(expandedBottlePath, "hoyoplay"),
+    create_hoyo_game_prefix_path(expandedBottlePath, "zzz"),
+    create_hoyo_game_prefix_path(expandedBottlePath, "hsr"),
+    create_hoyo_game_prefix_path(expandedBottlePath, "genshin"),
+  ]);
+  const externalScanRoots = unique_paths([
+    gameInstallPath,
+  ].filter((rootPath): rootPath is string => Boolean(rootPath) && existsSync(rootPath)));
+  const scannedExecutables: Array<{ executablePath: string; prefixPath: string; scanRootPath: string }> = [];
+  const scanJobs = unique_scan_jobs([
+    ...roots.flatMap((prefixPath) => {
+      const driveCPath = path.join(prefixPath, "drive_c");
+
+      return [driveCPath, prefixPath]
+        .filter((rootPath) => existsSync(rootPath))
+        .map((rootPath) => ({ prefixPath, rootPath }));
+    }),
+    ...externalScanRoots.map((rootPath) => ({
+      prefixPath: primary_launcher_prefix_path(expandedBottlePath, "hoyoplay"),
+      rootPath,
+    })),
+  ]);
+  let visitedEntries = 0;
+
+  for (const { prefixPath, rootPath } of scanJobs) {
+    await collect_executable_candidates(rootPath, 0, scannedExecutables, () => {
+      visitedEntries += 1;
+      return visitedEntries <= HOYO_EXE_SCAN_MAX_ENTRIES;
+    }, prefixPath, rootPath);
+  }
+
+  const bestByGame = new Map<string, { game: HoYoGameCatalogEntry; executablePath: string; prefixPath: string; score: number }>();
+
+  for (const { executablePath, prefixPath, scanRootPath } of scannedExecutables) {
+    if (HOYO_EXCLUDED_EXE_PATTERN.test(path.basename(executablePath))) {
+      continue;
+    }
+
+    for (const game of HOYO_GAME_CATALOG) {
+      const score = score_hoyo_executable_candidate(executablePath, scanRootPath, game);
+
+      if (score <= 0) {
+        continue;
+      }
+
+      const current = bestByGame.get(game.id);
+
+      if (!current || score > current.score) {
+        bestByGame.set(game.id, {
+          game,
+          executablePath,
+          prefixPath: create_hoyo_game_prefix_path(expandedBottlePath, hoyo_game_kind_from_catalog_entry(game)),
+          score,
+        });
+      }
+    }
+  }
+
+  return [...bestByGame.values()]
+    .sort((left, right) => right.score - left.score)
+    .map(({ game, executablePath, prefixPath }) => ({ game, executablePath, prefixPath }));
+}
+
+async function collect_executable_candidates(
+  currentPath: string,
+  depth: number,
+  candidates: Array<{ executablePath: string; prefixPath: string; scanRootPath: string }>,
+  shouldContinue: () => boolean,
+  prefixPath: string,
+  scanRootPath: string,
+): Promise<void> {
+  if (depth > HOYO_EXE_SCAN_MAX_DEPTH || !shouldContinue()) {
+    return;
+  }
+
+  let entries: Dirent[];
+
+  try {
+    entries = await readdir(currentPath, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!shouldContinue()) {
+      return;
+    }
+
+    const entryPath = path.join(currentPath, entry.name);
+
+    if (entry.isDirectory()) {
+      if (!HOYO_SCAN_SKIP_DIRECTORY_PATTERN.test(entry.name)) {
+        await collect_executable_candidates(entryPath, depth + 1, candidates, shouldContinue, prefixPath, scanRootPath);
+      }
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.toLowerCase().endsWith(".exe")) {
+      candidates.push({ executablePath: entryPath, prefixPath, scanRootPath });
+    }
+  }
+}
+
+function score_hoyo_executable_candidate(executablePath: string, scanRootPath: string, game: HoYoGameCatalogEntry): number {
+  const executableName = path.basename(executablePath).toLowerCase();
+  const relativeSearchPath = path.relative(scanRootPath, executablePath);
+  const normalizedPath = normalize_search_token(relativeSearchPath);
+  const exactExecutableNames = game.executableNames.map((name) => name.toLowerCase());
+  let score = exactExecutableNames.includes(executableName) ? 10_000 : 0;
+
+  for (const token of game.pathTokens) {
+    const normalizedToken = normalize_search_token(token);
+
+    if (normalizedPath.includes(normalizedToken)) {
+      score += 250;
+    }
+  }
+
+  if (score === 0) {
+    return 0;
+  }
+
+  if (executableName.includes("launcher")) {
+    score -= 200;
+  }
+
+  return score;
+}
+
+function hoyo_catalog_entry_from_app(
+  app: Pick<InstalledBottleAppPayload, "id" | "source" | "executablePath" | "name">,
+): HoYoGameCatalogEntry | undefined {
+  const gameKind = hoyo_game_from_bottle_app(app);
+
+  if (!gameKind) {
+    return undefined;
+  }
+
+  const catalogId = gameKind === "hsr" ? "starrail" : gameKind;
+  return HOYO_GAME_CATALOG.find((entry) => entry.id === catalogId);
+}
+
+function is_known_hoyo_game_executable(executablePath: string, game: HoYoGameCatalogEntry): boolean {
+  const executableName = path.basename(executablePath).toLowerCase();
+
+  return game.executableNames.some((knownName) => knownName.toLowerCase() === executableName);
+}
+
+function hoyo_game_kind_from_catalog_entry(game: HoYoGameCatalogEntry): "zzz" | "hsr" | "genshin" {
+  if (game.id === "starrail") {
+    return "hsr";
+  }
+
+  return game.id;
 }
 
 function steam_executable_candidates(bottlePath: string): string[] {
@@ -673,7 +1355,7 @@ async function detect_steam_games(
     const apps = await Promise.all(
       manifests.map(async (manifestPath) => {
         try {
-          return steam_app_from_manifest(bottle, steamInstall.app, await readFile(manifestPath, "utf8"));
+          return steam_app_from_manifest(bottle, steamInstall, await readFile(manifestPath, "utf8"));
         } catch {
           return null;
         }
@@ -686,32 +1368,146 @@ async function detect_steam_games(
   }
 }
 
-function steam_app_from_manifest(
+async function steam_app_from_manifest(
   bottle: BottleMetadataPayload,
-  steamApp: InstalledBottleAppPayload,
+  steamInstall: { steamRootPath: string; app: InstalledBottleAppPayload },
   manifest: string,
-): InstalledBottleAppPayload | null {
+): Promise<InstalledBottleAppPayload | null> {
   const appId = acf_string_value(manifest, "appid");
   const name = acf_string_value(manifest, "name");
+  const installDir = acf_string_value(manifest, "installdir");
 
   if (!appId || !name) {
     return null;
   }
+
+  const gameExecutablePath = installDir
+    ? await find_steam_game_executable(steamInstall.steamRootPath, installDir, name)
+    : undefined;
+  const iconSrc = await iconManager.extractExecutableIcon(gameExecutablePath, bottle_icon_cache_path(bottle.path));
 
   return {
     id: `steam:${appId}`,
     name,
     subtitle: `Steam App ${appId}`,
     wineVersionId: bottle.wineVersionId,
-    executablePath: steamApp.executablePath,
+    executablePath: steamInstall.app.executablePath,
     executableArgs: steam_game_launch_args(appId),
-    iconSrc: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/capsule_184x69.jpg`,
+    launchOptions: { presetId: "steam" },
+    iconSrc,
     source: "steam",
     steamAppId: appId,
     lastPlayed: "Never launched",
     lastPlayedKey: "main.lastPlayed.never",
     status: "ready",
   };
+}
+
+async function find_steam_game_executable(
+  steamRootPath: string,
+  installDir: string,
+  appName: string,
+): Promise<string | undefined> {
+  const appRootPath = path.join(steamRootPath, "steamapps", "common", installDir);
+
+  if (!existsSync(appRootPath)) {
+    return undefined;
+  }
+
+  const candidates: string[] = [];
+  let visitedEntries = 0;
+
+  await collect_steam_game_executable_candidates(appRootPath, 0, candidates, () => {
+    visitedEntries += 1;
+    return visitedEntries <= STEAM_GAME_EXE_SCAN_MAX_ENTRIES;
+  });
+
+  return candidates
+    .map((executablePath) => ({
+      executablePath,
+      score: score_steam_game_executable_candidate(executablePath, appRootPath, installDir, appName),
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score)[0]?.executablePath;
+}
+
+async function collect_steam_game_executable_candidates(
+  currentPath: string,
+  depth: number,
+  candidates: string[],
+  shouldContinue: () => boolean,
+): Promise<void> {
+  if (depth > STEAM_GAME_EXE_SCAN_MAX_DEPTH || !shouldContinue()) {
+    return;
+  }
+
+  let entries: Dirent[];
+
+  try {
+    entries = await readdir(currentPath, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!shouldContinue()) {
+      return;
+    }
+
+    const entryPath = path.join(currentPath, entry.name);
+
+    if (entry.isDirectory()) {
+      if (!STEAM_GAME_SKIP_DIRECTORY_PATTERN.test(entry.name)) {
+        await collect_steam_game_executable_candidates(entryPath, depth + 1, candidates, shouldContinue);
+      }
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.toLowerCase().endsWith(".exe")) {
+      candidates.push(entryPath);
+    }
+  }
+}
+
+function score_steam_game_executable_candidate(
+  executablePath: string,
+  appRootPath: string,
+  installDir: string,
+  appName: string,
+): number {
+  const executableName = path.basename(executablePath);
+  const normalizedExecutableName = normalize_search_token(executableName.replace(/\.exe$/i, ""));
+  const normalizedInstallDir = normalize_search_token(installDir);
+  const normalizedAppName = normalize_search_token(appName);
+  const relativePath = path.relative(appRootPath, executablePath);
+
+  if (STEAM_GAME_EXCLUDED_EXE_PATTERN.test(executableName)) {
+    return 0;
+  }
+
+  let score = 100;
+
+  if (!relativePath.includes(path.sep)) {
+    score += 500;
+  }
+
+  if (normalizedExecutableName === normalizedInstallDir) {
+    score += 2200;
+  } else if (normalizedInstallDir && normalizedExecutableName.includes(normalizedInstallDir)) {
+    score += 900;
+  }
+
+  if (normalizedExecutableName === normalizedAppName) {
+    score += 2600;
+  } else if (normalizedAppName && normalizedExecutableName.includes(normalizedAppName)) {
+    score += 1100;
+  }
+
+  if (normalizedExecutableName.includes("shipping")) {
+    score += 120;
+  }
+
+  return score;
 }
 
 function steam_game_launch_args(appId: string): string[] {
@@ -727,6 +1523,112 @@ function windows_path_from_drive_c(bottlePath: string, targetPath: string): stri
   const relativePath = path.relative(driveCPath, targetPath).split(path.sep).join("\\");
 
   return `C:\\${relativePath}`;
+}
+
+function bottle_icon_cache_path(bottlePath: string): string {
+  return path.join(bottlePath, ".cache", "icons");
+}
+
+function windows_path_from_host(bottlePath: string, targetPath: string): string {
+  const driveCPath = path.join(bottlePath, "drive_c");
+  const relativePath = path.relative(driveCPath, targetPath);
+
+  if (!relativePath.startsWith("..") && !path.isAbsolute(relativePath)) {
+    return windows_path_from_drive_c(bottlePath, targetPath);
+  }
+
+  return `Z:${targetPath.split(path.sep).join("\\")}`;
+}
+
+function host_paths_from_app_executable(
+  bottlePath: string,
+  app: Pick<InstalledBottleAppPayload, "id" | "name" | "source" | "executablePath">,
+): string[] {
+  return unique_paths(
+    bottle_app_prefix_candidates(bottlePath, app)
+      .map((prefixPath) => host_path_from_app_executable(prefixPath, app.executablePath))
+      .filter((candidate): candidate is string => Boolean(candidate)),
+  );
+}
+
+function host_path_from_app_executable(bottlePath: string, executablePath?: string): string | undefined {
+  if (!executablePath) {
+    return undefined;
+  }
+
+  const normalizedPath = executablePath.replace(/\\/g, "/");
+
+  if (/^[Cc]:\//.test(normalizedPath)) {
+    return path.join(bottlePath, "drive_c", normalizedPath.replace(/^[Cc]:\/?/, ""));
+  }
+
+  if (/^[Zz]:\//.test(normalizedPath)) {
+    return `/${normalizedPath.replace(/^[Zz]:\/?/, "")}`;
+  }
+
+  if (path.isAbsolute(executablePath)) {
+    return executablePath;
+  }
+
+  return undefined;
+}
+
+async function resolve_bottle_app_delete_plan(
+  bottle: BottleMetadataPayload,
+  app: InstalledBottleAppPayload,
+  gameInstallPath: string,
+): Promise<{ targets: string[]; safeRoots: string[] }> {
+  const bottlePath = path.resolve(expand_user_home_path(bottle.path));
+  const safeRoots = unique_paths([
+    bottlePath,
+    gameInstallPath.trim().length > 0 ? expand_user_home_path(gameInstallPath) : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate)));
+  const targets: string[] = [];
+  const hoyoGame = hoyo_game_from_bottle_app(app);
+  const launcher = launcher_from_bottle_app(app);
+  const executableHostPaths = host_paths_from_app_executable(bottle.path, app).filter((candidate) => existsSync(candidate));
+
+  if (hoyoGame) {
+    targets.push(create_hoyo_game_prefix_path(bottlePath, hoyoGame));
+    targets.push(...executableHostPaths.map((executablePath) => path.dirname(executablePath)));
+  } else if (app.source === "steam" && app.steamAppId) {
+    targets.push(...executableHostPaths.map(steam_game_install_dir_from_executable).filter((candidate): candidate is string => Boolean(candidate)));
+  } else if (launcher) {
+    targets.push(primary_launcher_prefix_path(bottlePath, launcher));
+  } else if (app.source === "manual") {
+    targets.push(...executableHostPaths);
+  }
+
+  return {
+    targets: unique_paths(targets),
+    safeRoots,
+  };
+}
+
+function steam_game_install_dir_from_executable(executablePath: string): string | undefined {
+  const parts = path.normalize(executablePath).split(path.sep);
+  const commonIndex = parts.findIndex((part, index) =>
+    part.toLowerCase() === "common" &&
+    parts[index - 1]?.toLowerCase() === "steamapps",
+  );
+
+  if (commonIndex < 0 || !parts[commonIndex + 1]) {
+    return undefined;
+  }
+
+  const prefix = executablePath.startsWith(path.sep) ? path.sep : "";
+  return path.join(prefix, ...parts.slice(0, commonIndex + 2));
+}
+
+function is_safe_app_delete_path(targetPath: string, safeRoots: string[]): boolean {
+  const resolvedTargetPath = path.resolve(expand_user_home_path(targetPath));
+
+  return safeRoots.some((safeRoot) => {
+    const resolvedSafeRoot = path.resolve(expand_user_home_path(safeRoot));
+    const relativePath = path.relative(resolvedSafeRoot, resolvedTargetPath);
+
+    return Boolean(relativePath) && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+  });
 }
 
 function merge_apps(
@@ -747,6 +1649,7 @@ function merge_apps(
       lastPlayedKey: apps.get(app.id)?.lastPlayedKey ?? app.lastPlayedKey,
       processId: apps.get(app.id)?.processId,
       launchError: apps.get(app.id)?.launchError,
+      launchOptions: apps.get(app.id)?.launchOptions ?? app.launchOptions,
     });
   }
 
@@ -755,6 +1658,7 @@ function merge_apps(
 
 async function write_prefix_metadata(bottle: BottleMetadataPayload): Promise<void> {
   try {
+    await mkdir(bottle.path, { recursive: true });
     await writeFile(
       path.join(bottle.path, "bdih-bottle.json"),
       JSON.stringify(
@@ -769,7 +1673,9 @@ async function write_prefix_metadata(bottle: BottleMetadataPayload): Promise<voi
           prefixPath: bottle.prefixPath,
           wineVersionId: bottle.wineVersionId,
           dxmtVersionId: bottle.dxmtVersionId,
+          jadeiteVersionId: bottle.jadeiteVersionId,
           status: bottle.status,
+          launcherTasks: bottle.launcherTasks,
           apps: bottle.apps,
           createdAt: bottle.createdAt,
           updatedAt: new Date().toISOString(),
@@ -798,6 +1704,31 @@ function expand_user_home_path(targetPath: string): string {
 
 function unique_paths(paths: string[]): string[] {
   return [...new Set(paths.map((targetPath) => path.resolve(targetPath)))];
+}
+
+function unique_scan_jobs(jobs: Array<{ prefixPath: string; rootPath: string }>): Array<{ prefixPath: string; rootPath: string }> {
+  const seen = new Set<string>();
+  const uniqueJobs: Array<{ prefixPath: string; rootPath: string }> = [];
+
+  for (const job of jobs) {
+    const key = `${path.resolve(job.prefixPath)}::${path.resolve(job.rootPath)}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    uniqueJobs.push({
+      prefixPath: path.resolve(job.prefixPath),
+      rootPath: path.resolve(job.rootPath),
+    });
+  }
+
+  return uniqueJobs;
+}
+
+function normalize_search_token(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function is_record(value: unknown): value is Record<string, unknown> {

@@ -4,6 +4,7 @@ export type ButtonVariant = "primary" | "glass" | "ghost" | "listbox" | "unstyle
 export type ButtonSize = "xs" | "sm" | "md" | "unstyled";
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  icon?: React.ReactNode;
   variant?: ButtonVariant;
   size?: ButtonSize;
 }
@@ -35,7 +36,7 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
  * preset styling plus extra classes.
  */
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant, size, className = "", type = "button", ...props }, ref) => {
+  ({ icon, children, variant, size, className = "", type = "button", ...props }, ref) => {
     const hasCustomClassName = className.trim().length > 0;
     const resolvedVariant = variant ?? (hasCustomClassName ? "unstyled" : "glass");
     const resolvedSize = size ?? (hasCustomClassName ? "unstyled" : "md");
@@ -49,7 +50,12 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       .filter(Boolean)
       .join(" ");
 
-    return <button ref={ref} type={type} className={classes} {...props} />;
+    return (
+      <button ref={ref} type={type} className={classes} {...props}>
+        {icon}
+        {children}
+      </button>
+    );
   },
 );
 

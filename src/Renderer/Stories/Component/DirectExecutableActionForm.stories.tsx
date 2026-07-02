@@ -24,6 +24,7 @@ function createRunner(overrides: Partial<DirectExecutableRunnerController> = {})
     setExecutableArgs: () => undefined,
     closePathSuggestions: () => undefined,
     applyPathSuggestion: () => undefined,
+    registerExecutable: () => true,
     browseExecutable: async () => undefined,
     runExecutable: async () => undefined,
     handlePathKeyDown: async () => undefined,

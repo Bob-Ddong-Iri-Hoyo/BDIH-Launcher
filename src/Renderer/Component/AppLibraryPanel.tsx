@@ -1,14 +1,18 @@
 import React from "react";
-import { ExternalLink, FileText, Settings, Square, Trash2 } from "lucide-react";
+import { FileText, Play, Plus, Settings, Square, Terminal, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { split_executable_args } from "../../Common/Util/ExecutablePath";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
-import type { LauncherLogEntryPayload, LauncherLogSnapshotPayload } from "../../Common/Types/IPC";
+import type { BottleLaunchOptionsPayload, LauncherLogEntryPayload, LauncherLogSnapshotPayload } from "../../Common/Types/IPC";
+import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
 import type { Bottle } from "../Types/Bottle";
+import { useDirectExecutableRunner } from "../Hooks/UseDirectExecutableRunner";
 import { ContextMenu, ContextMenuItem, ContextMenuPosition } from "./ContextMenu";
 import { Dialog } from "./Dialog";
+import { DirectExecutableActionForm } from "./DirectExecutableActionForm";
 import { ImageButton } from "./ImageButton";
-import { Box, CodeBlock, Inline, Stack, Text } from "./Primitives";
+import { LaunchOptionsDialog } from "./LaunchOptionsDialog";
+import { Box, Button, CodeBlock, Inline, Stack, Text } from "./Primitives";
 import { StatusBadge } from "./StatusBadge";
 
 /**
@@ -21,19 +25,27 @@ import { StatusBadge } from "./StatusBadge";
 export function AppLibraryPanel({
   bottle,
   selectedWineVersionId,
+  launcherOptionsManifest,
   appLogoSrc,
   onLaunchBottleApp,
   onLaunchBottleAppWithArgs,
   onStopBottleApp,
   onDeleteBottleApp,
+  onDeleteBottleAppFiles,
+  onRegisterBottleExecutable,
+  onChangeBottleAppLaunchOptions,
 }: {
   bottle: Bottle;
   selectedWineVersionId: string;
+  launcherOptionsManifest?: WineLauncherOptionsManifest;
   appLogoSrc: string;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
   onLaunchBottleAppWithArgs?: (bottleId: string, appId: string, executableArgs: string[]) => void;
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
+  onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
+  onChangeBottleAppLaunchOptions?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
 }) {
   const { t } = useTranslation();
   const [contextMenuState, setContextMenuState] = React.useState<{
@@ -41,26 +53,59 @@ export function AppLibraryPanel({
     appId: string;
   } | null>(null);
   const [selectedLogAppId, setSelectedLogAppId] = React.useState<string | null>(null);
+  const [selectedLaunchOptionsAppId, setSelectedLaunchOptionsAppId] = React.useState<string | null>(null);
+  const [isManualAddOpen, setIsManualAddOpen] = React.useState(false);
+  const [confirmAction, setConfirmAction] = React.useState<{
+    type: "stop" | "remove" | "delete";
+    appId: string;
+  } | null>(null);
   const [appLogText, setAppLogText] = React.useState("");
   const [isAppLogLoading, setIsAppLogLoading] = React.useState(false);
+  const manualAddRunner = useDirectExecutableRunner({
+    bottle,
+    onRegisterBottleExecutable,
+  });
   const contextApp = bottle.apps.find((app) => app.id === contextMenuState?.appId);
   const selectedLogApp = bottle.apps.find((app) => app.id === selectedLogAppId);
+  const selectedLaunchOptionsApp = bottle.apps.find((app) => app.id === selectedLaunchOptionsAppId);
+  const confirmApp = bottle.apps.find((app) => app.id === confirmAction?.appId);
+
+  React.useEffect(() => {
+    if (selectedLaunchOptionsAppId && !selectedLaunchOptionsApp) {
+      setSelectedLaunchOptionsAppId(null);
+    }
+  }, [selectedLaunchOptionsApp, selectedLaunchOptionsAppId]);
+
   const appContextMenuItems = React.useMemo<ContextMenuItem[]>(() => {
     if (!contextApp) {
       return [];
     }
 
-    return [
+    const menuItems: ContextMenuItem[] = contextApp.processId ? [
+      {
+        id: "stop",
+        label: t("main.appContext.stop"),
+        icon: Square,
+        trailingIcon: Square,
+        iconTone: "danger",
+        iconFill: true,
+        danger: true,
+        onSelect: () => setConfirmAction({ type: "stop", appId: contextApp.id }),
+      },
+    ] : [
       {
         id: "run",
         label: t("main.appContext.run"),
-        icon: ExternalLink,
+        icon: Play,
+        iconTone: "success",
+        iconFill: true,
         onSelect: () => onLaunchBottleApp?.(bottle.id, contextApp.id),
       },
       {
         id: "run-with-args",
         label: t("main.appContext.runWithArgs"),
-        icon: Settings,
+        icon: Terminal,
+        iconTone: "info",
         onSelect: () => {
           const rawArgs = window.prompt(t("main.appContext.argumentsPrompt"), contextApp.executableArgs?.join(" ") ?? "");
 
@@ -71,33 +116,98 @@ export function AppLibraryPanel({
           onLaunchBottleAppWithArgs?.(bottle.id, contextApp.id, split_executable_args(rawArgs));
         },
       },
+    ];
+
+    menuItems.push(
       {
-        id: "stop",
-        label: t("main.appContext.stop"),
-        icon: Square,
-        disabled: !contextApp.processId,
-        onSelect: () => onStopBottleApp?.(bottle.id, contextApp.id),
+        id: "launch-options",
+        label: t("main.appContext.launchOptions"),
+        icon: Settings,
+        iconTone: "violet",
+        separatorBefore: true,
+        onSelect: () => setSelectedLaunchOptionsAppId(contextApp.id),
       },
       {
         id: "show-logs",
         label: t("main.appContext.showLogs"),
         icon: FileText,
-        separatorBefore: true,
+        iconTone: "warning",
         onSelect: () => void open_app_log_dialog(contextApp.id),
       },
       {
-        id: "delete",
-        label: t("main.appContext.delete"),
+        id: "remove-from-list",
+        label: t("main.appContext.removeFromList"),
         icon: Trash2,
+        iconTone: "danger",
         danger: true,
-        onSelect: () => {
-          if (window.confirm(t("main.appContext.deleteConfirm", { name: contextApp.name }))) {
-            onDeleteBottleApp?.(bottle.id, contextApp.id);
-          }
-        },
+        separatorBefore: true,
+        onSelect: () => setConfirmAction({ type: "remove", appId: contextApp.id }),
       },
-    ];
-  }, [bottle.id, contextApp, onDeleteBottleApp, onLaunchBottleApp, onLaunchBottleAppWithArgs, onStopBottleApp, t]);
+      {
+        id: "delete-app-files",
+        label: t("main.appContext.deleteFiles"),
+        icon: Trash2,
+        iconTone: "danger",
+        danger: true,
+        onSelect: () => setConfirmAction({ type: "delete", appId: contextApp.id }),
+      },
+    );
+
+    return menuItems;
+  }, [bottle.id, contextApp, onLaunchBottleApp, onLaunchBottleAppWithArgs, t]);
+
+  function confirm_pending_action() {
+    if (!confirmAction || !confirmApp) {
+      setConfirmAction(null);
+      return;
+    }
+
+    if (confirmAction.type === "stop") {
+      onStopBottleApp?.(bottle.id, confirmApp.id);
+    }
+
+    if (confirmAction.type === "remove") {
+      onDeleteBottleApp?.(bottle.id, confirmApp.id);
+    }
+
+    if (confirmAction.type === "delete") {
+      onDeleteBottleAppFiles?.(bottle.id, confirmApp.id);
+    }
+
+    setConfirmAction(null);
+  }
+
+  function confirm_action_title(): string {
+    if (!confirmAction || !confirmApp) {
+      return "";
+    }
+
+    if (confirmAction.type === "stop") {
+      return t("main.appContext.stopConfirmTitle", { name: confirmApp.name });
+    }
+
+    if (confirmAction.type === "remove") {
+      return t("main.appContext.removeFromListTitle", { name: confirmApp.name });
+    }
+
+    return t("main.appContext.deleteFilesTitle", { name: confirmApp.name });
+  }
+
+  function confirm_action_description(): string {
+    if (!confirmAction || !confirmApp) {
+      return "";
+    }
+
+    if (confirmAction.type === "stop") {
+      return t("main.appContext.stopConfirmDescription", { name: confirmApp.name });
+    }
+
+    if (confirmAction.type === "remove") {
+      return t("main.appContext.removeFromListConfirm", { name: confirmApp.name });
+    }
+
+    return t("main.appContext.deleteFilesConfirm", { name: confirmApp.name });
+  }
 
   async function open_app_log_dialog(appId: string) {
     const app = bottle.apps.find((candidateApp) => candidateApp.id === appId);
@@ -140,7 +250,7 @@ export function AppLibraryPanel({
 
   return (
     <>
-      <Box as="section" className="min-h-[18rem] rounded-xl border border-white/10 bg-white/[0.04] p-4">
+      <Box as="section" className="min-h-[18rem] rounded-xl border border-white/10 bg-white/[0.035] p-4">
         <Inline className="mb-4 items-center justify-between gap-3">
           <Stack className="gap-1">
             <Box as="h3" className="text-base font-semibold text-white">
@@ -150,16 +260,26 @@ export function AppLibraryPanel({
               {t("main.bottleApps", { count: bottle.apps.length })}
             </Text>
           </Stack>
+          <Button
+            type="button"
+            variant="glass"
+            size="sm"
+            icon={<Plus size={14} />}
+            onClick={() => setIsManualAddOpen(true)}
+          >
+            {t("main.runner.addManualApp")}
+          </Button>
         </Inline>
         {bottle.apps.length === 0 ? (
           <Box className="flex min-h-44 items-center justify-center rounded-xl border border-dashed border-white/10 bg-[#0b1020] px-6 text-center text-sm leading-6 text-slate-500">
             {t("main.bottleAppsEmpty")}
           </Box>
         ) : (
-          <Box className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <Box className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] justify-items-center gap-x-5 gap-y-6">
             {bottle.apps.map((app) => (
               <ImageButton
                 key={app.id}
+                preset="desktop"
                 src={app.iconSrc || appLogoSrc}
                 name={app.name}
                 subtitle={app.launchError ? `${t("main.appContext.launchFailed")}: ${app.launchError}` : `${app.subtitle} · ${app.lastPlayedKey ? t(app.lastPlayedKey) : app.lastPlayed}`}
@@ -184,6 +304,37 @@ export function AppLibraryPanel({
           onClose={() => setContextMenuState(null)}
         />
       </Box>
+
+      <Dialog
+        open={isManualAddOpen}
+        title={t("main.runner.addManualApp")}
+        description={t("main.runner.addManualAppDescription")}
+        tone="info"
+        icon={Plus}
+        placement="center"
+        widthClassName="max-w-2xl"
+        onClose={() => setIsManualAddOpen(false)}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "secondary",
+            onClick: () => setIsManualAddOpen(false),
+          },
+          {
+            label: t("main.runner.register"),
+            icon: Plus,
+            variant: "primary",
+            disabled: !manualAddRunner.canRun,
+            onClick: () => {
+              if (manualAddRunner.registerExecutable()) {
+                setIsManualAddOpen(false);
+              }
+            },
+          },
+        ]}
+      >
+        <DirectExecutableActionForm runner={manualAddRunner} mode="register" />
+      </Dialog>
 
       <Dialog
         open={Boolean(selectedLogAppId)}
@@ -223,6 +374,38 @@ export function AppLibraryPanel({
           </CodeBlock>
         </Stack>
       </Dialog>
+
+      <LaunchOptionsDialog
+        open={Boolean(selectedLaunchOptionsAppId)}
+        bottle={bottle}
+        initialAppId={selectedLaunchOptionsAppId ?? undefined}
+        launcherOptionsManifest={launcherOptionsManifest}
+        onClose={() => setSelectedLaunchOptionsAppId(null)}
+        onSave={onChangeBottleAppLaunchOptions}
+      />
+
+      <Dialog
+        open={Boolean(confirmAction && confirmApp)}
+        title={confirm_action_title()}
+        description={confirm_action_description()}
+        tone={confirmAction?.type === "remove" ? "warning" : "danger"}
+        icon={confirmAction?.type === "stop" ? Square : Trash2}
+        placement="center"
+        widthClassName="max-w-lg"
+        onClose={() => setConfirmAction(null)}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "secondary",
+            onClick: () => setConfirmAction(null),
+          },
+          {
+            label: confirmAction?.type === "stop" ? t("main.appContext.stop") : t("common.actions.delete"),
+            variant: "danger",
+            onClick: confirm_pending_action,
+          },
+        ]}
+      />
     </>
   );
 }
@@ -321,7 +504,8 @@ function build_log_search_text(values: Array<string | undefined>): string {
 
 function normalize_log_slug(value: string): string {
   return value
-    .replace(/[^a-z0-9._-]+/g, "-")
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
     .replace(/^-+|-+$/g, "");
 }
 

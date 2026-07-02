@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="resouces/bobtongirihoyo_wide.png" height="300">
+  <img src="resouces/docs/bobtongirihoyo_wide.png" height="300">
 </div>
 
 <p align="center">
@@ -14,6 +14,15 @@
   </a>
 </p>
 
+
+
+<p align="center">
+<img width="200" src="./resouces/docs/Launcher-Main.png"/>
+<img width="250" src="./resouces/docs/Launcher-Slash.png"/>
+</p>
+
+
+
 # 밥똥이리호요 런처
 
 맥에서 밥먹고 이리하고 똥싸고 호요게임 하는데 특화된 런처임
@@ -24,18 +33,15 @@ __쓰다가 영정거나 랭크에서 튕기더라도 나는 죄가 없어요(�
 
 
 <p align="center">
-<img width="200" src="./resouces/Saddy.jpg"/>
+<img width="200" src="./resouces/docs/Saddy.jpg"/>
 </p>
 
 <p align="center">
   <b>주의사항<b><br>
-  스팀이 설치된다고 모든 게임이 되는 것은 아니다<br>
+  스팀이 설치된다고 모든 게임이 되는 것은 아님<br>
   오직 이터널 리턴의 실행만을 <b>유일</b>하게 보장함<br>
   CodeWeaver사의 CrossOver사용을 적극 권장함<br>
   이 런처의 본질적인 목적은 랜더링이 깨지는 것을 막아주는 것임<br>
-  
-
-  
 </p>
 
 
@@ -45,26 +51,43 @@ __쓰다가 영정거나 랭크에서 튕기더라도 나는 죄가 없어요(�
 
 Release 들어가서 설치
 
+자세한 설치 과정은 아래의 링크 참조
+
+[BDIH-Luancher Page](https://bdih.faby.day/)
+
 
 ## 신선한 와인과 안주 제공 단체
 
 [Crossover custom](https://github.com/Bob-Ddong-Iri-Hoyo/fullbodied-anca-wine-house)
 : 내가 만든 크로스오버 커스텀 빌드 와인(와인 11 기반 26.0.0 이상)
 
+[Official wine](https://www.winehq.org/)
+:"그냥" 와인
 
 [DXMT](https://github.com/3Shain/dxmt)
 :Metal Layer를 바로 이용하는 DX11 Layering(강함)
 
 
-# 참조 자료들
+## 참조 자료들
 
 와인과 와인 런처 빌드에 참조한 repo나 그 긴거
 
-[Official wine](https://www.winehq.org/)
-:"그냥" 와인
+
 
 [Code Weaver](https://www.codeweavers.com/) 
 : CrossOver 회사 
+
+[Gcenx Wine](https://github.com/Gcenx/macOS_Wine_builds) 
+: Gcenx 와인
+
+[Yaggl](https://github.com/yaagl/yet-another-anime-game-launcher)
+: Mac 용 호요버스 게임 런처
+
+[Macport-wine](https://github.com/riverfog7/macports-wine)
+: Yaggl에서 사용하는 거로 추정되는 와인 패치
+
+[Anime Game Launcher](https://github.com/an-anime-team/an-anime-game-launcher)
+: Linux 용 호요버스 게임 런처
 
 [dawn winary](https://dawn.wine/dawn-winery)
 : 아니메 스타일 게임용(?) 와인(Wine에 적용되는 각종 patch 참조)
@@ -79,15 +102,9 @@ Release 들어가서 설치
 
 __Wine__ 카탈로그
 
-- **Github Repo 카탈로그(주인장이 관리하는)** : src/Common/Constant/WineCatalog.ts 
-  - 하드 코딩 되어 있음 변경 불가
+  [앙카 와인 하우스](https://github.com/Bob-Ddong-Iri-Hoyo/fullbodied-anca-wine-house/releases) : BDIH 런처용이나 개인 사용 목적 와인 저장소
 
-- **Gist or custom Github Repo** : 누군가가 관리하거나 주인장이 관리하는 래포
-  - 외부에 관리하는거라 파일만으로 버전업데이트 됨 
-
-- **user defined** : 사용자나 아무나 관리하는 카탈로그 
-  - 모름 알아서 관리 잘 되겠지
-
+  **유저 와인** : 유저가 직접 넣는 와인(어디 와인인지는 모름 알아서 잘 구해서)
 
 # 라이센스 
 
@@ -112,8 +129,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-
 
 
 

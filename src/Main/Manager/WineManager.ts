@@ -1,6 +1,6 @@
 import { WebContents } from "electron";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, readdirSync, statSync } from "fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, rmSync, statSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 import { PREDEFINED_WINE_VERSIONS } from "../../Common/Constant/WineCatalog";
@@ -8,19 +8,32 @@ import { BDIH_WINE_REPOSITORY } from "../../Common/Constant/RuntimeSources";
 import {
   IPC_CHANNELS,
   InstallRequest,
+  RuntimeDeleteResultPayload,
+  WineDeletePayload,
   WineStatusPayload,
 } from "../../Common/Types/IPC";
-import { WineVersion } from "../../Common/Types/Wine";
+import { WineLauncherOptionsManifest, WineVersion } from "../../Common/Types/Wine";
+import { parse_wine_launcher_options_manifest } from "../../Common/Util/WineLauncherOptions";
+import { remove_quarantine_xattr } from "../Program/Xattr";
 import { fetch_github_release_catalog } from "../Runtime/GitHubReleaseCatalog";
 import { downloadManager } from "./DownloadManager";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
 
+/**
+ * Resolves, downloads, and extracts Wine runtime versions.
+ *
+ * The renderer sees Wine versions through IPC. This manager owns the current
+ * catalog cache so install status can be updated as download/extract events
+ * arrive.
+ */
 export class WineManager {
   private readonly logger = logManager.createLogger({ file: "wine", source: "wine" });
   private cachedVersions: WineVersion[] = [...PREDEFINED_WINE_VERSIONS];
 
   async getVersionList(): Promise<WineVersion[]> {
+    // Rebuild install status from disk each time the renderer asks. This keeps
+    // Preference danger-zone deletion from leaving stale "installed" state.
     try {
       const preference = await preferenceManager.getPreference();
       const githubVersions = await fetch_github_release_catalog(BDIH_WINE_REPOSITORY.releasesApiUrl, "bdih-wine");
@@ -29,6 +42,10 @@ export class WineManager {
           ? get_download_target_path(preference.wineInstallPath, version.downloadUrl, `${version.id}.zip`)
           : undefined;
         const runtimePath = archivePath ? find_wine_runtime_root(get_extract_target_path(archivePath)) : undefined;
+        const metadataPath = archivePath
+          ? get_wine_metadata_sidecar_path(preference.wineInstallPath, archivePath, version.metadataUrl, version.id)
+          : undefined;
+        const metadata = read_wine_launcher_options_metadata(runtimePath, metadataPath);
         const isInstalled = Boolean(runtimePath);
 
         return {
@@ -38,6 +55,8 @@ export class WineManager {
           status: isInstalled ? "installed" : "available",
           progress: isInstalled ? 100 : 0,
           path: runtimePath,
+          metadataPath: metadata.path,
+          launcherOptionsManifest: metadata.manifest,
         };
       });
     } catch (error) {
@@ -53,6 +72,8 @@ export class WineManager {
     request: InstallRequest,
     sender?: WebContents,
   ): Promise<void> {
+    // Installer progress is pushed to the renderer via WINE.STATUS_UPDATE. The
+    // final runtime path is the extracted directory that actually contains Wine.
     const wine = this.cachedVersions.find((version) => version.id === request.versionId);
 
     if (!wine?.downloadUrl) {
@@ -64,22 +85,34 @@ export class WineManager {
     const existingRuntimePath = find_wine_runtime_root(extractPath);
 
     if (existingRuntimePath) {
+      await this.clearQuarantineAttribute(request.versionId, existingRuntimePath);
+      const metadata = await this.ensureLauncherOptionsMetadata(wine, request.installPath, existingRuntimePath, sender);
+
       this.sendStatus(sender, {
         versionId: request.versionId,
         status: "installed",
         progress: 100,
         message: `${request.versionId} is already installed.`,
         path: existingRuntimePath,
+        metadataPath: metadata.path,
+        launcherOptionsManifest: metadata.manifest,
       });
       this.cachedVersions = this.cachedVersions.map((version) =>
         version.id === request.versionId
-          ? { ...version, status: "installed", progress: 100, path: existingRuntimePath }
+          ? {
+              ...version,
+              status: "installed",
+              progress: 100,
+              path: existingRuntimePath,
+              metadataPath: metadata.path,
+              launcherOptionsManifest: metadata.manifest,
+            }
           : version,
       );
       return;
     }
 
-    this.logger.info("install started", request);
+      this.logger.info("install started", request);
     this.sendStatus(sender, {
       versionId: request.versionId,
       status: "downloading",
@@ -88,6 +121,14 @@ export class WineManager {
     });
 
     try {
+      if (existsSync(archivePath) && !is_probably_valid_runtime_archive(archivePath)) {
+        rmSync(archivePath, { force: true });
+        this.logger.warn("removed invalid Wine archive before retry", {
+          versionId: request.versionId,
+          archivePath,
+        });
+      }
+
       if (!existsSync(archivePath)) {
         await new Promise<void>((resolve, reject) => {
           downloadManager.startDownload(
@@ -120,6 +161,8 @@ export class WineManager {
         });
       }
 
+      await this.clearQuarantineAttribute(request.versionId, archivePath);
+
       this.sendStatus(sender, {
         versionId: request.versionId,
         status: "extracting",
@@ -127,12 +170,24 @@ export class WineManager {
         message: `${request.versionId} extracting Wine runtime.`,
       });
 
-      await extract_wine_archive(archivePath, extractPath);
+      try {
+        await extract_wine_archive(archivePath, extractPath);
+      } catch (error) {
+        if (existsSync(archivePath)) {
+          rmSync(archivePath, { force: true });
+        }
+
+        throw error;
+      }
       const runtimePath = find_wine_runtime_root(extractPath);
 
       if (!runtimePath) {
         throw new Error(`${request.versionId} extracted, but wine/wine64 was not found.`);
       }
+
+      await this.clearQuarantineAttribute(request.versionId, runtimePath);
+
+      const metadata = await this.ensureLauncherOptionsMetadata(wine, request.installPath, runtimePath, sender);
 
       this.sendStatus(sender, {
         versionId: request.versionId,
@@ -140,10 +195,19 @@ export class WineManager {
         progress: 100,
         message: `${request.versionId} installation completed.`,
         path: runtimePath,
+        metadataPath: metadata.path,
+        launcherOptionsManifest: metadata.manifest,
       });
       this.cachedVersions = this.cachedVersions.map((version) =>
         version.id === request.versionId
-          ? { ...version, status: "installed", progress: 100, path: runtimePath }
+          ? {
+              ...version,
+              status: "installed",
+              progress: 100,
+              path: runtimePath,
+              metadataPath: metadata.path,
+              launcherOptionsManifest: metadata.manifest,
+            }
           : version,
       );
       this.logger.info("install completed", { versionId: request.versionId, runtimePath });
@@ -160,16 +224,160 @@ export class WineManager {
     }
   }
 
+  async deleteWine(request: WineDeletePayload): Promise<RuntimeDeleteResultPayload> {
+    const wine = this.cachedVersions.find((version) => version.id === request.versionId);
+
+    if (!wine?.downloadUrl && !wine?.path) {
+      return {
+        ok: false,
+        deletedPaths: [],
+        error: `Wine version is not managed by the launcher: ${request.versionId}`,
+      };
+    }
+
+    const archivePath = wine.downloadUrl
+      ? get_download_target_path(request.installPath, wine.downloadUrl, `${request.versionId}.zip`)
+      : undefined;
+    const extractPath = archivePath ? get_extract_target_path(archivePath) : undefined;
+    const metadataPath = archivePath
+      ? get_wine_metadata_sidecar_path(request.installPath, archivePath, wine.metadataUrl, request.versionId)
+      : wine.metadataPath;
+    const installRoot = path.resolve(expand_user_home_path(request.installPath));
+    const candidatePaths = unique_paths([
+      extractPath,
+      wine.path,
+      archivePath,
+      metadataPath,
+    ].filter((candidate): candidate is string => Boolean(candidate)));
+    const deletedPaths: string[] = [];
+
+    try {
+      for (const candidatePath of candidatePaths) {
+        const resolvedPath = path.resolve(expand_user_home_path(candidatePath));
+
+        if (!is_safe_runtime_delete_path(resolvedPath, installRoot) || !existsSync(resolvedPath)) {
+          continue;
+        }
+
+        rmSync(resolvedPath, { recursive: true, force: true });
+        deletedPaths.push(resolvedPath);
+      }
+
+      this.cachedVersions = this.cachedVersions.map((version) =>
+        version.id === request.versionId
+          ? {
+              ...version,
+              status: "available",
+              progress: 0,
+              path: undefined,
+              metadataPath: undefined,
+              launcherOptionsManifest: undefined,
+            }
+          : version,
+      );
+
+      return {
+        ok: true,
+        deletedPaths,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        deletedPaths,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  clearRuntimeMetadata(): void {
+    // Called after runtime deletion. The files are already gone; this removes
+    // the in-memory installed/path metadata that would otherwise survive until
+    // the next full catalog rebuild.
+    this.cachedVersions = this.cachedVersions.map((version) => ({
+      ...version,
+      status: "available",
+      progress: 0,
+      path: undefined,
+      metadataPath: undefined,
+      launcherOptionsManifest: undefined,
+    }));
+  }
+
+  private async ensureLauncherOptionsMetadata(
+    wine: WineVersion,
+    installPath: string,
+    runtimePath: string,
+    sender?: WebContents,
+  ): Promise<WineLauncherOptionsMetadata> {
+    const archivePath = wine.downloadUrl
+      ? get_download_target_path(installPath, wine.downloadUrl, `${wine.id}.zip`)
+      : undefined;
+    const sidecarPath = archivePath
+      ? get_wine_metadata_sidecar_path(installPath, archivePath, wine.metadataUrl, wine.id)
+      : undefined;
+
+    if (wine.metadataUrl && sidecarPath && !existsSync(sidecarPath)) {
+      this.sendStatus(sender, {
+        versionId: wine.id,
+        status: "extracting",
+        progress: 96,
+        message: `${wine.id} downloading launcher option metadata.`,
+      });
+
+      try {
+        await download_wine_launcher_options_metadata(wine.metadataUrl, sidecarPath);
+      } catch (error) {
+        this.logger.warn("failed to download Wine launcher options metadata", {
+          versionId: wine.id,
+          metadataUrl: wine.metadataUrl,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return read_wine_launcher_options_metadata(runtimePath, sidecarPath);
+  }
+
   private sendStatus(
     sender: WebContents | undefined,
     payload: WineStatusPayload,
   ): void {
     sender?.send(IPC_CHANNELS.WINE.STATUS_UPDATE.channelName, payload);
   }
+
+  private async clearQuarantineAttribute(versionId: string, targetPath: string): Promise<void> {
+    const result = await remove_quarantine_xattr(targetPath);
+
+    if (result.skipped) {
+      return;
+    }
+
+    if (result.ok) {
+      this.logger.debug("removed quarantine xattr", { versionId, targetPath });
+      return;
+    }
+
+    this.logger.warn("failed to remove quarantine xattr", {
+      versionId,
+      targetPath,
+      error: result.error,
+    });
+  }
 }
 
 function get_download_target_path(outputDir: string, url: string, fallback: string): string {
   return path.join(expand_user_home_path(outputDir), file_name_from_url(url, fallback));
+}
+
+function get_wine_metadata_sidecar_path(
+  outputDir: string,
+  archivePath: string,
+  metadataUrl: string | undefined,
+  versionId: string,
+): string {
+  return metadataUrl
+    ? get_download_target_path(outputDir, metadataUrl, `${versionId}.json`)
+    : `${get_extract_target_path(archivePath)}.json`;
 }
 
 function get_extract_target_path(archivePath: string): string {
@@ -273,6 +481,54 @@ function is_executable_file(targetPath: string): boolean {
   }
 }
 
+function is_probably_valid_runtime_archive(archivePath: string): boolean {
+  try {
+    const stats = statSync(archivePath);
+
+    if (!stats.isFile() || stats.size < 1024 * 1024) {
+      return false;
+    }
+
+    const header = read_file_header(archivePath, 6);
+
+    if (/\.zip$/i.test(archivePath)) {
+      return header[0] === 0x50 && header[1] === 0x4b;
+    }
+
+    if (/\.tar\.gz$/i.test(archivePath) || /\.tgz$/i.test(archivePath)) {
+      return header[0] === 0x1f && header[1] === 0x8b;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function is_safe_runtime_delete_path(targetPath: string, installRoot: string): boolean {
+  const parsed = path.parse(targetPath);
+
+  return targetPath !== parsed.root
+    && targetPath !== installRoot
+    && (targetPath === installRoot || targetPath.startsWith(`${installRoot}${path.sep}`));
+}
+
+function unique_paths(paths: string[]): string[] {
+  return [...new Set(paths.map((targetPath) => path.resolve(expand_user_home_path(targetPath))))];
+}
+
+function read_file_header(targetPath: string, length: number): Buffer {
+  const fd = openSync(targetPath, "r");
+  const buffer = Buffer.alloc(length);
+
+  try {
+    readSync(fd, buffer, 0, length, 0);
+    return buffer;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function expand_user_home_path(targetPath: string): string {
   if (targetPath === "~") {
     return os.homedir();
@@ -292,6 +548,74 @@ function file_name_from_url(url: string, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+interface WineLauncherOptionsMetadata {
+  path?: string;
+  manifest?: WineLauncherOptionsManifest;
+}
+
+function read_wine_launcher_options_metadata(
+  runtimePath?: string,
+  sidecarPath?: string,
+): WineLauncherOptionsMetadata {
+  const candidatePaths = [
+    ...wine_runtime_manifest_candidates(runtimePath),
+    sidecarPath,
+  ].filter((candidate, index, candidates): candidate is string =>
+    Boolean(candidate) && candidates.indexOf(candidate) === index,
+  );
+
+  for (const candidatePath of candidatePaths) {
+    try {
+      const manifest = parse_wine_launcher_options_manifest(readFileSync(candidatePath, "utf8"));
+
+      if (manifest) {
+        return {
+          path: candidatePath,
+          manifest,
+        };
+      }
+    } catch {
+      // Metadata is optional. Invalid files are ignored so Wine itself remains usable.
+    }
+  }
+
+  return {};
+}
+
+function wine_runtime_manifest_candidates(runtimePath?: string): string[] {
+  if (!runtimePath) {
+    return [];
+  }
+
+  return [
+    path.join(runtimePath, "share", "bdhi", "launcher-options.json"),
+    path.join(runtimePath, "Contents", "Resources", "wine", "share", "bdhi", "launcher-options.json"),
+    path.join(runtimePath, "Contents", "Resources", "share", "bdhi", "launcher-options.json"),
+  ];
+}
+
+async function download_wine_launcher_options_metadata(url: string, outputPath: string): Promise<void> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "BDIH-Launcher",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to download Wine launcher metadata: ${response.status} ${response.statusText}`);
+  }
+
+  const raw = await response.text();
+
+  if (!parse_wine_launcher_options_manifest(raw)) {
+    throw new Error("Downloaded Wine launcher metadata is not a supported manifest.");
+  }
+
+  mkdirSync(path.dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, raw, "utf8");
 }
 
 export const wineManager = new WineManager();

@@ -1,3 +1,5 @@
+import type { WineLauncherOptionsManifest } from "./Wine";
+
 export type IpcDirection =
   | "RENDERER_TO_MAIN"
   | "MAIN_TO_RENDERER"
@@ -14,9 +16,19 @@ export interface WineInstallPayload {
   versionId: string;
   installPath: string;
 }
+export interface WineDeletePayload {
+  versionId: string;
+  installPath: string;
+}
+export interface RuntimeDeleteResultPayload {
+  ok: boolean;
+  deletedPaths: string[];
+  error?: string;
+}
 // WINE 섹션
 export interface WineChannelSchema {
   readonly INSTALL: IpcChannelUnit<WineInstallPayload>;
+  readonly DELETE: IpcChannelUnit<WineDeletePayload>;
   readonly STATUS_UPDATE: IpcChannelUnit<WineStatusPayload>;
   readonly GET_VERSION_LIST: IpcChannelUnit<void>;
 }
@@ -25,6 +37,13 @@ export interface DxmtInstallPayload {
   versionId: string;
   installPath: string;
 }
+export type DxmtDeletePayload = WineDeletePayload;
+
+export interface JadeiteInstallPayload {
+  versionId: string;
+  installPath: string;
+}
+export type JadeiteDeletePayload = WineDeletePayload;
 
 type WineStatus =
   | "installed"
@@ -40,9 +59,12 @@ export interface WineStatusPayload {
   progress: number;
   message?: string;
   path?: string;
+  metadataPath?: string;
+  launcherOptionsManifest?: WineLauncherOptionsManifest;
 }
 
 export type DxmtStatusPayload = WineStatusPayload;
+export type JadeiteStatusPayload = WineStatusPayload;
 
 export type AppUpdateStatus =
   | "disabled"
@@ -73,6 +95,8 @@ export type LauncherShortcutMap = Record<LauncherShortcutAction, string>;
 
 export interface LauncherPreferencePayload {
   language: string;
+  accentColor: string;
+  dataRootPath: string;
   wineInstallPath: string;
   bottlePrefixPath: string;
   dxmtCachePath: string;
@@ -133,6 +157,7 @@ export type LauncherDataDeleteTarget = "wineRuntime" | "bottlePrefixes" | "dxmtC
 
 export interface DeleteLauncherDataPayload {
   targets?: LauncherDataDeleteTarget[];
+  dataRootPath?: string;
   wineInstallPath?: string;
   bottlePrefixPath?: string;
   dxmtCachePath?: string;
@@ -158,6 +183,19 @@ export interface OpenExternalUrlPayload {
   url: string;
 }
 
+export type RosettaStatus = "not-required" | "installed" | "missing" | "error";
+
+export interface RosettaStatusPayload {
+  status: RosettaStatus;
+  isAppleSilicon: boolean;
+  installCommand: string;
+  error?: string;
+}
+
+export type LocaleResourcesPayload = Record<string, {
+  translation: Record<string, unknown>;
+}>;
+
 export type LauncherLogEntryLevel = "debug" | "info" | "warn" | "error";
 export type LauncherLogEntryCategory = "app" | "wine";
 
@@ -171,6 +209,14 @@ export interface LauncherLogEntryPayload {
   message: string;
   bottleId?: string;
   bottleName?: string;
+}
+
+export type RendererConsoleLogLevel = "debug" | "info" | "log" | "warn" | "error";
+
+export interface RendererLogPayload {
+  level: RendererConsoleLogLevel;
+  source?: string;
+  args: unknown[];
 }
 
 export interface LauncherLogSessionPayload {
@@ -205,10 +251,16 @@ export interface RunBottleExecutablePayload {
   bottlePath: string;
   wineVersionId: string;
   wineRuntimePath?: string;
+  dxmtVersionId?: string;
+  dxmtPackagePath?: string;
+  jadeiteVersionId?: string;
+  jadeiteRuntimePath?: string;
+  launcherOptionsManifest?: WineLauncherOptionsManifest;
   appId?: string;
   appName?: string;
   executablePath: string;
   executableArgs?: string[];
+  launchOptions?: BottleLaunchOptionsPayload;
 }
 
 export interface StopBottleProcessPayload {
@@ -218,11 +270,29 @@ export interface StopBottleProcessPayload {
 export interface DeleteBottlePayload {
   bottleId: string;
   bottlePath: string;
+  bottleName?: string;
 }
 
 export interface DeleteBottleResultPayload {
   ok: boolean;
   deletedPath?: string;
+  deletedLogPaths?: string[];
+  error?: string;
+}
+
+export interface DeleteBottleAppPayload {
+  bottleId: string;
+  bottlePath: string;
+  appId: string;
+}
+
+export interface DeleteBottleAppResultPayload {
+  ok: boolean;
+  deletedPaths: string[];
+  skippedPaths: Array<{
+    path: string;
+    reason: string;
+  }>;
   error?: string;
 }
 
@@ -233,6 +303,51 @@ export interface BottleProcessExitPayload {
 }
 
 export type BottleLauncherKind = "steam" | "hoyoplay";
+
+export interface BottlePrefixSessionPayload {
+  bottleId: string;
+  bottleName: string;
+  prefixPath: string;
+  processId: string;
+  isRunning: boolean;
+  launcher?: BottleLauncherKind;
+  appId?: string;
+  appName?: string;
+  startedAt?: string;
+  endedAt?: string;
+  error?: string;
+}
+
+export type BottleLaunchOptionPresetId =
+  | "auto"
+  | "steam"
+  | "hoyoplay"
+  | "zzz"
+  | "hsr"
+  | "genshin"
+  | "custom";
+
+export interface BottleLaunchOptionsPayload {
+  presetId?: BottleLaunchOptionPresetId;
+  enableMsync?: boolean;
+  steamWebHelperArgs?: boolean;
+  hoyoplayInProcessGpu?: boolean;
+  enableTimeoutFix?: boolean;
+  earlyExitWaitMs?: number;
+  superviseWaitSeconds?: number;
+  leftCommandIsCtrl?: boolean;
+  retinaMode?: boolean;
+  metalHud?: boolean;
+  dxmtPreferredMaxFrameRate?: number;
+  dxmtMetalFxSpatialUpscale?: boolean;
+  dxmtMetalFxSpatialUpscaleFactor?: number;
+  networkGate?: boolean;
+  networkGateSeconds?: number;
+  waitForManualNetworkCut?: boolean;
+  autoNetworkCut?: boolean;
+  autoNetworkReconnectSeconds?: number;
+  allowDuplicateGame?: boolean;
+}
 export type BottleTaskStage =
   | "setup"
   | "dxmt"
@@ -249,6 +364,9 @@ export interface SetupBottlePrefixPayload {
   wineRuntimePath?: string;
   dxmtVersionId?: string;
   dxmtPackagePath?: string;
+  jadeiteVersionId?: string;
+  jadeiteRuntimePath?: string;
+  launcherOptionsManifest?: WineLauncherOptionsManifest;
 }
 
 export interface InstallBottleLauncherPayload extends SetupBottlePrefixPayload {
@@ -276,6 +394,7 @@ export interface InstalledBottleAppPayload {
   wineVersionId: string;
   executablePath?: string;
   executableArgs?: string[];
+  launchOptions?: BottleLaunchOptionsPayload;
   iconSrc?: string;
   source?: "launcher" | "steam" | "game" | "manual";
   steamAppId?: string;
@@ -292,6 +411,7 @@ export interface BottleMetadataPayload {
   description: string;
   wineVersionId: string;
   dxmtVersionId?: string;
+  jadeiteVersionId?: string;
   path: string;
   prefixPath?: string;
   status: "ready" | "needs-setup" | "updating";
@@ -322,6 +442,7 @@ export interface RunBottleExecutableResultPayload {
 
 export interface BottleTaskResultPayload {
   ok: boolean;
+  refreshBottles?: boolean;
   error?: string;
 }
 
@@ -346,6 +467,9 @@ export interface AppChannelSchema {
   readonly MAXIMIZE: IpcChannelUnit<void>;
   readonly RESTART: IpcChannelUnit<void>;
   readonly UPDATE: IpcChannelUnit<void>;
+  readonly GET_ROSETTA_STATUS: IpcChannelUnit<void>;
+  readonly CONTINUE_AFTER_ROSETTA_GATE: IpcChannelUnit<void>;
+  readonly GET_LOCALE_RESOURCES: IpcChannelUnit<void>;
   readonly UPDATE_STATUS: IpcChannelUnit<AppUpdateStatusPayload>;
   readonly GET_PREFERENCE: IpcChannelUnit<void>;
   readonly UPDATE_PREFERENCE: IpcChannelUnit<LauncherPreferencePatch>;
@@ -356,6 +480,7 @@ export interface AppChannelSchema {
   readonly OPEN_LOG_FOLDER: IpcChannelUnit<void>;
   readonly GET_LOG_SNAPSHOT: IpcChannelUnit<void>;
   readonly LOG_UPDATE: IpcChannelUnit<LauncherLogEntryPayload>;
+  readonly RENDERER_LOG: IpcChannelUnit<RendererLogPayload>;
   readonly OPEN_PATH: IpcChannelUnit<OpenPathPayload>;
   readonly REVEAL_PATH: IpcChannelUnit<OpenPathPayload>;
   readonly OPEN_EXTERNAL_URL: IpcChannelUnit<OpenExternalUrlPayload>;
@@ -369,17 +494,27 @@ export interface BottleChannelSchema {
   readonly GET_LIST: IpcChannelUnit<void>;
   readonly SAVE_LIST: IpcChannelUnit<BottleListPayload>;
   readonly DELETE: IpcChannelUnit<DeleteBottlePayload>;
+  readonly DELETE_APP: IpcChannelUnit<DeleteBottleAppPayload>;
   readonly RUN_EXECUTABLE: IpcChannelUnit<RunBottleExecutablePayload>;
   readonly STOP_PROCESS: IpcChannelUnit<StopBottleProcessPayload>;
   readonly SETUP_PREFIX: IpcChannelUnit<SetupBottlePrefixPayload>;
   readonly INSTALL_LAUNCHER: IpcChannelUnit<InstallBottleLauncherPayload>;
   readonly STATUS_UPDATE: IpcChannelUnit<BottleTaskStatusPayload>;
   readonly PROCESS_EXIT: IpcChannelUnit<BottleProcessExitPayload>;
+  readonly PREFIX_SESSION_UPDATE: IpcChannelUnit<BottlePrefixSessionPayload>;
 }
 
 export interface DxmtChannelSchema {
   readonly INSTALL: IpcChannelUnit<DxmtInstallPayload>;
+  readonly DELETE: IpcChannelUnit<DxmtDeletePayload>;
   readonly STATUS_UPDATE: IpcChannelUnit<DxmtStatusPayload>;
+  readonly GET_VERSION_LIST: IpcChannelUnit<void>;
+}
+
+export interface JadeiteChannelSchema {
+  readonly INSTALL: IpcChannelUnit<JadeiteInstallPayload>;
+  readonly DELETE: IpcChannelUnit<JadeiteDeletePayload>;
+  readonly STATUS_UPDATE: IpcChannelUnit<JadeiteStatusPayload>;
   readonly GET_VERSION_LIST: IpcChannelUnit<void>;
 }
 
@@ -408,6 +543,12 @@ export const WINE = {
     method: "invoke",
     payload: {} as WineInstallPayload,
   },
+  DELETE: {
+    channelName: "wine:delete",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as WineDeletePayload,
+  },
   STATUS_UPDATE: {
     channelName: "wine:status-update",
     method: "on",
@@ -429,6 +570,12 @@ export const DXMT = {
     method: "invoke",
     payload: {} as DxmtInstallPayload,
   },
+  DELETE: {
+    channelName: "dxmt:delete",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as DxmtDeletePayload,
+  },
   STATUS_UPDATE: {
     channelName: "dxmt:status-update",
     method: "on",
@@ -439,6 +586,33 @@ export const DXMT = {
     channelName: "dxmt:get-list",
     method: "invoke",
     direction: "MAIN_TO_RENDERER",
+    payload: {} as never,
+  },
+} as const;
+
+export const JADEITE = {
+  INSTALL: {
+    channelName: "jadeite:install",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as JadeiteInstallPayload,
+  },
+  DELETE: {
+    channelName: "jadeite:delete",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as JadeiteDeletePayload,
+  },
+  STATUS_UPDATE: {
+    channelName: "jadeite:status-update",
+    method: "on",
+    direction: "MAIN_TO_RENDERER",
+    payload: {} as JadeiteStatusPayload,
+  },
+  GET_VERSION_LIST: {
+    channelName: "jadeite:get-list",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
     payload: {} as never,
   },
 } as const;
@@ -461,6 +635,12 @@ export const BOTTLE = {
     method: "invoke",
     direction: "RENDERER_TO_MAIN",
     payload: {} as DeleteBottlePayload,
+  },
+  DELETE_APP: {
+    channelName: "bottle:delete-app",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as DeleteBottleAppPayload,
   },
   RUN_EXECUTABLE: {
     channelName: "bottle:run-executable",
@@ -498,6 +678,12 @@ export const BOTTLE = {
     direction: "MAIN_TO_RENDERER",
     payload: {} as BottleProcessExitPayload,
   },
+  PREFIX_SESSION_UPDATE: {
+    channelName: "bottle:prefix-session-update",
+    method: "on",
+    direction: "MAIN_TO_RENDERER",
+    payload: {} as BottlePrefixSessionPayload,
+  },
 } as const;
 
 ////////////////////////////////////
@@ -532,6 +718,24 @@ export const APP = {
     channelName: "app:update",
     direction: "RENDERER_TO_MAIN",
     method: "send",
+    payload: {} as never,
+  },
+  GET_ROSETTA_STATUS: {
+    channelName: "app:get-rosetta-status",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as never,
+  },
+  CONTINUE_AFTER_ROSETTA_GATE: {
+    channelName: "app:continue-after-rosetta-gate",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as never,
+  },
+  GET_LOCALE_RESOURCES: {
+    channelName: "app:get-locale-resources",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
     payload: {} as never,
   },
   UPDATE_STATUS: {
@@ -594,6 +798,12 @@ export const APP = {
     method: "on",
     payload: {} as LauncherLogEntryPayload,
   },
+  RENDERER_LOG: {
+    channelName: "app:renderer-log",
+    direction: "RENDERER_TO_MAIN",
+    method: "send",
+    payload: {} as RendererLogPayload,
+  },
   OPEN_PATH: {
     channelName: "app:open-path",
     direction: "RENDERER_TO_MAIN",
@@ -626,6 +836,7 @@ export const YOUTUBE = {
 export const IPC_CHANNELS = {
   WINE,
   DXMT,
+  JADEITE,
   BOTTLE,
   APP,
   YOUTUBE,

@@ -1,4 +1,4 @@
-const repository = process.env.GITHUB_REPOSITORY ?? "";
+const repository = process.env.PUBLISH_REPOSITORY || process.env.GITHUB_REPOSITORY || "";
 const [owner, repo] = repository.split("/");
 
 const channel = process.env.UPDATE_CHANNEL || "latest";
@@ -12,6 +12,16 @@ module.exports = {
     output: "release",
   },
   files: ["dist/**/*", "package.json"],
+  extraResources: [
+    {
+      from: "build/icon.png",
+      to: "icon.png",
+    },
+    {
+      from: "build/ko.lproj",
+      to: "ko.lproj",
+    },
+  ],
   detectUpdateChannel: true,
   generateUpdatesFilesForAllChannels: true,
   publish: [
@@ -23,14 +33,17 @@ module.exports = {
     },
   ],
   mac: {
-    target: ["dmg", "zip"],
+    icon: "build/icon.icns",
+    target: [
+      {
+        target: "dmg",
+        arch: ["arm64"],
+      },
+      {
+        target: "zip",
+        arch: ["arm64"],
+      },
+    ],
     category: "public.app-category.games",
-  },
-  win: {
-    target: ["nsis"],
-  },
-  linux: {
-    target: ["AppImage"],
-    category: "Game",
   },
 };

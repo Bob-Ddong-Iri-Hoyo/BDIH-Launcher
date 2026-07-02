@@ -2,7 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { Download, FolderOpen, Wine } from "lucide-react";
 import { WineVersion } from "../../Common/Types/Wine";
-import { Box, Button, IconSlot, Inline, InlineText, ProgressBar as PrimitiveProgressBar, Stack } from "./Primitives";
+import { Button, Inline, InlineText, ListItem, ListItemBody, ListItemDescription, ListItemIcon, ListItemTitle, ProgressBar as PrimitiveProgressBar } from "./Primitives";
 import { StatusBadge, label_from_status, tone_from_status } from "./StatusBadge";
 
 /** Props for a full Wine version card used in runtime lists. */
@@ -35,23 +35,23 @@ export function WineVersionCard({
   const progress = Math.max(0, Math.min(100, Math.round(version.progress ?? 0)));
 
   return (
-    <Box
+    <ListItem
       as="article"
-      className={`rounded-lg border p-4 transition ${
-        isSelected ? "accent-selection" : "border-white/10 bg-white/[0.04]"
-      }`}
+      density="comfortable"
+      tone={isSelected ? "selected" : "default"}
+      className="flex-col rounded-lg p-4"
     >
       <Inline className="items-start justify-between gap-3">
         <Button type="button" className="flex min-w-0 items-start gap-3 text-left" onClick={() => onSelect?.(version.id)}>
-          <IconSlot className="accent-text flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800 ring-1 ring-white/10">
+          <ListItemIcon className="accent-text flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800 ring-1 ring-white/10">
             <Wine size={21} />
-          </IconSlot>
-          <Stack className="min-w-0 gap-1">
-            <InlineText className="block truncate text-sm font-semibold text-slate-100">{version.name}</InlineText>
-            <InlineText className="block text-xs text-slate-500">
+          </ListItemIcon>
+          <ListItemBody className="gap-1">
+            <ListItemTitle>{version.name}</ListItemTitle>
+            <ListItemDescription>
               {version.type === "official" ? t("wine.official") : t("wine.custom")} · {version.version}
-            </InlineText>
-          </Stack>
+            </ListItemDescription>
+          </ListItemBody>
         </Button>
         <StatusBadge label={label_from_status(version.status, t)} tone={tone_from_status(version.status)} />
       </Inline>
@@ -78,6 +78,6 @@ export function WineVersionCard({
           </Button>
         ) : null}
       </Inline>
-    </Box>
+    </ListItem>
   );
 }

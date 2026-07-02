@@ -1,4 +1,6 @@
 import { jest } from "@jest/globals";
+import { mkdir } from "fs/promises";
+import path from "path";
 import {
   capture_manager_environment,
   create_bottle_fixture,
@@ -59,7 +61,7 @@ describe("BottleManager", () => {
     const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
     const manager = new BottleManager();
     const result = await manager.getBottleList(true);
-    const migratedRegistry = await read_json<{ bottles: Array<{ id: string }> }>(environment.devBottleRegistryPath);
+    const migratedRegistry = await read_json<{ bottles: Array<{ id: string }> }>(path.join(environment.legacyAppDataRoot, "appmeta.json"));
 
     expect(result.bottles.map((bottle) => bottle.id)).toContain("fixture:steam");
     expect(migratedRegistry.bottles.map((bottle) => bottle.id)).toContain("fixture:steam");
@@ -121,6 +123,53 @@ describe("BottleManager", () => {
           id: "steam:777",
           name: "Fixture Quest",
           executableArgs: ["-applaunch", "777"],
+        }),
+      ]),
+    );
+  });
+
+  it("detects Steam inside a launcher-specific prefix without surfacing the prefix as another bottle", async () => {
+    await write_legacy_preference(environment);
+    const bottlePath = path.join(environment.legacyBottlePrefixRoot, "multi-prefix");
+    const steamPrefixPath = path.join(bottlePath, "steam-prefix");
+
+    await mkdir(bottlePath, { recursive: true });
+    await write_json(path.join(bottlePath, "bdih-bottle.json"), {
+      schemaVersion: 1,
+      id: "fixture:multi-prefix",
+      bottleId: "fixture:multi-prefix",
+      name: "multi-prefix",
+      bottleName: "multi-prefix",
+      description: "multi-prefix fixture",
+      path: bottlePath,
+      prefixPath: environment.legacyBottlePrefixRoot,
+      wineVersionId: "wine-fixture-10",
+      status: "ready",
+      apps: [],
+      createdAt: "2026-06-17T00:00:00.000Z",
+      updatedAt: "2026-06-17T00:00:00.000Z",
+    });
+    await create_steam_fixture(steamPrefixPath, "888", "Subprefix Quest");
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+    const firstResult = await manager.getBottleList(true);
+    manager.clearCache();
+    const secondResult = await manager.getBottleList(true);
+    const bottle = secondResult.bottles.find((candidate) => candidate.id === "fixture:multi-prefix");
+
+    expect(firstResult.bottles.map((candidate) => candidate.name)).not.toContain("steam-prefix");
+    expect(secondResult.bottles.map((candidate) => candidate.name)).not.toContain("steam-prefix");
+    expect(bottle?.apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "steam",
+          executablePath: "C:\\Program Files (x86)\\Steam\\steam.exe",
+        }),
+        expect.objectContaining({
+          id: "steam:888",
+          name: "Subprefix Quest",
+          executableArgs: ["-applaunch", "888"],
         }),
       ]),
     );

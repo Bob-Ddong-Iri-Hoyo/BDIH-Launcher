@@ -1,7 +1,10 @@
 import { Download } from "../Program/Downloader";
+import { downloadByCurl } from "../Program/Curl";
 
 type DownloadArgs = Pick<Parameters<typeof Download>[0], "outputDir" | "fileName" | "otherArgs">;
-type DownloadTask = ReturnType<typeof Download>;
+type DownloadTask = {
+  StopDownload: () => Promise<void>;
+};
 
 export interface DownloadCallbacks {
   onStart?: () => void;
@@ -23,23 +26,101 @@ export class DownloadManager {
       throw new Error(`Download already exists: ${id}`);
     }
 
-    const download = Download({
-      ...args,
-      url,
-      onStart: () => callbacks.onStart?.(),
-      onProgress: (progress) => callbacks.onProgress?.(progress),
-      onError: (error) => {
-        this.downloads.delete(id);
-        callbacks.onError?.(error);
-        callbacks.onEnd?.(false);
-      },
-      onComplete: () => {
-        this.downloads.delete(id);
-        callbacks.onEnd?.(true);
+    let activeDownload: DownloadTask | undefined;
+    let stopped = false;
+    let fallbackStarted = false;
+    let nativeReady = false;
+    let pendingNativeError: Error | undefined;
+    let didStart = false;
+
+    const notifyStart = () => {
+      if (didStart) {
+        return;
+      }
+
+      didStart = true;
+      callbacks.onStart?.();
+    };
+
+    const finishSuccess = () => {
+      if (stopped) {
+        return;
+      }
+
+      this.downloads.delete(id);
+      callbacks.onEnd?.(true);
+    };
+
+    const finishFailure = (error: Error) => {
+      if (stopped) {
+        return;
+      }
+
+      this.downloads.delete(id);
+      callbacks.onError?.(error);
+      callbacks.onEnd?.(false);
+    };
+
+    const startCurlFallback = (nativeError: Error) => {
+      if (stopped || fallbackStarted) {
+        return;
+      }
+
+      fallbackStarted = true;
+
+      try {
+        const curlDownload = downloadByCurl(url, args, {
+          onStart: notifyStart,
+          onProgress: (progress) => callbacks.onProgress?.(progress),
+          onError: finishFailure,
+          onEnd: (success) => {
+            if (success) {
+              finishSuccess();
+              return;
+            }
+
+            finishFailure(nativeError);
+          },
+        });
+
+        activeDownload = {
+          StopDownload: () => curlDownload.StopCurl(),
+        };
+      } catch (error) {
+        finishFailure(error instanceof Error ? error : nativeError);
+      }
+    };
+
+    this.downloads.set(id, {
+      StopDownload: async () => {
+        stopped = true;
+        await activeDownload?.StopDownload();
       },
     });
 
-    this.downloads.set(id, download);
+    const nativeDownload = Download({
+      ...args,
+      url,
+      onStart: notifyStart,
+      onProgress: (progress) => callbacks.onProgress?.(progress),
+      onError: (error) => {
+        if (!nativeReady) {
+          pendingNativeError = error;
+          return;
+        }
+
+        startCurlFallback(error);
+      },
+      onComplete: finishSuccess,
+    });
+
+    activeDownload = nativeDownload;
+    nativeReady = true;
+
+    if (pendingNativeError) {
+      startCurlFallback(pendingNativeError);
+    }
+
     return id;
   }
 

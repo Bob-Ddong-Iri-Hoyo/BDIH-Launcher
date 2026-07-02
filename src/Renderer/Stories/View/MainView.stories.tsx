@@ -278,6 +278,7 @@ function LauncherShellStory() {
       wineVersions={wineVersions}
       selectedWineVersion={wineVersions[0]}
       selectedWineVersionId={wineVersions[0].id}
+      dataRootPath="~/Library/Application Support/BDIH"
       installPath="~/Library/Application Support/BDIH/Wine"
       isLoadingWineVersions={false}
       bottles={bottles}
@@ -291,10 +292,10 @@ function LauncherShellStory() {
       isMac
       onSelectWineVersion={() => undefined}
       onInstallWineVersion={() => undefined}
+      onDataRootPathChange={() => undefined}
       onInstallPathChange={() => undefined}
       onLocaleChange={() => undefined}
       onAccentColorChange={() => undefined}
-      onResetInstallPath={() => undefined}
     />
   );
 }

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
-import { DeveloperYouTubeLink, PreferenceView } from "../../View/PreferenceView/PreferenceView";
+import { DeveloperYouTubeLink } from "../../Component/DeveloperLinks";
+import { PreferenceView } from "../../View/PreferenceView/PreferenceView";
 
 const meta: Meta<typeof PreferenceView> = {
   title: "View/PreferenceView",
@@ -9,6 +10,7 @@ const meta: Meta<typeof PreferenceView> = {
     layout: "fullscreen",
   },
   args: {
+    dataRootPath: "~/Library/Application Support/BDIH Launcher",
     installPath: "~/Library/Application Support/BDIH Launcher/Wine",
     bottlePrefixPath: "~/Library/Application Support/BDIH Launcher/Bottles",
     dxmtCachePath: "~/Library/Application Support/BDIH Launcher/DXMT",
@@ -27,6 +29,7 @@ const meta: Meta<typeof PreferenceView> = {
     developerSiteUrl: BDIH_SITE_URL,
     developerGitHubUrl: BDIH_GITHUB_URL,
     developerYouTubeUrl: BDIH_YOUTUBE_URL,
+    onDataRootPathChange: () => undefined,
     onInstallPathChange: () => undefined,
     onBottlePrefixPathChange: () => undefined,
     onDxmtCachePathChange: () => undefined,
@@ -43,7 +46,6 @@ const meta: Meta<typeof PreferenceView> = {
     onBrowsePath: () => undefined,
     onResetPath: () => undefined,
     onDeleteLauncherData: () => undefined,
-    onReset: () => undefined,
     onSave: () => undefined,
   },
 };
@@ -53,7 +55,7 @@ type Story = StoryObj<typeof PreferenceView>;
 
 export const Default: Story = {
   render: (args) => (
-    <div className="min-h-dvh bg-[#0b1020] text-slate-100">
+    <div className="h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
       <PreferenceView {...args} />
     </div>
   ),
@@ -65,7 +67,7 @@ export const WineSettings: Story = {
     initialHasChanges: true,
   },
   render: (args) => (
-    <div className="min-h-dvh bg-[#0b1020] text-slate-100">
+    <div className="h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
       <PreferenceView {...args} />
     </div>
   ),
@@ -76,7 +78,7 @@ export const ShortcutSettings: Story = {
     initialCategory: "shortcut",
   },
   render: (args) => (
-    <div className="min-h-dvh bg-[#0b1020] text-slate-100">
+    <div className="h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
       <PreferenceView {...args} />
     </div>
   ),
@@ -87,7 +89,7 @@ export const DeveloperOnAir: Story = {
     isDeveloperOnAir: true,
   },
   render: (args) => (
-    <div className="min-h-dvh bg-[#0b1020] text-slate-100">
+    <div className="h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
       <PreferenceView {...args} />
     </div>
   ),
@@ -103,7 +105,7 @@ export const GeneralWithUpdateDownloading: Story = {
     },
   },
   render: (args) => (
-    <div className="min-h-dvh bg-[#0b1020] text-slate-100">
+    <div className="h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
       <PreferenceView {...args} />
     </div>
   ),

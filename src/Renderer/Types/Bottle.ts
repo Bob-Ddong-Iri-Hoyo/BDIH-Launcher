@@ -8,6 +8,7 @@ export interface CreateBottleInput {
   name: string;
   wineVersionId: string;
   dxmtVersionId: string;
+  jadeiteVersionId?: string;
   prefixPath: string;
   description: string;
 }
