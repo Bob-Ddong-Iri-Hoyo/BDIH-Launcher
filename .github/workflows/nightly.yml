@@ -371,9 +371,17 @@ jobs:
           cd "$anchor_dir"
 
           git init
-          git checkout -b "$TARGET_NIGHTLY_BRANCH"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${RELEASE_REPOSITORY}.git"
+
+          if git fetch --depth=1 origin "$TARGET_NIGHTLY_BRANCH"; then
+            git checkout -b "$TARGET_NIGHTLY_BRANCH" FETCH_HEAD
+          else
+            git checkout -b "$TARGET_NIGHTLY_BRANCH"
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -rf .github/workflows
 
           node <<'NODE'
           const fs = require("fs");
@@ -388,21 +396,28 @@ jobs:
           };
 
           fs.writeFileSync("nightly-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
-          fs.writeFileSync(
-            "README.md",
-            [
-              "# BDIH Launcher Nightly Releases",
-              "",
-              "This branch is only an anchor for GitHub Releases.",
-              "The source commit for each build is recorded in the release notes and nightly-source.json asset.",
-              "",
-            ].join("\n"),
-          );
+
+          if (!fs.existsSync("README.md")) {
+            fs.writeFileSync(
+              "README.md",
+              [
+                "# BDIH Launcher Nightly Releases",
+                "",
+                "This branch is only an anchor for GitHub Releases.",
+                "The source commit for each build is recorded in the release notes and nightly-source.json asset.",
+                "",
+              ].join("\n"),
+            );
+          }
           NODE
 
           git add README.md nightly-source.json
-          git commit -m "Update nightly release anchor for $NIGHTLY_TAG"
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${RELEASE_REPOSITORY}.git" "HEAD:refs/heads/${TARGET_NIGHTLY_BRANCH}"
+          if git diff --cached --quiet; then
+            echo "Nightly release branch is already up to date."
+          else
+            git commit -m "Update nightly release anchor for $NIGHTLY_TAG"
+            git push origin "HEAD:refs/heads/${TARGET_NIGHTLY_BRANCH}"
+          fi
 
       - name: Create nightly release
         if: steps.decide.outputs.should_build == 'true'
