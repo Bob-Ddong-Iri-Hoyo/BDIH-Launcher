@@ -48,6 +48,7 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Resolve target release repository
         id: target
@@ -364,6 +365,7 @@ jobs:
           trap cleanup EXIT
           cleanup
 
+          git config --local --unset-all "http.https://github.com/.extraheader" 2>/dev/null || true
           git remote add nightly-target "https://x-access-token:${GH_TOKEN}@github.com/${RELEASE_REPOSITORY}.git"
           git push --force nightly-target "${SOURCE_SHA}:refs/heads/${TARGET_NIGHTLY_BRANCH}"
 
