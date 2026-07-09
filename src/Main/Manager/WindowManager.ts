@@ -2,9 +2,12 @@ import { app, BrowserWindow, LoadFileOptions, Menu, nativeImage, Tray } from "el
 import path from "path";
 import { get_app_icon_path } from "../Environment/AppIcon";
 import { bottleManager } from "./BottleManager";
+import { dxmtManager } from "./DxmtManager";
+import { jadeiteManager } from "./JadeiteManager";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
 import { rosettaManager } from "./RosettaManager";
+import { wineManager } from "./WineManager";
 
 export type RendererViewName =
   | "SplashView"
@@ -21,13 +24,26 @@ export interface StartupCheck {
 
 const DEFAULT_STARTUP_CHECKS: StartupCheck[] = [
   {
-    message: "Checking app metadata...",
-    progress: 28,
-    delayMs: 350,
+    message: "Loading launcher settings...",
+    progress: 18,
+    delayMs: 120,
+    run: async () => {
+      await preferenceManager.getPreference();
+    },
+  },
+  {
+    message: "Checking bottle metadata...",
+    progress: 42,
+    delayMs: 120,
     run: () => bottleManager.bootstrapAppMetadata(),
   },
-  { message: "Preparing renderer...", progress: 64, delayMs: 450 },
-  { message: "Opening launcher...", progress: 100, delayMs: 350 },
+  {
+    message: "Warming runtime catalogs...",
+    progress: 76,
+    delayMs: 120,
+    run: () => warm_startup_runtime_catalogs(),
+  },
+  { message: "Opening launcher...", progress: 100, delayMs: 220 },
 ];
 
 export class WindowManager {
@@ -198,24 +214,27 @@ export class WindowManager {
     this.shutdownWindow = window;
     this.bindWindowDebugEvents(window);
 
-    window.once("ready-to-show", () => {
-      if (!window.isDestroyed()) {
-        window.show();
-        window.focus();
-      }
-    });
-
     window.on("closed", () => {
       if (this.shutdownWindow === window) {
         this.shutdownWindow = null;
       }
     });
 
-    await window.loadFile(this.getRendererViewPath("SplashView"), {
+    const readyToShow = this.waitForReadyToShow(window);
+    const loadPromise = window.loadFile(this.getRendererViewPath("SplashView"), {
       query: {
         mode: "shutdown",
       },
     });
+
+    await readyToShow;
+
+    if (!window.isDestroyed()) {
+      window.show();
+      window.focus();
+    }
+
+    await loadPromise;
 
     return window;
   }
@@ -329,19 +348,22 @@ export class WindowManager {
     this.splashWindow = window;
     this.bindWindowDebugEvents(window);
 
-    window.once("ready-to-show", () => {
-      if (!window.isDestroyed()) {
-        window.show();
-      }
-    });
-
     window.on("closed", () => {
       if (this.splashWindow === window) {
         this.splashWindow = null;
       }
     });
 
-    await this.loadView("SplashView", window);
+    const readyToShow = this.waitForReadyToShow(window);
+    const loadPromise = this.loadView("SplashView", window);
+
+    await readyToShow;
+
+    if (!window.isDestroyed()) {
+      window.show();
+    }
+
+    await loadPromise;
 
     return window;
   }
@@ -459,6 +481,19 @@ function tray_menu_labels(language?: string): { show: string; quit: string } {
     show: "Show Launcher",
     quit: "Quit Launcher",
   };
+}
+
+async function warm_startup_runtime_catalogs(): Promise<void> {
+  const warmup = Promise.allSettled([
+    wineManager.getVersionList(),
+    dxmtManager.getVersionList(),
+    jadeiteManager.getVersionList(),
+  ]);
+
+  await Promise.race([
+    warmup.then(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+  ]);
 }
 
 export const windowManager = new WindowManager();

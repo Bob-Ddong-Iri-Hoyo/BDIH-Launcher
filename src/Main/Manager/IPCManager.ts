@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { readdir, rm } from "fs/promises";
 import os from "os";
 import path from "path";
-import { DeleteBottleAppPayload, DeleteBottleAppResultPayload, DeleteBottlePayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, DxmtDeletePayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, JadeiteDeletePayload, JadeiteInstallPayload, LauncherDataDeleteTarget, LauncherPreferencePatch, LocaleResourcesPayload, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RendererLogPayload, RosettaStatusPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, RuntimeDeleteResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload, WineDeletePayload } from "../../Common/Types/IPC";
+import { DeleteBottleAppPayload, DeleteBottleAppResultPayload, DeleteBottlePayload, DeleteBottlePrefixPayload, DeleteBottlePrefixResultPayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, DxmtDeletePayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, JadeiteDeletePayload, JadeiteInstallPayload, LauncherDataDeleteTarget, LauncherPreferencePatch, LocaleResourcesPayload, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RendererLogPayload, RosettaStatusPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, RuntimeDeleteResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload, WineDeletePayload } from "../../Common/Types/IPC";
 import {
   get_bottle_registry_path,
   get_default_bottle_prefix_path,
@@ -166,6 +166,14 @@ export class IPCManager {
       IPC_CHANNELS.BOTTLE.DELETE_APP.channelName,
       async (_event, request: DeleteBottleAppPayload): Promise<DeleteBottleAppResultPayload> => {
         return this.bottles.deleteBottleApp(request);
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.DELETE_PREFIX.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.DELETE_PREFIX.channelName,
+      async (_event, request: DeleteBottlePrefixPayload): Promise<DeleteBottlePrefixResultPayload> => {
+        return this.bottles.deleteBottlePrefix(request);
       },
     );
 

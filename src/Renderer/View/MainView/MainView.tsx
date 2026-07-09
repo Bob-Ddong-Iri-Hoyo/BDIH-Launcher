@@ -1,7 +1,7 @@
 ﻿import React from "react";
 import { Copy, FolderOpen, Pencil, Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, DebugFlagMode, DeleteLauncherDataResultPayload, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, RendererThemeMode } from "../../../Common/Types/IPC";
+import type { AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload, DebugFlagMode, DeleteLauncherDataResultPayload, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, RendererThemeMode } from "../../../Common/Types/IPC";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../../Common/Types/Wine";
 import { BottleDetailPanel, CreateBottleDialog, DashboardBreadcrumb, DashboardHomePanel, is_bottle_running } from "../../Component/BottleDashboard";
 import { ContextMenu, ContextMenuItem, ContextMenuPosition } from "../../Component/ContextMenu";
@@ -49,9 +49,16 @@ export interface DashboardViewProps {
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
+  onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
   onChangeBottleAppLaunchOptions?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
   onChangeBottleRecipe?: (bottleId: string, patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>) => void;
+  onApplyBottleRecipe?: (
+    bottleId: string,
+    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>,
+    reportProgress: (update: { progress: number; message: string }) => void,
+  ) => Promise<void> | void;
   onSelectWineVersion: (versionId: string) => void;
   onInstallWineVersion: (versionId: string) => void;
   onDeleteWineVersion?: (versionId: string) => void;
@@ -149,8 +156,11 @@ export function DashboardView({
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
   onRegisterBottleExecutable,
+  onUpdateBottlePrefixes,
+  onDeleteBottlePrefix,
   onChangeBottleAppLaunchOptions,
   onChangeBottleRecipe,
+  onApplyBottleRecipe,
   onSelectWineVersion,
   onInstallWineVersion,
   onDeleteWineVersion,
@@ -354,8 +364,11 @@ export function DashboardView({
         onDeleteBottleApp={onDeleteBottleApp}
         onDeleteBottleAppFiles={onDeleteBottleAppFiles}
         onRegisterBottleExecutable={onRegisterBottleExecutable}
+        onUpdateBottlePrefixes={onUpdateBottlePrefixes}
+        onDeleteBottlePrefix={onDeleteBottlePrefix}
         onChangeBottleAppLaunchOptions={onChangeBottleAppLaunchOptions}
         onChangeBottleRecipe={onChangeBottleRecipe}
+        onApplyBottleRecipe={onApplyBottleRecipe}
         onInstallWineVersion={onInstallWineVersion}
         onInstallDxmtVersion={onInstallDxmtVersion}
         onInstallJadeiteVersion={onInstallJadeiteVersion}
@@ -535,8 +548,11 @@ export function LauncherView({
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
   onRegisterBottleExecutable,
+  onUpdateBottlePrefixes,
+  onDeleteBottlePrefix,
   onChangeBottleAppLaunchOptions,
   onChangeBottleRecipe,
+  onApplyBottleRecipe,
   onSelectWineVersion,
   onInstallWineVersion,
   onDeleteWineVersion,
@@ -643,8 +659,11 @@ export function LauncherView({
           onDeleteBottleApp={onDeleteBottleApp}
           onDeleteBottleAppFiles={onDeleteBottleAppFiles}
           onRegisterBottleExecutable={onRegisterBottleExecutable}
+          onUpdateBottlePrefixes={onUpdateBottlePrefixes}
+          onDeleteBottlePrefix={onDeleteBottlePrefix}
           onChangeBottleAppLaunchOptions={onChangeBottleAppLaunchOptions}
           onChangeBottleRecipe={onChangeBottleRecipe}
+          onApplyBottleRecipe={onApplyBottleRecipe}
           onSelectWineVersion={onSelectWineVersion}
           onInstallWineVersion={onInstallWineVersion}
           onDeleteWineVersion={onDeleteWineVersion}

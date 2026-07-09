@@ -1,7 +1,7 @@
 import React from "react";
 import { Download, FolderOpen, Layers3, PackageOpen, Plus, Search, Settings, Sparkles, Trash2, Wine as WineIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { BottleLaunchOptionsPayload, BottleLauncherKind } from "../../Common/Types/IPC";
+import type { BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
 import type { Bottle, CreateBottleInput } from "../Types/Bottle";
 import { create_bottle_path_from_name, normalize_bottle_prefix_root } from "../../Common/Util/BottlePath";
@@ -639,8 +639,11 @@ export function BottleDetailPanel({
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
   onRegisterBottleExecutable,
+  onUpdateBottlePrefixes,
+  onDeleteBottlePrefix,
   onChangeBottleAppLaunchOptions,
   onChangeBottleRecipe,
+  onApplyBottleRecipe,
   onInstallWineVersion,
   onInstallDxmtVersion,
   onInstallJadeiteVersion,
@@ -659,9 +662,16 @@ export function BottleDetailPanel({
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
+  onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
   onChangeBottleAppLaunchOptions?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
   onChangeBottleRecipe?: (bottleId: string, patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>) => void;
+  onApplyBottleRecipe?: (
+    bottleId: string,
+    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>,
+    reportProgress: (update: { progress: number; message: string }) => void,
+  ) => Promise<void> | void;
   onInstallWineVersion?: (versionId: string) => void;
   onInstallDxmtVersion?: (versionId: string) => void;
   onInstallJadeiteVersion?: (versionId: string) => void;
@@ -700,6 +710,8 @@ export function BottleDetailPanel({
         onDeleteBottleApp={onDeleteBottleApp}
         onDeleteBottleAppFiles={onDeleteBottleAppFiles}
         onRegisterBottleExecutable={onRegisterBottleExecutable}
+        onUpdateBottlePrefixes={onUpdateBottlePrefixes}
+        onDeleteBottlePrefix={onDeleteBottlePrefix}
         onChangeBottleAppLaunchOptions={onChangeBottleAppLaunchOptions}
       />
 
@@ -759,6 +771,8 @@ export function BottleDetailPanel({
           onInstallBottleLauncher={onInstallBottleLauncher}
           onLaunchBottleApp={onLaunchBottleApp}
           onRegisterBottleExecutable={onRegisterBottleExecutable}
+          onUpdateBottlePrefixes={onUpdateBottlePrefixes}
+          onDeleteBottlePrefix={onDeleteBottlePrefix}
         />
 
         {shouldShowSetupProgress ? (
@@ -798,6 +812,7 @@ export function BottleDetailPanel({
         onWineVersionChange={(wineVersionId) => onChangeBottleRecipe?.(bottle.id, { wineVersionId })}
         onDxmtVersionChange={(dxmtVersionId) => onChangeBottleRecipe?.(bottle.id, { dxmtVersionId })}
         onJadeiteVersionChange={(jadeiteVersionId) => onChangeBottleRecipe?.(bottle.id, { jadeiteVersionId })}
+        onApplyRecipeChange={(patch, reportProgress) => onApplyBottleRecipe?.(bottle.id, patch, reportProgress)}
         onInstallWineVersion={onInstallWineVersion}
         onInstallDxmtVersion={onInstallDxmtVersion}
         onInstallJadeiteVersion={onInstallJadeiteVersion}

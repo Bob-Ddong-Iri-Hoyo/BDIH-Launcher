@@ -296,6 +296,33 @@ export interface DeleteBottleAppResultPayload {
   error?: string;
 }
 
+export type BottlePrefixPresetId = "default" | "steam" | "hoyoplay" | "zzz" | "hsr" | "genshin";
+export type BottlePrefixKind = "preset" | "custom";
+
+export interface BottlePrefixMetadataPayload {
+  id: string;
+  name: string;
+  path: string;
+  kind: BottlePrefixKind;
+  presetId?: BottlePrefixPresetId;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface DeleteBottlePrefixPayload {
+  bottleId: string;
+  bottlePath: string;
+  prefixId?: string;
+  prefixPath: string;
+}
+
+export interface DeleteBottlePrefixResultPayload {
+  ok: boolean;
+  deletedPath?: string;
+  removedAppIds?: string[];
+  error?: string;
+}
+
 export interface BottleProcessExitPayload {
   processId: string;
   code?: number;
@@ -393,6 +420,7 @@ export interface InstalledBottleAppPayload {
   subtitle: string;
   wineVersionId: string;
   executablePath?: string;
+  prefixPath?: string;
   executableArgs?: string[];
   launchOptions?: BottleLaunchOptionsPayload;
   iconSrc?: string;
@@ -410,7 +438,9 @@ export interface BottleMetadataPayload {
   name: string;
   description: string;
   wineVersionId: string;
+  wineRuntimePath?: string;
   dxmtVersionId?: string;
+  dxmtPackagePath?: string;
   jadeiteVersionId?: string;
   path: string;
   prefixPath?: string;
@@ -419,6 +449,7 @@ export interface BottleMetadataPayload {
   launcherTasks?: Partial<Record<BottleLauncherKind, BottleTaskStatePayload>>;
   loggingLevelOverride?: LauncherLogLevel;
   wineDebugArgsOverride?: string;
+  prefixes?: BottlePrefixMetadataPayload[];
   apps: InstalledBottleAppPayload[];
   createdAt?: string;
   updatedAt?: string;
@@ -437,6 +468,7 @@ export interface OpenPathResultPayload {
 export interface RunBottleExecutableResultPayload {
   ok: boolean;
   processId?: string;
+  refreshBottles?: boolean;
   error?: string;
 }
 
@@ -495,6 +527,7 @@ export interface BottleChannelSchema {
   readonly SAVE_LIST: IpcChannelUnit<BottleListPayload>;
   readonly DELETE: IpcChannelUnit<DeleteBottlePayload>;
   readonly DELETE_APP: IpcChannelUnit<DeleteBottleAppPayload>;
+  readonly DELETE_PREFIX: IpcChannelUnit<DeleteBottlePrefixPayload>;
   readonly RUN_EXECUTABLE: IpcChannelUnit<RunBottleExecutablePayload>;
   readonly STOP_PROCESS: IpcChannelUnit<StopBottleProcessPayload>;
   readonly SETUP_PREFIX: IpcChannelUnit<SetupBottlePrefixPayload>;
@@ -641,6 +674,12 @@ export const BOTTLE = {
     method: "invoke",
     direction: "RENDERER_TO_MAIN",
     payload: {} as DeleteBottleAppPayload,
+  },
+  DELETE_PREFIX: {
+    channelName: "bottle:delete-prefix",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as DeleteBottlePrefixPayload,
   },
   RUN_EXECUTABLE: {
     channelName: "bottle:run-executable",

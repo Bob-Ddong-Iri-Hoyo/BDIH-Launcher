@@ -9,10 +9,11 @@ import { RosettaRequiredSplashView, SplashView } from "./SplashPage";
 import StartSplashImage from "../../../../resouces/app/splash/app-start/image.png";
 import QuitSplashImage from "../../../../resouces/app/splash/app-quit/image.jpg";
 
-const STARTUP_MESSAGES = [
-  "Checking launcher files...",
-  "Preparing renderer...",
-  "Opening launcher...",
+const STARTUP_MESSAGE_KEYS = [
+  "splash.startup.loadingSettings",
+  "splash.startup.checkingBottles",
+  "splash.startup.warmingCatalogs",
+  "splash.startup.openingLauncher",
 ];
 
 const App: React.FC = () => {
@@ -24,7 +25,7 @@ const App: React.FC = () => {
   const [progress, setProgress] = useState(isShutdown ? 18 : 12);
   const [feedback, setFeedback] = useState<string | undefined>();
   const [isCheckingRosetta, setIsCheckingRosetta] = useState(false);
-  const messageIndex = Math.min(Math.floor(progress / 34), STARTUP_MESSAGES.length - 1);
+  const messageIndex = Math.min(Math.floor(progress / 26), STARTUP_MESSAGE_KEYS.length - 1);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -98,8 +99,8 @@ const App: React.FC = () => {
   return (
     <SplashView
       progress={progress}
-      message={isShutdown ? "Cleaning up Wine processes launched by BDIH Launcher..." : STARTUP_MESSAGES[messageIndex]}
-      sideLabel={isShutdown ? "종료 중..." : undefined}
+      message={isShutdown ? t("splash.shutdown.message") : t(STARTUP_MESSAGE_KEYS[messageIndex])}
+      sideLabel={isShutdown ? t("splash.shutdown.sideLabel") : undefined}
       logoSrc={isShutdown ? QuitSplashImage : StartSplashImage}
     />
   );

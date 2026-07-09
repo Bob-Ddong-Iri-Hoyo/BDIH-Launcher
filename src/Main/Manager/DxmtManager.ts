@@ -1,7 +1,8 @@
 import { WebContents } from "electron";
-import { closeSync, existsSync, openSync, readSync, rmSync, statSync } from "fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readSync, rmSync, statSync } from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath, pathToFileURL } from "url";
 import { BDIH_DXMT_REPOSITORY } from "../../Common/Constant/RuntimeSources";
 import { DxmtDeletePayload, DxmtInstallPayload, DxmtStatusPayload, IPC_CHANNELS, RuntimeDeleteResultPayload } from "../../Common/Types/IPC";
 import { DxmtVersion } from "../../Common/Types/Wine";
@@ -20,12 +21,28 @@ import { preferenceManager } from "./PreferenceManager";
 export class DxmtManager {
   private readonly logger = logManager.createLogger({ file: "wine", source: "dxmt" });
   private cachedVersions: DxmtVersion[] = [];
+  private loadingVersions: Promise<DxmtVersion[]> | null = null;
 
   async getVersionList(): Promise<DxmtVersion[]> {
+    if (this.loadingVersions) {
+      return this.loadingVersions;
+    }
+
+    this.loadingVersions = this.loadVersionList();
+
+    try {
+      return await this.loadingVersions;
+    } finally {
+      this.loadingVersions = null;
+    }
+  }
+
+  private async loadVersionList(): Promise<DxmtVersion[]> {
     // Recompute from the configured cache directory to avoid stale installed
     // status after the cache is deleted from Preferences.
+    const preference = await preferenceManager.getPreference();
+
     try {
-      const preference = await preferenceManager.getPreference();
       const githubVersions = await fetch_github_release_catalog(BDIH_DXMT_REPOSITORY.releasesApiUrl, "bdih-dxmt");
       this.cachedVersions = githubVersions.map((version) => {
         const targetPath = version.downloadUrl
@@ -46,6 +63,7 @@ export class DxmtManager {
       this.cachedVersions = [];
     }
 
+    this.cachedVersions = with_dev_local_dxmt_versions(this.cachedVersions, preference.dxmtCachePath);
     return [...this.cachedVersions];
   }
 
@@ -90,6 +108,27 @@ export class DxmtManager {
       progress: 1,
       message: `${request.versionId} download started.`,
     });
+
+    const localPackagePath = local_file_path_from_url_or_path(dxmt.downloadUrl);
+
+    if (localPackagePath) {
+      mkdirSync(path.dirname(targetPath), { recursive: true });
+      copyFileSync(localPackagePath, targetPath);
+
+      await this.clearQuarantineAttribute(request.versionId, targetPath);
+      this.sendStatus(sender, {
+        versionId: request.versionId,
+        status: "installed",
+        progress: 100,
+        message: `${request.versionId} download completed.`,
+      });
+      this.cachedVersions = this.cachedVersions.map((version) =>
+        version.id === request.versionId
+          ? { ...version, status: "installed", progress: 100, path: targetPath }
+          : version,
+      );
+      return;
+    }
 
     await new Promise<void>((resolve, reject) => {
       downloadManager.startDownload(
@@ -293,6 +332,99 @@ function is_downloaded_dxmt_package(targetPath: string): boolean {
     return false;
   } catch {
     return false;
+  }
+}
+
+function with_dev_local_dxmt_versions(versions: DxmtVersion[], installPath: string): DxmtVersion[] {
+  const localVersion = resolve_dev_local_dxmt_version(installPath);
+
+  if (!localVersion) {
+    return versions;
+  }
+
+  return [
+    localVersion,
+    ...versions.filter((version) => version.id !== localVersion.id),
+  ];
+}
+
+function resolve_dev_local_dxmt_version(installPath: string): DxmtVersion | undefined {
+  const projectRoot = find_wine_project_root();
+
+  if (!projectRoot) {
+    return undefined;
+  }
+
+  const archivePath = [
+    path.join(projectRoot, "er-dxmt-build", "artifacts", "dxmt-v0.80-builtin.tar.gz"),
+    path.join(projectRoot, "Wine-build", "artifacts", "dxmt-v0.80-builtin.tar.gz"),
+  ].find((candidatePath) => existsSync(candidatePath));
+
+  if (!archivePath) {
+    return undefined;
+  }
+
+  const downloadUrl = pathToFileURL(archivePath).toString();
+  const targetPath = get_download_target_path(installPath, downloadUrl, "dxmt-v0.80-builtin.tar.gz");
+  const isInstalled = is_downloaded_dxmt_package(targetPath);
+
+  return {
+    id: "local-dxmt-v0.80-builtin",
+    name: "Local DXMT v0.80 Builtin",
+    version: "0.80",
+    downloadUrl,
+    status: isInstalled ? "installed" : "available",
+    progress: isInstalled ? 100 : 0,
+    path: isInstalled ? targetPath : undefined,
+  };
+}
+
+function find_wine_project_root(): string | undefined {
+  const starts = [process.cwd(), __dirname];
+  const seen = new Set<string>();
+
+  for (const start of starts) {
+    let current = path.resolve(start);
+
+    for (let depth = 0; depth < 8; depth += 1) {
+      if (seen.has(current)) {
+        break;
+      }
+
+      seen.add(current);
+
+      if (existsSync(path.join(current, "Wine-build", "artifacts"))) {
+        return current;
+      }
+
+      const parent = path.dirname(current);
+
+      if (parent === current) {
+        break;
+      }
+
+      current = parent;
+    }
+  }
+
+  return undefined;
+}
+
+function local_file_path_from_url_or_path(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(value);
+
+    if (url.protocol === "file:") {
+      return fileURLToPath(url);
+    }
+
+    return undefined;
+  } catch {
+    return path.isAbsolute(value) ? value : undefined;
   }
 }
 

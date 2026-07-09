@@ -1,0 +1,37 @@
+[
+  {
+    "exePath": "<external>/ZenlessZoneZero.exe",
+    "ok": true,
+    "outputPath": "tests/extracted-icons/zenlesszonezero-4bd57f30.ico",
+    "bytes": 562718
+  },
+  {
+    "exePath": "<external>/Steam.exe",
+    "ok": true,
+    "outputPath": "tests/extracted-icons/steam-57eb848f.ico",
+    "bytes": 70124
+  },
+  {
+    "exePath": "<external>/SteamSetup.exe",
+    "ok": true,
+    "outputPath": "tests/extracted-icons/steamsetup-a7202a64.ico",
+    "bytes": 50998
+  },
+  {
+    "exePath": "<external>/launcher.exe",
+    "ok": true,
+    "outputPath": "tests/extracted-icons/launcher-4b2d9ad7.ico",
+    "bytes": 443817
+  },
+  {
+    "exePath": "<external>/launcher.exe",
+    "ok": true,
+    "outputPath": "tests/extracted-icons/launcher-5d3c046e.ico",
+    "bytes": 443817
+  },
+  {
+    "exePath": "<external>/jadeite.exe",
+    "ok": false,
+    "reason": "resource directory not found"
+  }
+]

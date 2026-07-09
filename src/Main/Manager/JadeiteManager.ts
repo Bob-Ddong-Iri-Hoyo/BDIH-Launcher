@@ -37,8 +37,23 @@ const JADEITE_CATALOG: JadeiteVersion[] = [
 export class JadeiteManager {
   private readonly logger = logManager.createLogger({ file: "wine", source: "jadeite" });
   private cachedVersions: JadeiteVersion[] = [...JADEITE_CATALOG];
+  private loadingVersions: Promise<JadeiteVersion[]> | null = null;
 
   async getVersionList(): Promise<JadeiteVersion[]> {
+    if (this.loadingVersions) {
+      return this.loadingVersions;
+    }
+
+    this.loadingVersions = this.loadVersionList();
+
+    try {
+      return await this.loadingVersions;
+    } finally {
+      this.loadingVersions = null;
+    }
+  }
+
+  private async loadVersionList(): Promise<JadeiteVersion[]> {
     const preference = await preferenceManager.getPreference();
     const installRoot = get_default_jadeite_install_path(preference.dataRootPath);
 

@@ -2,8 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../../style/index.css";
 import { BDIH_YOUTUBE_HANDLE, STEAM_GAME_LAUNCH_ARGUMENT } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
-import { bottle_name_to_slug, create_bottle_app_prefix_path, create_bottle_path_from_name, create_launcher_prefix_path, launcher_from_bottle_app } from "../../../Common/Util/BottlePath";
+import { AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
+import {
+  bottle_name_to_slug,
+  create_bottle_app_prefix_path,
+  create_bottle_path_from_name,
+  create_default_wine_prefix_path,
+  create_launcher_prefix_path,
+  executable_path_for_wine_prefix,
+  launcher_from_bottle_app,
+} from "../../../Common/Util/BottlePath";
 import { Dialog } from "../../Component/Dialog";
 import type { LogEntry, LogSession, LogSourceOption } from "../../Component/LogViewer";
 import { RendererViewKey } from "../../Component/MainFrame";
@@ -637,6 +645,8 @@ const App: React.FC = () => {
   const [isDeveloperOnAir, setIsDeveloperOnAir] = useState(false);
   const exitedProcessIdsRef = useRef(new Set<string>());
   const activePrefixSessionsRef = useRef(new Map<string, BottlePrefixSessionPayload>());
+  const bottlesRef = useRef<Bottle[]>([]);
+  bottlesRef.current = bottles;
   const isMac = window.BTIH_ENV?.platform === "darwin";
   const {
     wineVersions,
@@ -887,9 +897,37 @@ const App: React.FC = () => {
           activePrefixSessionsRef.current.delete(payload.processId);
         }
 
+        const currentBottles = bottlesRef.current;
+        const matchingBottle = currentBottles.find((bottle) => bottle.id === payload.bottleId);
+        const matchingApp = matchingBottle?.apps.find((app) => app.id === payload.appId);
+        const shouldReloadBottles = Boolean(
+          payload.isRunning &&
+          payload.appId &&
+          matchingBottle &&
+          (!matchingApp || !matchingApp.iconSrc),
+        );
+
         setBottles((currentBottles) =>
           apply_prefix_session_update_to_bottles(currentBottles, payload),
         );
+
+        if (shouldReloadBottles) {
+          void (async () => {
+            const bottlePayload = (await window.BTIH_API?.invoke(
+              IPC_CHANNELS.BOTTLE.GET_LIST.channelName,
+              undefined as never,
+            )) as BottleListPayload | undefined;
+
+            if (bottlePayload?.bottles) {
+              setBottles(apply_prefix_sessions_to_bottles(
+                bottlePayload.bottles.map(strip_transient_launcher_tasks),
+                activePrefixSessionsRef.current.values(),
+              ));
+            }
+          })().catch((error) => {
+            console.error("Failed to reload bottle metadata after prefix session update:", error);
+          });
+        }
       },
     );
 
@@ -1382,7 +1420,11 @@ const App: React.FC = () => {
       name: input.name,
       description: input.description || input.name,
       wineVersionId: input.wineVersionId,
+      wineRuntimePath: wineVersions.find((version) => version.id === input.wineVersionId)?.path,
       dxmtVersionId: input.dxmtVersionId,
+      dxmtPackagePath: input.dxmtVersionId
+        ? dxmtVersions.find((version) => version.id === input.dxmtVersionId)?.path
+        : undefined,
       jadeiteVersionId: input.jadeiteVersionId,
       path: create_bottle_path_from_prefix(prefixPath, input.name),
       prefixPath,
@@ -1403,10 +1445,10 @@ const App: React.FC = () => {
     }
 
     const wineVersion = wineVersions.find((version) => version.id === bottle.wineVersionId);
-    const wineRuntimePath = wineVersion?.path;
-    const shouldUseDxmt = launcher !== "steam" && Boolean(bottle.dxmtVersionId);
+    const wineRuntimePath = bottle.wineRuntimePath ?? wineVersion?.path;
+    const shouldUseDxmt = Boolean(bottle.dxmtVersionId);
     const dxmtPackagePath = shouldUseDxmt
-      ? dxmtVersions.find((version) => version.id === bottle.dxmtVersionId)?.path
+      ? bottle.dxmtPackagePath ?? dxmtVersions.find((version) => version.id === bottle.dxmtVersionId)?.path
       : undefined;
 
     const result = await window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.INSTALL_LAUNCHER.channelName, {
@@ -1465,11 +1507,11 @@ const App: React.FC = () => {
     );
 
     const wineVersion = wineVersions.find((version) => version.id === bottle.wineVersionId);
-    const wineRuntimePath = wineVersion?.path;
-    const shouldPassDxmt = launcher_from_bottle_app(app) !== "steam" && Boolean(bottle.dxmtVersionId);
+    const wineRuntimePath = bottle.wineRuntimePath ?? wineVersion?.path;
+    const shouldPassDxmt = Boolean(bottle.dxmtVersionId);
     const shouldRequireDxmtBeforeLaunch = app.id !== "hoyoplay" && shouldPassDxmt;
     const dxmtPackagePath = shouldPassDxmt
-      ? dxmtVersions.find((version) => version.id === bottle.dxmtVersionId)?.path
+      ? bottle.dxmtPackagePath ?? dxmtVersions.find((version) => version.id === bottle.dxmtVersionId)?.path
       : undefined;
     const jadeiteRuntimePath = bottle.jadeiteVersionId
       ? jadeiteVersions.find((version) => version.id === bottle.jadeiteVersionId)?.path
@@ -1523,11 +1565,13 @@ const App: React.FC = () => {
       return;
     }
 
+    const appPrefixPath = create_bottle_app_prefix_path(bottle.path, app);
+    const appExecutablePath = executable_path_for_wine_prefix(app.executablePath, appPrefixPath);
     const result = await (
       window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.RUN_EXECUTABLE.channelName, {
         bottleId: bottle.id,
         bottleName: bottle.name,
-        bottlePath: create_bottle_app_prefix_path(bottle.path, app),
+        bottlePath: appPrefixPath,
         wineVersionId: bottle.wineVersionId,
         wineRuntimePath,
         launcherOptionsManifest: wineVersion?.launcherOptionsManifest,
@@ -1537,7 +1581,7 @@ const App: React.FC = () => {
         jadeiteRuntimePath,
         appId: app.id,
         appName: app.name,
-        executablePath: app.executablePath,
+        executablePath: appExecutablePath,
         executableArgs: executableArgs ?? executable_args_for_app(app),
         launchOptions: app.launchOptions,
       }) ?? Promise.resolve(undefined)
@@ -1583,6 +1627,20 @@ const App: React.FC = () => {
 
     if (result.processId && processAlreadyExited) {
       exitedProcessIdsRef.current.delete(result.processId);
+    }
+
+    if (result.refreshBottles) {
+      const bottlePayload = (await window.BTIH_API?.invoke(
+        IPC_CHANNELS.BOTTLE.GET_LIST.channelName,
+        undefined as never,
+      )) as BottleListPayload | undefined;
+
+      if (bottlePayload?.bottles) {
+        setBottles(apply_prefix_sessions_to_bottles(
+          bottlePayload.bottles.map(strip_transient_launcher_tasks),
+          activePrefixSessionsRef.current.values(),
+        ));
+      }
     }
 
     update_bottles((currentBottles) =>
@@ -1716,40 +1774,96 @@ const App: React.FC = () => {
     );
   };
 
-  const handle_register_bottle_executable = (bottleId: string, executablePath: string) => {
+  const handle_register_bottle_executable = (bottleId: string, executablePath: string, prefixPath?: string) => {
     const normalizedPath = executablePath.trim();
 
     if (!normalizedPath) {
       return;
     }
 
-    update_bottles((currentBottles) =>
-      currentBottles.map((currentBottle) => {
-        if (currentBottle.id !== bottleId) {
-          return currentBottle;
-        }
+    const nextBottles = bottles.map((currentBottle) => {
+      if (currentBottle.id !== bottleId) {
+        return currentBottle;
+      }
 
-        const appId = app_id_from_executable_path(normalizedPath);
-        const nextApp = {
-          id: appId,
-          name: app_name_from_executable_path(normalizedPath),
-          subtitle: "Manual executable",
-          wineVersionId: currentBottle.wineVersionId,
-          executablePath: normalizedPath,
-          source: "manual" as const,
-          lastPlayed: new Date().toLocaleString(),
-          status: "ready" as const,
-        };
-        const apps = currentBottle.apps.some((app) => app.id === appId)
-          ? currentBottle.apps.map((app) => app.id === appId ? { ...app, ...nextApp } : app)
-          : [nextApp, ...currentBottle.apps];
+      const appPrefixPath = prefixPath?.trim() || create_default_wine_prefix_path(currentBottle.path);
+      const executablePathForPrefix = executable_path_for_wine_prefix(normalizedPath, appPrefixPath);
+      const appId = app_id_from_executable_path(`${appPrefixPath}:${executablePathForPrefix}`);
+      const nextApp = {
+        id: appId,
+        name: app_name_from_executable_path(executablePathForPrefix),
+        subtitle: "Manual executable",
+        wineVersionId: currentBottle.wineVersionId,
+        executablePath: executablePathForPrefix,
+        prefixPath: appPrefixPath,
+        source: "manual" as const,
+        lastPlayed: new Date().toLocaleString(),
+        status: "ready" as const,
+      };
+      const apps = currentBottle.apps.some((app) => app.id === appId)
+        ? currentBottle.apps.map((app) => app.id === appId ? { ...app, ...nextApp } : app)
+        : [nextApp, ...currentBottle.apps];
 
-        return {
-          ...currentBottle,
-          apps,
-        };
-      }),
+      return {
+        ...currentBottle,
+        apps,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    update_bottles(() => nextBottles);
+    void window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.SAVE_LIST.channelName, {
+      bottles: nextBottles.map(strip_transient_launcher_tasks),
+    });
+  };
+
+  const handle_update_bottle_prefixes = (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => {
+    const nextBottles = bottles.map((currentBottle) =>
+      currentBottle.id === bottleId
+        ? {
+            ...currentBottle,
+            prefixes,
+            updatedAt: new Date().toISOString(),
+          }
+        : currentBottle,
     );
+
+    update_bottles(() => nextBottles);
+    void window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.SAVE_LIST.channelName, {
+      bottles: nextBottles.map(strip_transient_launcher_tasks),
+    });
+  };
+
+  const handle_delete_bottle_prefix = async (bottleId: string, prefix: BottlePrefixMetadataPayload) => {
+    const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
+
+    if (!bottle) {
+      return;
+    }
+
+    const result = (await window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.DELETE_PREFIX.channelName, {
+      bottleId: bottle.id,
+      bottlePath: bottle.path,
+      prefixId: prefix.id,
+      prefixPath: prefix.path,
+    })) as DeleteBottlePrefixResultPayload | undefined;
+
+    if (!result?.ok) {
+      window.alert(result?.error || "Failed to delete prefix.");
+      return;
+    }
+
+    const payload = (await window.BTIH_API?.invoke(
+      IPC_CHANNELS.BOTTLE.GET_LIST.channelName,
+      undefined as never,
+    )) as BottleListPayload | undefined;
+
+    if (payload?.bottles) {
+      setBottles(apply_prefix_sessions_to_bottles(
+        payload.bottles.map(strip_transient_launcher_tasks),
+        activePrefixSessionsRef.current.values(),
+      ));
+    }
   };
 
   const handle_rename_bottle = (bottleId: string, name: string) => {
@@ -1781,10 +1895,16 @@ const App: React.FC = () => {
         if (bottle.id !== bottleId) {
           return bottle;
         }
+        const nextWineVersionId = patch.wineVersionId ?? bottle.wineVersionId;
+        const nextDxmtVersionId = patch.dxmtVersionId ?? bottle.dxmtVersionId;
 
         return {
           ...bottle,
           ...patch,
+          wineRuntimePath: wineVersions.find((version) => version.id === nextWineVersionId)?.path,
+          dxmtPackagePath: nextDxmtVersionId
+            ? dxmtVersions.find((version) => version.id === nextDxmtVersionId)?.path
+            : undefined,
           apps: patch.wineVersionId
             ? bottle.apps.map((app) => ({
                 ...app,
@@ -1795,6 +1915,80 @@ const App: React.FC = () => {
         };
       }),
     );
+  };
+
+  const handle_apply_bottle_recipe = async (
+    bottleId: string,
+    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>,
+    reportProgress: (update: { progress: number; message: string }) => void,
+  ) => {
+    const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
+
+    if (!bottle) {
+      throw new Error("Bottle을 찾을 수 없습니다.");
+    }
+
+    const processIds = new Set<string>();
+
+    for (const app of bottle.apps) {
+      if (app.processId) {
+        processIds.add(app.processId);
+      }
+    }
+
+    for (const session of activePrefixSessionsRef.current.values()) {
+      if (session.bottleId === bottleId && session.isRunning) {
+        processIds.add(session.processId);
+      }
+    }
+
+    if (processIds.size > 0) {
+      reportProgress({
+        progress: 18,
+        message: `앱들 종료중... (${processIds.size})`,
+      });
+
+      await Promise.all(
+        [...processIds].map((processId) =>
+          window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.STOP_PROCESS.channelName, {
+            processId,
+          }),
+        ),
+      );
+
+      update_bottles((currentBottles) =>
+        currentBottles.map((currentBottle) =>
+          currentBottle.id === bottleId
+            ? {
+                ...currentBottle,
+                apps: currentBottle.apps.map((app) => ({
+                  ...app,
+                  processId: undefined,
+                })),
+              }
+            : currentBottle,
+        ),
+      );
+    }
+
+    reportProgress({
+      progress: processIds.size > 0 ? 58 : 32,
+      message: "레시피 변경중...",
+    });
+
+    handle_change_bottle_recipe(bottleId, patch);
+
+    reportProgress({
+      progress: 86,
+      message: "레시피 저장중...",
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 240));
+
+    reportProgress({
+      progress: 100,
+      message: "레시피 변경 완료",
+    });
   };
 
   const handle_delete_bottle = async (bottleId: string) => {
@@ -1944,8 +2138,11 @@ const App: React.FC = () => {
       onDeleteBottleApp={handle_delete_bottle_app}
       onDeleteBottleAppFiles={(bottleId, appId) => void handle_delete_bottle_app_files(bottleId, appId)}
       onRegisterBottleExecutable={handle_register_bottle_executable}
+      onUpdateBottlePrefixes={handle_update_bottle_prefixes}
+      onDeleteBottlePrefix={handle_delete_bottle_prefix}
       onChangeBottleAppLaunchOptions={handle_change_bottle_app_launch_options}
       onChangeBottleRecipe={handle_change_bottle_recipe}
+      onApplyBottleRecipe={handle_apply_bottle_recipe}
       onOpenLogFolder={handle_open_log_folder}
       onOpenLogFile={handle_open_log_file}
       onRevealLogFile={handle_reveal_log_file}

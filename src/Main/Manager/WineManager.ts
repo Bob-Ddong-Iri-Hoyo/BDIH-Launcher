@@ -1,8 +1,9 @@
 import { WebContents } from "electron";
 import { spawn } from "child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, rmSync, statSync, writeFileSync } from "fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, rmSync, statSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath, pathToFileURL } from "url";
 import { PREDEFINED_WINE_VERSIONS } from "../../Common/Constant/WineCatalog";
 import { BDIH_WINE_REPOSITORY } from "../../Common/Constant/RuntimeSources";
 import {
@@ -30,12 +31,28 @@ import { preferenceManager } from "./PreferenceManager";
 export class WineManager {
   private readonly logger = logManager.createLogger({ file: "wine", source: "wine" });
   private cachedVersions: WineVersion[] = [...PREDEFINED_WINE_VERSIONS];
+  private loadingVersions: Promise<WineVersion[]> | null = null;
 
   async getVersionList(): Promise<WineVersion[]> {
+    if (this.loadingVersions) {
+      return this.loadingVersions;
+    }
+
+    this.loadingVersions = this.loadVersionList();
+
+    try {
+      return await this.loadingVersions;
+    } finally {
+      this.loadingVersions = null;
+    }
+  }
+
+  private async loadVersionList(): Promise<WineVersion[]> {
     // Rebuild install status from disk each time the renderer asks. This keeps
     // Preference danger-zone deletion from leaving stale "installed" state.
+    const preference = await preferenceManager.getPreference();
+
     try {
-      const preference = await preferenceManager.getPreference();
       const githubVersions = await fetch_github_release_catalog(BDIH_WINE_REPOSITORY.releasesApiUrl, "bdih-wine");
       this.cachedVersions = githubVersions.map((version) => {
         const archivePath = version.downloadUrl
@@ -64,6 +81,7 @@ export class WineManager {
       this.cachedVersions = [...PREDEFINED_WINE_VERSIONS];
     }
 
+    this.cachedVersions = with_dev_local_wine_versions(this.cachedVersions, preference.wineInstallPath);
     this.logger.debug("loaded wine version list", { count: this.cachedVersions.length });
     return [...this.cachedVersions];
   }
@@ -130,6 +148,12 @@ export class WineManager {
       }
 
       if (!existsSync(archivePath)) {
+        const localArchivePath = local_file_path_from_url_or_path(wine.downloadUrl);
+
+        if (localArchivePath) {
+          mkdirSync(path.dirname(archivePath), { recursive: true });
+          copyFileSync(localArchivePath, archivePath);
+        } else {
         await new Promise<void>((resolve, reject) => {
           downloadManager.startDownload(
             `wine:${request.versionId}`,
@@ -159,6 +183,7 @@ export class WineManager {
             },
           );
         });
+        }
       }
 
       await this.clearQuarantineAttribute(request.versionId, archivePath);
@@ -517,6 +542,88 @@ function unique_paths(paths: string[]): string[] {
   return [...new Set(paths.map((targetPath) => path.resolve(expand_user_home_path(targetPath))))];
 }
 
+function with_dev_local_wine_versions(versions: WineVersion[], installPath: string): WineVersion[] {
+  const localVersion = resolve_dev_local_wine_version(installPath);
+
+  if (!localVersion) {
+    return versions;
+  }
+
+  return [
+    localVersion,
+    ...versions.filter((version) => version.id !== localVersion.id),
+  ];
+}
+
+function resolve_dev_local_wine_version(installPath: string): WineVersion | undefined {
+  const projectRoot = find_wine_project_root();
+
+  if (!projectRoot) {
+    return undefined;
+  }
+
+  const archivePath = path.join(projectRoot, "Wine-build", "artifacts", "wine-winehq-11.11", "wine-winehq-11.11.tar.gz");
+
+  if (!existsSync(archivePath)) {
+    return undefined;
+  }
+
+  const metadataSourcePath = path.join(projectRoot, "Wine-build", "metadata", "bdhi-launcher-options.winehq-11.11.json");
+  const downloadUrl = pathToFileURL(archivePath).toString();
+  const archiveInstallPath = get_download_target_path(installPath, downloadUrl, "wine-winehq-11.11.tar.gz");
+  const runtimePath = find_wine_runtime_root(get_extract_target_path(archiveInstallPath));
+  const metadata = read_wine_launcher_options_metadata(
+    runtimePath,
+    existsSync(metadataSourcePath) ? metadataSourcePath : undefined,
+  );
+  const isInstalled = Boolean(runtimePath);
+
+  return {
+    id: "local-winehq-11.11-patched",
+    name: "Local patched Wine 11.11",
+    version: "11.11",
+    downloadUrl,
+    metadataUrl: existsSync(metadataSourcePath) ? pathToFileURL(metadataSourcePath).toString() : undefined,
+    type: "custom",
+    status: isInstalled ? "installed" : "available",
+    progress: isInstalled ? 100 : 0,
+    path: runtimePath,
+    metadataPath: metadata.path,
+    launcherOptionsManifest: metadata.manifest,
+  };
+}
+
+function find_wine_project_root(): string | undefined {
+  const starts = [process.cwd(), __dirname];
+  const seen = new Set<string>();
+
+  for (const start of starts) {
+    let current = path.resolve(start);
+
+    for (let depth = 0; depth < 8; depth += 1) {
+      if (seen.has(current)) {
+        break;
+      }
+
+      seen.add(current);
+
+      if (existsSync(path.join(current, "Wine-build", "artifacts"))) {
+        return current;
+      }
+
+      const parent = path.dirname(current);
+
+      if (parent === current) {
+        break;
+      }
+
+      current = parent;
+    }
+  }
+
+  return undefined;
+}
+
 function read_file_header(targetPath: string, length: number): Buffer {
   const fd = openSync(targetPath, "r");
   const buffer = Buffer.alloc(length);
@@ -547,6 +654,24 @@ function file_name_from_url(url: string, fallback: string): string {
     return decodeURIComponent(pathname.split("/").pop() || fallback);
   } catch {
     return fallback;
+  }
+}
+
+function local_file_path_from_url_or_path(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(value);
+
+    if (url.protocol === "file:") {
+      return fileURLToPath(url);
+    }
+
+    return undefined;
+  } catch {
+    return path.isAbsolute(value) ? value : undefined;
   }
 }
 
@@ -597,6 +722,20 @@ function wine_runtime_manifest_candidates(runtimePath?: string): string[] {
 }
 
 async function download_wine_launcher_options_metadata(url: string, outputPath: string): Promise<void> {
+  const localMetadataPath = local_file_path_from_url_or_path(url);
+
+  if (localMetadataPath) {
+    const raw = readFileSync(localMetadataPath, "utf8");
+
+    if (!parse_wine_launcher_options_manifest(raw)) {
+      throw new Error("Local Wine launcher metadata is not a supported manifest.");
+    }
+
+    mkdirSync(path.dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, raw, "utf8");
+    return;
+  }
+
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",

@@ -15,6 +15,7 @@ const commonConfig: Configuration = {
     path: path.resolve(__dirname, "../../dist/renderer/View"),
     filename: "[name].bundle.js",
     assetModuleFilename: "assets/[name][ext]",
+    publicPath: "./",
     globalObject: "globalThis",
     clean: true,
   },

@@ -1,5 +1,5 @@
 import React from "react";
-import { FolderOpen, Settings } from "lucide-react";
+import { AlertTriangle, FolderOpen, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
 import type { Bottle } from "../Types/Bottle";
@@ -7,6 +7,9 @@ import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
 import { Box, Button, Inline, Stack, Text } from "./Primitives";
 import { RuntimeVersionSelect } from "./RuntimeVersionSelect";
+
+type RecipeChangePatch = Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>;
+type RecipeApplyProgressReporter = (update: { progress: number; message: string }) => void;
 
 /**
  * Bottle recipe detail dialog.
@@ -25,6 +28,7 @@ export function RecipeDialog({
   onWineVersionChange,
   onDxmtVersionChange,
   onJadeiteVersionChange,
+  onApplyRecipeChange,
   onInstallWineVersion,
   onInstallDxmtVersion,
   onInstallJadeiteVersion,
@@ -39,6 +43,7 @@ export function RecipeDialog({
   onWineVersionChange?: (versionId: string) => void;
   onDxmtVersionChange?: (versionId: string) => void;
   onJadeiteVersionChange?: (versionId: string) => void;
+  onApplyRecipeChange?: (patch: RecipeChangePatch, reportProgress: RecipeApplyProgressReporter) => Promise<void> | void;
   onInstallWineVersion?: (versionId: string) => void;
   onInstallDxmtVersion?: (versionId: string) => void;
   onInstallJadeiteVersion?: (versionId: string) => void;
@@ -49,9 +54,11 @@ export function RecipeDialog({
   const [draftDxmtVersionId, setDraftDxmtVersionId] = React.useState(bottle.dxmtVersionId || "");
   const [draftJadeiteVersionId, setDraftJadeiteVersionId] = React.useState(bottle.jadeiteVersionId || "");
   const [statusMessage, setStatusMessage] = React.useState("");
+  const [isApplyConfirmOpen, setIsApplyConfirmOpen] = React.useState(false);
   const [isApplyModalOpen, setIsApplyModalOpen] = React.useState(false);
   const [applyProgress, setApplyProgress] = React.useState(0);
   const [applyMessage, setApplyMessage] = React.useState("");
+  const [applyErrorMessage, setApplyErrorMessage] = React.useState("");
   const hasRecipeChanges =
     draftWineVersionId !== bottle.wineVersionId
     || draftDxmtVersionId !== (bottle.dxmtVersionId || "")
@@ -67,6 +74,8 @@ export function RecipeDialog({
     setDraftDxmtVersionId(bottle.dxmtVersionId || "");
     setDraftJadeiteVersionId(bottle.jadeiteVersionId || "");
     setStatusMessage("");
+    setIsApplyConfirmOpen(false);
+    setApplyErrorMessage("");
   }, [bottle.dxmtVersionId, bottle.jadeiteVersionId, bottle.wineVersionId, open]);
 
   function apply_recipe_changes() {
@@ -74,39 +83,54 @@ export function RecipeDialog({
       return;
     }
 
+    setIsApplyConfirmOpen(true);
+  }
+
+  async function confirm_apply_recipe_changes() {
+    const patch: RecipeChangePatch = {
+      wineVersionId: draftWineVersionId,
+      dxmtVersionId: draftDxmtVersionId,
+      jadeiteVersionId: draftJadeiteVersionId || fallbackJadeiteVersionId,
+    };
+
+    setIsApplyConfirmOpen(false);
+    setApplyErrorMessage("");
     setApplyProgress(8);
-    setApplyMessage(t("main.recipeInfo.applyPreparing"));
+    setApplyMessage(t("main.recipeInfo.applyStoppingApps", { defaultValue: "앱들 종료중..." }));
     setIsApplyModalOpen(true);
     onClose();
 
-    window.setTimeout(() => {
-      setApplyProgress(36);
-      setApplyMessage(t("main.recipeInfo.applySaving"));
-      onWineVersionChange?.(draftWineVersionId);
-      onDxmtVersionChange?.(draftDxmtVersionId);
-      onJadeiteVersionChange?.(draftJadeiteVersionId || fallbackJadeiteVersionId);
-    }, 180);
+    try {
+      if (onApplyRecipeChange) {
+        await onApplyRecipeChange(patch, ({ progress, message }) => {
+          setApplyProgress(progress);
+          setApplyMessage(message);
+        });
+      } else {
+        setApplyProgress(36);
+        setApplyMessage(t("main.recipeInfo.applySaving"));
+        onWineVersionChange?.(draftWineVersionId);
+        onDxmtVersionChange?.(draftDxmtVersionId);
+        onJadeiteVersionChange?.(draftJadeiteVersionId || fallbackJadeiteVersionId);
+      }
 
-    window.setTimeout(() => {
-      setApplyProgress(72);
-      setApplyMessage(t("main.recipeInfo.applyRuntime"));
-    }, 620);
-
-    window.setTimeout(() => {
       setApplyProgress(100);
       setApplyMessage(t("main.recipeInfo.applyComplete"));
       setStatusMessage(t("main.recipeInfo.applied"));
-    }, 1040);
-
-    window.setTimeout(() => {
-      setIsApplyModalOpen(false);
-    }, 1450);
+      window.setTimeout(() => {
+        setIsApplyModalOpen(false);
+      }, 900);
+    } catch (error) {
+      setApplyProgress(100);
+      setApplyErrorMessage(error instanceof Error ? error.message : String(error));
+      setApplyMessage(t("main.recipeInfo.applyFailed", { defaultValue: "레시피 변경에 실패했습니다." }));
+    }
   }
 
   return (
     <>
       <Dialog
-        open={open && !isApplyModalOpen}
+        open={open && !isApplyModalOpen && !isApplyConfirmOpen}
         title={t("main.recipeSettings")}
         description={t("main.recipeSettingsDescription")}
         tone="info"
@@ -188,6 +212,37 @@ export function RecipeDialog({
       </Dialog>
 
       <Dialog
+        open={isApplyConfirmOpen}
+        title={t("main.recipeInfo.applyWarningTitle", { defaultValue: "레시피를 변경할까요?" })}
+        description={t("main.recipeInfo.applyWarningDescription", {
+          defaultValue: "레시피를 변경하려면 이 Bottle에서 실행 중인 모든 앱을 먼저 종료해야 합니다. 계속하면 실행 중인 앱과 Wine prefix session을 모두 종료한 뒤 Wine/DXMT 설정을 변경합니다.",
+        })}
+        tone="warning"
+        icon={AlertTriangle}
+        placement="center"
+        widthClassName="max-w-md"
+        onClose={() => setIsApplyConfirmOpen(false)}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "secondary",
+            onClick: () => setIsApplyConfirmOpen(false),
+          },
+          {
+            label: t("main.recipeInfo.applyWarningAccept", { defaultValue: "앱 종료 후 변경" }),
+            variant: "danger",
+            onClick: () => void confirm_apply_recipe_changes(),
+          },
+        ]}
+      >
+        <Text className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+          {t("main.recipeInfo.applyWarningBody", {
+            defaultValue: "저장하지 않은 게임/런처 작업이 있다면 먼저 정리해 주세요. 레시피 변경 중에는 Bottle을 실행하지 않는 것이 안전합니다.",
+          })}
+        </Text>
+      </Dialog>
+
+      <Dialog
         open={isApplyModalOpen}
         title={t("main.recipeInfo.applyModalTitle")}
         description={t("main.recipeInfo.applyModalDescription")}
@@ -199,7 +254,13 @@ export function RecipeDialog({
         actions={[]}
       >
         <Stack className="gap-4">
-          {isApplyComplete ? (
+          {applyErrorMessage ? (
+            <Text className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-sm font-semibold leading-5 text-rose-100">
+              {applyMessage}
+              <br />
+              <span className="text-xs font-normal text-rose-100/80">{applyErrorMessage}</span>
+            </Text>
+          ) : isApplyComplete ? (
             <Text className="rounded-lg border border-emerald-300/25 bg-emerald-400/10 px-3 py-2 text-sm font-semibold leading-5 text-emerald-100">
               {applyMessage || t("main.recipeInfo.applyComplete")}
             </Text>

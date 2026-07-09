@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { HOYOPLAY_ICON_URL, STEAM_ICON_URL } from "../../Common/Constant/RuntimeSources";
 import type { BottleLauncherKind } from "../../Common/Types/IPC";
+import type { BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
 import type { Bottle } from "../Types/Bottle";
 import { DirectExecutableAction } from "./DirectExecutableAction";
 import { Dialog } from "./Dialog";
@@ -22,13 +23,17 @@ export function BottleActionBar({
   onInstallBottleLauncher,
   onLaunchBottleApp,
   onRegisterBottleExecutable,
+  onUpdateBottlePrefixes,
+  onDeleteBottlePrefix,
 }: {
   bottle: Bottle;
   wineRuntimePath?: string;
   dxmtPackagePath?: string;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
+  onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
 }) {
   const { t } = useTranslation();
   const [isLauncherInstallOpen, setIsLauncherInstallOpen] = React.useState(false);
@@ -49,15 +54,11 @@ export function BottleActionBar({
   return (
     <Box as="section" className="grid gap-2 rounded-lg border border-white/10 bg-[#0b1020]/70 p-2">
       <Stack className="gap-3 rounded-lg border border-white/10 bg-white/[0.035] p-3">
-        <Inline className="items-start justify-between gap-3">
-          <Stack className="min-w-0 gap-1">
-            <Text className="text-sm font-semibold text-slate-100">
+        <Stack className="gap-1">
+          <Inline className="items-center justify-between gap-3">
+            <Text className="min-w-0 truncate text-sm font-semibold text-slate-100">
               {t("main.installers.title")}
             </Text>
-            <Text className="text-xs leading-5 text-slate-500">
-              {t("main.installers.description")}
-            </Text>
-          </Stack>
           <InlineText className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold ${
             hasWorkingLauncherTask
               ? "border-sky-300/25 bg-sky-500/15 text-sky-100"
@@ -71,7 +72,11 @@ export function BottleActionBar({
                 ? t("main.installers.installedCount", { count: readyLauncherCount })
                 : t("main.installers.notInstalled")}
           </InlineText>
-        </Inline>
+          </Inline>
+          <Text className="text-xs leading-5 text-slate-500">
+            {t("main.installers.description")}
+          </Text>
+        </Stack>
         <Button
           type="button"
           variant="glass"
@@ -88,6 +93,8 @@ export function BottleActionBar({
         wineRuntimePath={wineRuntimePath}
         dxmtPackagePath={dxmtPackagePath}
         onRegisterBottleExecutable={onRegisterBottleExecutable}
+        onUpdateBottlePrefixes={onUpdateBottlePrefixes}
+        onDeleteBottlePrefix={onDeleteBottlePrefix}
       />
       <Dialog
         open={isLauncherInstallOpen}

@@ -253,6 +253,7 @@ function create_hoyoplay_overseer_env(
     WINE_HOYO_STUB_STARRAIL: "C:\\windows\\system32\\steam.exe",
     WINE_HOYO_STUB_GENSHIN: "C:\\windows\\system32\\steam.exe",
     WINE_HOYO_STUB_LOG: "C:\\hoyo-route.log",
+    WINE_HOYO_GENSHIN_ARGS_DISABLE: "1",
     WINE_HOYO_EVENT_PIPE: wine_z_path(fifoPath),
     WINE_HOYO_EVENT_SESSION: eventSessionId,
     WINE_HOYO_STUB_DROP_ARGS: "0",

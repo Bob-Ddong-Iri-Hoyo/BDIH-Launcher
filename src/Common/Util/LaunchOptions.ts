@@ -67,7 +67,7 @@ const PRESET_DEFAULTS: Record<Exclude<BottleLaunchOptionPresetId, "auto" | "cust
   },
   hsr: {
     presetId: "hsr",
-    enableMsync: false,
+    enableMsync: true,
     enableTimeoutFix: true,
     networkGate: true,
     networkGateSeconds: 15,
@@ -79,9 +79,10 @@ const PRESET_DEFAULTS: Record<Exclude<BottleLaunchOptionPresetId, "auto" | "cust
   genshin: {
     presetId: "genshin",
     enableMsync: false,
-    enableTimeoutFix: true,
+    enableTimeoutFix: false,
     networkGate: false,
     earlyExitWaitMs: HOYO_EARLY_EXIT_WAIT_MS,
+    dxmtPreferredMaxFrameRate: DXMT_HOYO_PREFERRED_MAX_FRAME_RATE,
   },
 };
 

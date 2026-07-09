@@ -24,7 +24,7 @@ describe("AppPaths", () => {
     jest.resetModules();
   });
 
-  it("routes dev resources into tmp_test_resource while keeping legacy paths readable", async () => {
+  it("routes dev resources into the fixture resource root while keeping legacy paths readable", async () => {
     const {
       get_default_bottle_prefix_path,
       get_legacy_bottle_prefix_paths,

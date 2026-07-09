@@ -16,6 +16,7 @@ module.exports = {
     path: path.resolve(__dirname, "../../dist/renderer/View"),
     filename: "[name].bundle.js",
     assetModuleFilename: "assets/[name][ext]",
+    publicPath: "./",
     globalObject: "globalThis",
   },
   module: {

@@ -1,9 +1,11 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { DirectExecutablePrefixOption } from "../Hooks/UseDirectExecutableRunner";
 import type { DirectExecutableRunnerController } from "../Hooks/UseDirectExecutableRunner";
 import {
+  Box,
   Button,
   FieldLabel,
   FloatingLayer,
@@ -15,6 +17,7 @@ import {
   ListItemIcon,
   ListItemTitle,
   RelativeBox,
+  Select,
   Stack,
   StatusMessage,
   Surface,
@@ -42,6 +45,7 @@ export function DirectExecutableActionForm({
       <Surface tone="deep" padding="md">
         <Stack className="gap-3">
           <RunnerHeader runner={runner} mode={mode} />
+          <PrefixSelectField runner={runner} />
           <ExecutablePathField runner={runner} mode={mode} />
           {shouldShowArguments ? <ExecutableArgumentsField runner={runner} /> : null}
         </Stack>
@@ -51,6 +55,82 @@ export function DirectExecutableActionForm({
         <StatusMessage>{runner.statusMessage}</StatusMessage>
       ) : null}
     </Stack>
+  );
+}
+
+function PrefixSelectField({ runner }: { runner: DirectExecutableRunnerController }) {
+  const { t } = useTranslation();
+  const selectOptions = runner.prefixOptions.map((prefix) => ({
+    value: prefix.id,
+    label: prefix.name,
+    description: prefix.path,
+  }));
+  const selectedPrefix = runner.prefixOptions.find((prefix) => prefix.id === runner.selectedPrefixId);
+
+  return (
+    <Stack className="gap-2">
+      <FieldLabel>{t("main.runner.prefixLabel")}</FieldLabel>
+      <Inline className="items-start gap-2">
+        <Box className="min-w-0 flex-1">
+          <Select
+            value={runner.selectedPrefixId}
+            options={selectOptions}
+            onChange={runner.setSelectedPrefixId}
+            searchPlaceholder={t("main.runner.prefixSearchPlaceholder")}
+            renderOptionAccessory={(option) => {
+              const prefix = runner.prefixOptions.find((candidate) => candidate.id === option.value);
+
+              if (!prefix) {
+                return null;
+              }
+
+              return <PrefixOptionAction prefix={prefix} runner={runner} />;
+            }}
+          />
+        </Box>
+        <Button
+          type="button"
+          variant="glass"
+          size="md"
+          className="shrink-0"
+          icon={<Plus size={14} />}
+          onClick={runner.addCustomPrefix}
+        >
+          {t("main.runner.prefixAdd")}
+        </Button>
+      </Inline>
+      <Text className="break-all text-xs text-slate-500">
+        {selectedPrefix?.path ?? runner.selectedPrefixPath}
+      </Text>
+    </Stack>
+  );
+}
+
+function PrefixOptionAction({
+  prefix,
+  runner,
+}: {
+  prefix: DirectExecutablePrefixOption;
+  runner: DirectExecutableRunnerController;
+}) {
+  const { t } = useTranslation();
+
+  if (!prefix.canDelete && !prefix.canReset) {
+    return null;
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="shrink-0"
+      title={prefix.canDelete ? t("main.runner.prefixDelete") : t("main.runner.prefixResetAction")}
+      icon={prefix.canDelete ? <Trash2 size={13} /> : <RotateCcw size={13} />}
+      onClick={() => void runner.deletePrefix(prefix)}
+    >
+      {prefix.canDelete ? t("main.runner.prefixDelete") : t("main.runner.prefixResetAction")}
+    </Button>
   );
 }
 

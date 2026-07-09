@@ -3,7 +3,7 @@ import { FileText, Play, Plus, Settings, Square, Terminal, Trash2 } from "lucide
 import { useTranslation } from "react-i18next";
 import { split_executable_args } from "../../Common/Util/ExecutablePath";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
-import type { BottleLaunchOptionsPayload, LauncherLogEntryPayload, LauncherLogSnapshotPayload } from "../../Common/Types/IPC";
+import type { BottleLaunchOptionsPayload, BottlePrefixMetadataPayload, LauncherLogEntryPayload, LauncherLogSnapshotPayload } from "../../Common/Types/IPC";
 import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
 import type { Bottle } from "../Types/Bottle";
 import { useDirectExecutableRunner } from "../Hooks/UseDirectExecutableRunner";
@@ -33,6 +33,8 @@ export function AppLibraryPanel({
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
   onRegisterBottleExecutable,
+  onUpdateBottlePrefixes,
+  onDeleteBottlePrefix,
   onChangeBottleAppLaunchOptions,
 }: {
   bottle: Bottle;
@@ -44,7 +46,9 @@ export function AppLibraryPanel({
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
+  onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
   onChangeBottleAppLaunchOptions?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
 }) {
   const { t } = useTranslation();
@@ -64,6 +68,8 @@ export function AppLibraryPanel({
   const manualAddRunner = useDirectExecutableRunner({
     bottle,
     onRegisterBottleExecutable,
+    onUpdateBottlePrefixes,
+    onDeleteBottlePrefix,
   });
   const contextApp = bottle.apps.find((app) => app.id === contextMenuState?.appId);
   const selectedLogApp = bottle.apps.find((app) => app.id === selectedLogAppId);

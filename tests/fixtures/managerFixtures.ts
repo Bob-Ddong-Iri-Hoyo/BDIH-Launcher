@@ -51,7 +51,7 @@ export function restore_manager_environment(snapshot: EnvironmentSnapshot): void
 export async function create_manager_fixture_environment(): Promise<ManagerFixtureEnvironment> {
   const root = await mkdtemp(path.join(os.tmpdir(), "bdih-manager-"));
   const homeRoot = path.join(root, "home");
-  const devResourceRoot = path.join(root, "tmp_test_resource");
+  const devResourceRoot = path.join(root, "dev-resource");
   const legacySettingsDir = path.join(root, "legacy-settings");
   const legacyAppDataRoot = path.join(root, "legacy-app-data");
   const environment: ManagerFixtureEnvironment = {

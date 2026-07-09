@@ -5,9 +5,15 @@ import {
   split_executable_args,
   to_wine_z_path,
 } from "../../Common/Util/ExecutablePath";
-import { create_bottle_app_prefix_path } from "../../Common/Util/BottlePath";
+import {
+  bottle_name_to_slug,
+  create_default_wine_prefix_path,
+  create_hoyo_game_prefix_path,
+  create_launcher_prefix_path,
+  executable_path_for_wine_prefix,
+} from "../../Common/Util/BottlePath";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
-import type { PathSuggestionItemPayload } from "../../Common/Types/IPC";
+import type { BottlePrefixMetadataPayload, PathSuggestionItemPayload } from "../../Common/Types/IPC";
 import type { Bottle } from "../Types/Bottle";
 import {
   is_executable_path_target,
@@ -19,6 +25,9 @@ export interface DirectExecutableRunnerController {
   executableArgs: string;
   statusMessage: string;
   canRun: boolean;
+  prefixOptions: DirectExecutablePrefixOption[];
+  selectedPrefixId: string;
+  selectedPrefixPath: string;
   pathSuggestions: PathSuggestionItemPayload[];
   isPathSuggestionOpen: boolean;
   selectedSuggestionIndex: number;
@@ -27,6 +36,9 @@ export interface DirectExecutableRunnerController {
   argsInputRef: React.RefObject<HTMLInputElement | null>;
   setExecutablePathFromInput: (value: string) => void;
   setExecutableArgs: (value: string) => void;
+  setSelectedPrefixId: (value: string) => void;
+  addCustomPrefix: () => void;
+  deletePrefix: (prefix: DirectExecutablePrefixOption) => Promise<void>;
   selectPathSuggestion?: (index: number) => void;
   closePathSuggestions: () => void;
   applyPathSuggestion: (suggestion: PathSuggestionItemPayload) => void;
@@ -37,17 +49,26 @@ export interface DirectExecutableRunnerController {
   handleArgsKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => Promise<void>;
 }
 
+export interface DirectExecutablePrefixOption extends BottlePrefixMetadataPayload {
+  canDelete: boolean;
+  canReset: boolean;
+}
+
 export function useDirectExecutableRunner({
   bottle,
   wineRuntimePath,
   dxmtPackagePath,
   onRegisterBottleExecutable,
+  onUpdateBottlePrefixes,
+  onDeleteBottlePrefix,
   onStarted,
 }: {
   bottle: Bottle;
   wineRuntimePath?: string;
   dxmtPackagePath?: string;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
+  onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
   onStarted?: () => void;
 }): DirectExecutableRunnerController {
   const { t } = useTranslation();
@@ -59,16 +80,29 @@ export function useDirectExecutableRunner({
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = React.useState(0);
   const [isPathSuggesting, setIsPathSuggesting] = React.useState(false);
   const [isAutocompleteActive, setIsAutocompleteActive] = React.useState(false);
+  const [selectedPrefixId, setSelectedPrefixId] = React.useState("preset:default");
   const suggestionRequestIdRef = React.useRef(0);
   const pathInputRef = React.useRef<HTMLInputElement>(null);
   const argsInputRef = React.useRef<HTMLInputElement>(null);
   const canRun = executablePath.trim().length > 0;
-  const manualPrefixPath = create_bottle_app_prefix_path(bottle.path, {
-    id: "manual",
-    name: "Manual executable",
-    source: "manual",
-    executablePath,
-  });
+  const prefixOptions = React.useMemo(() => create_direct_executable_prefix_options(bottle, t), [bottle, t]);
+  const fallbackPrefix = prefixOptions[0] ?? {
+    id: "preset:default",
+    name: "Default",
+    path: create_default_wine_prefix_path(bottle.path),
+    kind: "preset" as const,
+    presetId: "default" as const,
+    canDelete: false,
+    canReset: true,
+  };
+  const selectedPrefix = prefixOptions.find((option) => option.id === selectedPrefixId) ?? fallbackPrefix;
+  const manualPrefixPath = selectedPrefix.path;
+
+  React.useEffect(() => {
+    if (!selectedPrefixId.startsWith("custom:") && !prefixOptions.some((option) => option.id === selectedPrefixId)) {
+      setSelectedPrefixId("preset:default");
+    }
+  }, [prefixOptions, selectedPrefixId]);
 
   function closePathSuggestions() {
     setIsPathSuggestionOpen(false);
@@ -165,6 +199,7 @@ export function useDirectExecutableRunner({
     }
 
     setStatusMessage(t("main.runner.starting"));
+    const runExecutablePath = executable_path_for_wine_prefix(executablePath.trim(), manualPrefixPath);
     const result = await (
       window.BTIH_API?.invoke(
         IPC_CHANNELS.BOTTLE.RUN_EXECUTABLE.channelName,
@@ -176,8 +211,8 @@ export function useDirectExecutableRunner({
           wineRuntimePath,
           dxmtVersionId: bottle.dxmtVersionId,
           dxmtPackagePath,
-          appName: app_name_from_executable_path(executablePath.trim()),
-          executablePath: executablePath.trim(),
+          appName: app_name_from_executable_path(runExecutablePath),
+          executablePath: runExecutablePath,
           executableArgs: split_executable_args(executableArgs),
         },
       ) ?? Promise.resolve(undefined)
@@ -202,9 +237,73 @@ export function useDirectExecutableRunner({
       return false;
     }
 
-    onRegisterBottleExecutable?.(bottle.id, executablePath.trim());
+    if (!onRegisterBottleExecutable) {
+      setStatusMessage(t("main.runner.failed"));
+      return false;
+    }
+
+    onRegisterBottleExecutable?.(
+      bottle.id,
+      executable_path_for_wine_prefix(executablePath.trim(), manualPrefixPath),
+      manualPrefixPath,
+    );
     setStatusMessage(t("main.runner.registered"));
     return true;
+  }
+
+  function addCustomPrefix() {
+    if (!onUpdateBottlePrefixes) {
+      setStatusMessage(t("main.runner.prefixUpdateUnavailable"));
+      return;
+    }
+
+    const rawName = window.prompt(t("main.runner.prefixCustomNamePrompt"), t("main.runner.prefixCustomNameDefault"));
+    const name = rawName?.trim();
+
+    if (!name) {
+      return;
+    }
+
+    const slug = bottle_name_to_slug(name);
+    const now = new Date().toISOString();
+    const existingIds = new Set((bottle.prefixes ?? []).map((prefix) => prefix.id));
+    const id = existingIds.has(`custom:${slug}`) ? `custom:${slug}-${Date.now().toString(36)}` : `custom:${slug}`;
+    const prefix: BottlePrefixMetadataPayload = {
+      id,
+      name,
+      path: `${bottle.path.trim().replace(/\/+$/, "")}/custom-prefixes/${slug}`,
+      kind: "custom",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    onUpdateBottlePrefixes(bottle.id, [...(bottle.prefixes ?? []), prefix]);
+    setSelectedPrefixId(prefix.id);
+  }
+
+  async function deletePrefix(prefix: DirectExecutablePrefixOption) {
+    if (!onDeleteBottlePrefix) {
+      setStatusMessage(t("main.runner.prefixUpdateUnavailable"));
+      return;
+    }
+
+    const confirmMessage = prefix.kind === "custom"
+      ? t("main.runner.prefixDeleteConfirm", { name: prefix.name })
+      : t("main.runner.prefixResetConfirm", { name: prefix.name });
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    await onDeleteBottlePrefix(bottle.id, prefix);
+
+    if (selectedPrefixId === prefix.id) {
+      setSelectedPrefixId("preset:default");
+    }
+
+    setStatusMessage(prefix.kind === "custom"
+      ? t("main.runner.prefixDeleted")
+      : t("main.runner.prefixReset"));
   }
 
   async function handlePathKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -302,6 +401,9 @@ export function useDirectExecutableRunner({
     executableArgs,
     statusMessage,
     canRun,
+    prefixOptions,
+    selectedPrefixId: selectedPrefix.id,
+    selectedPrefixPath: selectedPrefix.path,
     pathSuggestions,
     isPathSuggestionOpen,
     selectedSuggestionIndex,
@@ -310,6 +412,9 @@ export function useDirectExecutableRunner({
     argsInputRef,
     setExecutablePathFromInput,
     setExecutableArgs,
+    setSelectedPrefixId,
+    addCustomPrefix,
+    deletePrefix,
     selectPathSuggestion,
     closePathSuggestions,
     applyPathSuggestion,
@@ -319,4 +424,75 @@ export function useDirectExecutableRunner({
     handlePathKeyDown,
     handleArgsKeyDown,
   };
+}
+
+function create_direct_executable_prefix_options(
+  bottle: Bottle,
+  translate: (key: string) => string,
+): DirectExecutablePrefixOption[] {
+  const presetOptions: DirectExecutablePrefixOption[] = [
+    {
+      id: "preset:default",
+      name: translate("main.runner.prefixDefault"),
+      path: create_default_wine_prefix_path(bottle.path),
+      kind: "preset",
+      presetId: "default",
+      canDelete: false,
+      canReset: true,
+    },
+    {
+      id: "preset:steam",
+      name: translate("main.runner.prefixSteam"),
+      path: create_launcher_prefix_path(bottle.path, "steam"),
+      kind: "preset",
+      presetId: "steam",
+      canDelete: false,
+      canReset: true,
+    },
+    {
+      id: "preset:hoyoplay",
+      name: translate("main.runner.prefixHoyoplay"),
+      path: create_launcher_prefix_path(bottle.path, "hoyoplay"),
+      kind: "preset",
+      presetId: "hoyoplay",
+      canDelete: false,
+      canReset: true,
+    },
+    {
+      id: "preset:zzz",
+      name: translate("main.runner.prefixZenless"),
+      path: create_hoyo_game_prefix_path(bottle.path, "zzz"),
+      kind: "preset",
+      presetId: "zzz",
+      canDelete: false,
+      canReset: true,
+    },
+    {
+      id: "preset:hsr",
+      name: translate("main.runner.prefixStarRail"),
+      path: create_hoyo_game_prefix_path(bottle.path, "hsr"),
+      kind: "preset",
+      presetId: "hsr",
+      canDelete: false,
+      canReset: true,
+    },
+    {
+      id: "preset:genshin",
+      name: translate("main.runner.prefixGenshin"),
+      path: create_hoyo_game_prefix_path(bottle.path, "genshin"),
+      kind: "preset",
+      presetId: "genshin",
+      canDelete: false,
+      canReset: true,
+    },
+  ];
+  const customOptions: DirectExecutablePrefixOption[] = (bottle.prefixes ?? [])
+    .filter((prefix) => prefix.kind === "custom")
+    .map((prefix) => ({
+      ...prefix,
+      canDelete: true,
+      canReset: false,
+    }));
+
+  return [...presetOptions, ...customOptions];
 }

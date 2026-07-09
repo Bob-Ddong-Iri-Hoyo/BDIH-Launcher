@@ -1,6 +1,7 @@
 import React from "react";
 import { ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
 import type { Bottle } from "../Types/Bottle";
 import { useDirectExecutableRunner } from "../Hooks/UseDirectExecutableRunner";
 import { Button } from "./Primitives";
@@ -18,11 +19,15 @@ export function DirectExecutableAction({
   wineRuntimePath,
   dxmtPackagePath,
   onRegisterBottleExecutable,
+  onUpdateBottlePrefixes,
+  onDeleteBottlePrefix,
 }: {
   bottle: Bottle;
   wineRuntimePath?: string;
   dxmtPackagePath?: string;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
+  onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
 }) {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = React.useState(false);
@@ -31,6 +36,8 @@ export function DirectExecutableAction({
     wineRuntimePath,
     dxmtPackagePath,
     onRegisterBottleExecutable,
+    onUpdateBottlePrefixes,
+    onDeleteBottlePrefix,
     onStarted: () => setIsOpen(false),
   });
 
