@@ -7,6 +7,7 @@ import {
 } from "../../Common/Util/ExecutablePath";
 import {
   bottle_name_to_slug,
+  create_bottle_app_prefix_path,
   create_default_wine_prefix_path,
   create_hoyo_game_prefix_path,
   create_launcher_prefix_path,
@@ -223,7 +224,7 @@ export function useDirectExecutableRunner({
 
     if (result?.ok) {
       setStatusMessage(t("main.runner.started"));
-      onRegisterBottleExecutable?.(bottle.id, executablePath.trim());
+      onRegisterBottleExecutable?.(bottle.id, executablePath.trim(), manualPrefixPath);
       onStarted?.();
       return;
     }
@@ -257,16 +258,11 @@ export function useDirectExecutableRunner({
       return;
     }
 
-    const rawName = window.prompt(t("main.runner.prefixCustomNamePrompt"), t("main.runner.prefixCustomNameDefault"));
-    const name = rawName?.trim();
-
-    if (!name) {
-      return;
-    }
-
-    const slug = bottle_name_to_slug(name);
+    const existingPrefixes = bottle.prefixes ?? [];
+    const name = create_next_custom_prefix_name(existingPrefixes, t("main.runner.prefixCustomNameDefault"));
+    const slug = create_unique_custom_prefix_slug(name, existingPrefixes);
     const now = new Date().toISOString();
-    const existingIds = new Set((bottle.prefixes ?? []).map((prefix) => prefix.id));
+    const existingIds = new Set(existingPrefixes.map((prefix) => prefix.id));
     const id = existingIds.has(`custom:${slug}`) ? `custom:${slug}-${Date.now().toString(36)}` : `custom:${slug}`;
     const prefix: BottlePrefixMetadataPayload = {
       id,
@@ -277,8 +273,9 @@ export function useDirectExecutableRunner({
       updatedAt: now,
     };
 
-    onUpdateBottlePrefixes(bottle.id, [...(bottle.prefixes ?? []), prefix]);
+    onUpdateBottlePrefixes(bottle.id, [...existingPrefixes, prefix]);
     setSelectedPrefixId(prefix.id);
+    setStatusMessage(t("main.runner.prefixAdded", { name: prefix.name }));
   }
 
   async function deletePrefix(prefix: DirectExecutablePrefixOption) {
@@ -290,8 +287,14 @@ export function useDirectExecutableRunner({
     const confirmMessage = prefix.kind === "custom"
       ? t("main.runner.prefixDeleteConfirm", { name: prefix.name })
       : t("main.runner.prefixResetConfirm", { name: prefix.name });
+    const affectedAppsMessage = format_prefix_affected_apps_message(
+      bottle.apps
+        .filter((app) => prefix_paths_equal(create_bottle_app_prefix_path(bottle.path, app), prefix.path))
+        .map((app) => app.name),
+      t,
+    );
 
-    if (!window.confirm(confirmMessage)) {
+    if (!window.confirm(affectedAppsMessage ? `${confirmMessage}\n\n${affectedAppsMessage}` : confirmMessage)) {
       return;
     }
 
@@ -424,6 +427,82 @@ export function useDirectExecutableRunner({
     handlePathKeyDown,
     handleArgsKeyDown,
   };
+}
+
+function create_next_custom_prefix_name(
+  prefixes: BottlePrefixMetadataPayload[],
+  baseName: string,
+): string {
+  const trimmedBaseName = baseName.trim() || "Custom prefix";
+  const usedNames = new Set(prefixes.map((prefix) => prefix.name.trim().toLowerCase()));
+
+  if (!usedNames.has(trimmedBaseName.toLowerCase())) {
+    return trimmedBaseName;
+  }
+
+  for (let index = 2; index < 1000; index += 1) {
+    const candidateName = `${trimmedBaseName} ${index}`;
+
+    if (!usedNames.has(candidateName.toLowerCase())) {
+      return candidateName;
+    }
+  }
+
+  return `${trimmedBaseName} ${Date.now().toString(36)}`;
+}
+
+function create_unique_custom_prefix_slug(
+  name: string,
+  prefixes: BottlePrefixMetadataPayload[],
+): string {
+  const baseSlug = bottle_name_to_slug(name);
+  const usedSlugs = new Set(prefixes
+    .filter((prefix) => prefix.kind === "custom")
+    .flatMap((prefix) => [
+      prefix.id.replace(/^custom:/, ""),
+      prefix.path.split("/").filter(Boolean).pop() ?? "",
+    ])
+    .filter(Boolean));
+
+  if (!usedSlugs.has(baseSlug)) {
+    return baseSlug;
+  }
+
+  for (let index = 2; index < 1000; index += 1) {
+    const candidateSlug = `${baseSlug}-${index}`;
+
+    if (!usedSlugs.has(candidateSlug)) {
+      return candidateSlug;
+    }
+  }
+
+  return `${baseSlug}-${Date.now().toString(36)}`;
+}
+
+function format_prefix_affected_apps_message(
+  appNames: string[],
+  translate: (key: string, options?: Record<string, unknown>) => unknown,
+): string {
+  if (appNames.length === 0) {
+    return "";
+  }
+
+  const listedApps = appNames.slice(0, 5).map((appName) => `- ${appName}`).join("\n");
+  const remainingCount = appNames.length - 5;
+
+  return [
+    String(translate("main.runner.prefixAffectedApps", { count: appNames.length })),
+    listedApps,
+    remainingCount > 0 ? String(translate("main.runner.prefixAffectedAppsMore", { count: remainingCount })) : "",
+  ].filter(Boolean).join("\n");
+}
+
+function prefix_paths_equal(leftPath: string, rightPath: string): boolean {
+  return normalize_prefix_path_for_compare(leftPath) === normalize_prefix_path_for_compare(rightPath);
+}
+
+function normalize_prefix_path_for_compare(prefixPath: string): string {
+  return prefixPath.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function create_direct_executable_prefix_options(

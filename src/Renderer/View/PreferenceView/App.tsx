@@ -142,7 +142,7 @@ const App: React.FC = () => {
   const [dxmtCachePath, setDxmtCachePath] = React.useState(DEFAULT_DXMT_CACHE_PATH);
   const [gameInstallPath, setGameInstallPath] = React.useState("");
   const [closeToTray, setCloseToTray] = React.useState(false);
-  const [appLoggingLevel, setAppLoggingLevel] = React.useState<LauncherLogLevel>("off");
+  const [appLoggingLevel, setAppLoggingLevel] = React.useState<LauncherLogLevel>("info");
   const [debugFlagMode, setDebugFlagMode] = React.useState<DebugFlagMode>("preset");
   const [loggingLevel, setLoggingLevel] = React.useState<LauncherLogLevel>("off");
   const [wineDebugArgs, setWineDebugArgs] = React.useState("");
@@ -222,7 +222,7 @@ const App: React.FC = () => {
           const nextGameInstallPath = is_non_empty_string(preference.gameInstallPath) ? preference.gameInstallPath : "";
           const nextCloseToTray = typeof preference.closeToTray === "boolean" ? preference.closeToTray : false;
           const nextThemeMode = is_renderer_theme_mode(preference.themeMode) ? preference.themeMode : "system";
-          const nextAppLoggingLevel = is_launcher_log_level(preference.appLoggingLevel) ? preference.appLoggingLevel : "off";
+          const nextAppLoggingLevel = is_launcher_log_level(preference.appLoggingLevel) ? preference.appLoggingLevel : "info";
           const nextDebugFlagMode = is_debug_flag_mode(preference.debugFlagMode) ? preference.debugFlagMode : "preset";
           const nextLoggingLevel = is_launcher_log_level(preference.loggingLevel) ? preference.loggingLevel : "off";
           const nextWineDebugArgs = typeof preference.wineDebugArgs === "string" ? preference.wineDebugArgs : "";
@@ -290,7 +290,7 @@ const App: React.FC = () => {
             autoCheckUpdates: true,
             closeToTray: false,
             themeMode: "system",
-            appLoggingLevel: "off",
+            appLoggingLevel: "info",
             debugFlagMode: "preset",
             loggingLevel: "off",
             wineDebugArgs: "",
@@ -458,7 +458,7 @@ const App: React.FC = () => {
           autoCheckUpdates: true,
           closeToTray: false,
           themeMode: "system",
-          appLoggingLevel: "off",
+          appLoggingLevel: "info",
           debugFlagMode: "preset",
           loggingLevel: "off",
           wineDebugArgs: "",

@@ -135,6 +135,10 @@ export class DownloadManager {
     this.downloads.delete(id);
   }
 
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.downloads.keys()].map((id) => this.stopDownload(id)));
+  }
+
   listActiveDownloadIds(): string[] {
     return [...this.downloads.keys()];
   }

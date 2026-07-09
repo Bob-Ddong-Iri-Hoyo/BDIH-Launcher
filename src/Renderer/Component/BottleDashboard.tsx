@@ -632,6 +632,7 @@ export function BottleDetailPanel({
   wineRuntimePath,
   appLogoSrc,
   onRevealBottle,
+  onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
   onLaunchBottleAppWithArgs,
@@ -656,6 +657,7 @@ export function BottleDetailPanel({
   wineRuntimePath?: string;
   appLogoSrc: string;
   onRevealBottle?: (path: string) => void;
+  onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
   onLaunchBottleAppWithArgs?: (bottleId: string, appId: string, executableArgs: string[]) => void;
@@ -768,6 +770,7 @@ export function BottleDetailPanel({
           bottle={bottle}
           wineRuntimePath={wineRuntimePath}
           dxmtPackagePath={dxmtPackagePath}
+          onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
           onInstallBottleLauncher={onInstallBottleLauncher}
           onLaunchBottleApp={onLaunchBottleApp}
           onRegisterBottleExecutable={onRegisterBottleExecutable}

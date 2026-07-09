@@ -41,7 +41,7 @@ const LAUNCH_OPTION_MANIFEST_OPTION_NAMES: Partial<Record<keyof BottleLaunchOpti
 const PRESET_DEFAULTS: Record<Exclude<BottleLaunchOptionPresetId, "auto" | "custom">, BottleLaunchOptionsPayload> = {
   steam: {
     presetId: "steam",
-    enableMsync: true,
+    enableMsync: false,
     steamWebHelperArgs: true,
     earlyExitWaitMs: DEFAULT_EARLY_EXIT_WAIT_MS,
   },
@@ -57,7 +57,7 @@ const PRESET_DEFAULTS: Record<Exclude<BottleLaunchOptionPresetId, "auto" | "cust
   },
   zzz: {
     presetId: "zzz",
-    enableMsync: true,
+    enableMsync: false,
     enableTimeoutFix: true,
     leftCommandIsCtrl: false,
     retinaMode: false,
@@ -67,7 +67,7 @@ const PRESET_DEFAULTS: Record<Exclude<BottleLaunchOptionPresetId, "auto" | "cust
   },
   hsr: {
     presetId: "hsr",
-    enableMsync: true,
+    enableMsync: false,
     enableTimeoutFix: true,
     networkGate: true,
     networkGateSeconds: 15,
@@ -157,8 +157,7 @@ export function resolve_launch_options_for_app(
     : default_launch_options_for_preset("auto");
 
   return normalize_launch_options({
-    ...baseOptions,
-    ...options,
+    ...merge_defined_launch_options(baseOptions, options),
     presetId: requestedPreset,
   }) ?? { presetId: requestedPreset };
 }
@@ -210,6 +209,26 @@ export function normalize_launch_options(
     autoNetworkReconnectSeconds: optional_number(options.autoNetworkReconnectSeconds, 0, 600),
     allowDuplicateGame: optional_boolean(options.allowDuplicateGame),
   };
+}
+
+function merge_defined_launch_options(
+  ...sources: Array<Partial<BottleLaunchOptionsPayload> | undefined>
+): BottleLaunchOptionsPayload {
+  const merged: Record<string, unknown> = {};
+
+  for (const source of sources) {
+    if (!source) {
+      continue;
+    }
+
+    for (const [key, value] of Object.entries(source)) {
+      if (value !== undefined) {
+        merged[key] = value;
+      }
+    }
+  }
+
+  return merged as BottleLaunchOptionsPayload;
 }
 
 export function is_launch_option_supported_by_manifest(

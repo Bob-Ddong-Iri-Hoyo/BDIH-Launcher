@@ -43,6 +43,7 @@ export interface DashboardViewProps {
   onRevealBottle?: (path: string) => void;
   onDeleteBottle?: (bottleId: string) => void;
   onSelectBottlePrefixPath?: (currentPath: string) => Promise<string | undefined>;
+  onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
   onLaunchBottleAppWithArgs?: (bottleId: string, appId: string, executableArgs: string[]) => void;
@@ -149,6 +150,7 @@ export function DashboardView({
   onRevealBottle,
   onDeleteBottle,
   onSelectBottlePrefixPath,
+  onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
   onLaunchBottleAppWithArgs,
@@ -357,6 +359,7 @@ export function DashboardView({
         wineRuntimePath={selectedBottleWineRuntimePath}
         appLogoSrc={LogoSquare}
         onRevealBottle={onRevealBottle}
+        onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
         onInstallBottleLauncher={onInstallBottleLauncher}
         onLaunchBottleApp={onLaunchBottleApp}
         onLaunchBottleAppWithArgs={onLaunchBottleAppWithArgs}
@@ -541,6 +544,7 @@ export function LauncherView({
   onRevealBottle,
   onDeleteBottle,
   onSelectBottlePrefixPath,
+  onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
   onLaunchBottleAppWithArgs,
@@ -652,6 +656,7 @@ export function LauncherView({
             onDeleteBottle?.(bottleId);
           }}
           onSelectBottlePrefixPath={onSelectBottlePrefixPath}
+          onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
           onInstallBottleLauncher={onInstallBottleLauncher}
           onLaunchBottleApp={onLaunchBottleApp}
           onLaunchBottleAppWithArgs={onLaunchBottleAppWithArgs}

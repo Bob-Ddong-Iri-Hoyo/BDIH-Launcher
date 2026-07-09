@@ -21,6 +21,10 @@ module.exports = {
       from: "build/ko.lproj",
       to: "ko.lproj",
     },
+    {
+      from: "resouces/locales",
+      to: "locales",
+    },
   ],
   detectUpdateChannel: true,
   generateUpdatesFilesForAllChannels: true,

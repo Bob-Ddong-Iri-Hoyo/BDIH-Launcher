@@ -41,7 +41,7 @@ export const STEAM_LAUNCHER_PROFILE = {
       label: "Wine msync",
       type: "boolean",
       envName: "WINEMSYNC",
-      defaultValue: true,
+      defaultValue: false,
     },
     {
       key: "steamAppId",

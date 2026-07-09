@@ -1,5 +1,5 @@
 import React from "react";
-import { ExternalLink, Globe2, Radio } from "lucide-react";
+import { ExternalLink, Globe2, MessageCircle, Radio } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
 import { Box, Button, InlineText } from "./Primitives";
@@ -7,6 +7,7 @@ import { Box, Button, InlineText } from "./Primitives";
 export interface DeveloperLinkGroupProps {
   siteUrl: string;
   githubUrl: string;
+  discordUrl: string;
   youtubeUrl: string;
   isYouTubeOnAir: boolean;
 }
@@ -20,6 +21,7 @@ export interface DeveloperLinkGroupProps {
 export function DeveloperLinkGroup({
   siteUrl,
   githubUrl,
+  discordUrl,
   youtubeUrl,
   isYouTubeOnAir,
 }: DeveloperLinkGroupProps) {
@@ -29,6 +31,7 @@ export function DeveloperLinkGroup({
     <Box className="flex flex-wrap justify-end gap-2">
       <DeveloperExternalLink url={siteUrl} label={t("preferences.developerLinks.site")} icon={<Globe2 className="h-5 w-5 text-sky-200" />} />
       <DeveloperExternalLink url={githubUrl} label={t("preferences.developerLinks.github")} icon={<GitHubMark className="h-5 w-5 text-slate-200" />} />
+      <DeveloperExternalLink url={discordUrl} label={t("preferences.developerLinks.discord")} icon={<MessageCircle className="h-5 w-5 text-indigo-200" />} />
       <DeveloperYouTubeLink url={youtubeUrl} isOnAir={isYouTubeOnAir} />
     </Box>
   );

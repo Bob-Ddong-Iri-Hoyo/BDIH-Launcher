@@ -74,6 +74,7 @@ function RuntimeOptionAccessory({
   const { t } = useTranslation();
   const installed = is_runtime_available(version);
   const working = is_runtime_working(version.status);
+  const canInstall = Boolean(onInstall && has_runtime_download(version));
 
   if (installed) {
     return (
@@ -89,16 +90,24 @@ function RuntimeOptionAccessory({
         type="button"
         size="sm"
         variant="glass"
-        disabled={working || !onInstall}
+        disabled={working || !canInstall}
+        title={!canInstall ? t("main.recipeInfo.downloadUnavailable", { defaultValue: "다운로드 불가" }) : undefined}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          if (!canInstall) {
+            return;
+          }
           onInstall?.(version.id);
         }}
         className="h-7 w-24 justify-center px-2 text-[11px]"
       >
-        {working ? null : <Download size={12} />}
-        {working ? `${Math.round(version.progress)}%` : t("main.recipeInfo.downloadRuntime")}
+        {working ? null : canInstall ? <Download size={12} /> : null}
+        {working
+          ? `${Math.round(version.progress)}%`
+          : canInstall
+            ? t("main.recipeInfo.downloadRuntime")
+            : t("main.recipeInfo.downloadUnavailable", { defaultValue: "다운로드 불가" })}
       </Button>
     </span>
   );
@@ -148,4 +157,13 @@ function is_runtime_available(version: RuntimeVersion): boolean {
 
 function is_runtime_working(status: InstallStatus): boolean {
   return status === "downloading" || status === "installing" || status === "extracting";
+}
+
+function has_runtime_download(version: RuntimeVersion): boolean {
+  const downloadUrl = version.downloadUrl?.trim();
+  if (!downloadUrl) {
+    return false;
+  }
+
+  return !/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/?$/i.test(downloadUrl);
 }

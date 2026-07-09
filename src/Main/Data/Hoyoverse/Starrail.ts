@@ -12,7 +12,7 @@ export const STARRAIL_HOYO_GAME_PROFILE = {
   launchRoutine: {
     mode: "jadeite",
     defaultLaunchOptions: {
-      enableMsync: true,
+      enableMsync: false,
       enableTimeoutFix: true,
       networkGate: true,
       networkGateSeconds: 15,

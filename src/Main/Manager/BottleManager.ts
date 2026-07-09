@@ -6,6 +6,7 @@ import {
   BottleLauncherKind,
   BottleMetadataPayload,
   BottlePrefixMetadataPayload,
+  BottleTaskStatePayload,
   BottleTaskStage,
   DeleteBottleAppPayload,
   DeleteBottleAppResultPayload,
@@ -234,6 +235,43 @@ export class BottleManager {
     await write_prefix_metadata(updatedBottle);
   }
 
+  async updateBottleLauncherTask(payload: {
+    bottleId: string;
+    bottlePath: string;
+    launcher: BottleLauncherKind;
+    task: BottleTaskStatePayload;
+  }): Promise<void> {
+    const registry = await this.loadRegistryState();
+    const bottlePath = path.resolve(expand_user_home_path(payload.bottlePath));
+    let updatedBottle: BottleMetadataPayload | undefined;
+    const updateBottle = (bottle: BottleMetadataPayload): BottleMetadataPayload => {
+      const matches = bottle.id === payload.bottleId ||
+        path.resolve(expand_user_home_path(bottle.path)) === bottlePath;
+
+      if (!matches) {
+        return bottle;
+      }
+
+      updatedBottle = {
+        ...bottle,
+        launcherTasks: {
+          ...bottle.launcherTasks,
+          [payload.launcher]: payload.task,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+
+      return updatedBottle;
+    };
+    const bottles = registry.bottles.map(updateBottle);
+
+    this.cache = this.cache?.map(updateBottle) ?? bottles;
+    await this.writeRegistryBottles(bottles, registry.deletedBottleKeys);
+    if (updatedBottle) {
+      await write_prefix_metadata(updatedBottle);
+    }
+  }
+
   async deleteBottle(payload: DeleteBottlePayload): Promise<DeleteBottleResultPayload> {
     const bottlePath = path.resolve(expand_user_home_path(payload.bottlePath));
     const preference = await preferenceManager.getPreference();
@@ -403,9 +441,10 @@ export class BottleManager {
               ),
               apps: candidateBottle.apps.filter((app) => !removedAppIds.includes(app.id)),
               updatedAt: new Date().toISOString(),
-            }
-          : candidateBottle,
+          }
+        : candidateBottle,
       );
+      const updatedBottle = bottles.find((candidateBottle) => candidateBottle.id === bottle.id);
 
       this.cache = this.cache?.map((candidateBottle) =>
         candidateBottle.id === bottle.id
@@ -421,6 +460,9 @@ export class BottleManager {
           : candidateBottle,
       ) ?? bottles;
       await this.writeRegistryBottles(bottles, registry.deletedBottleKeys);
+      if (updatedBottle) {
+        await write_prefix_metadata(updatedBottle);
+      }
 
       return {
         ok: true,
@@ -1140,12 +1182,10 @@ function detect_downloaded_launcher_tasks(
 
   if (
     !apps.some((app) => app.id === "steam") &&
-    launcher_prefix_candidates(bottle.path, "steam").some((prefixPath) =>
-      existsSync(path.join(prefixPath, "_bdih_installers", "SteamSetup.exe")),
-    )
+    is_launcher_installer_downloaded(bottle.path, "steam", "SteamSetup.exe")
   ) {
     tasks.steam = {
-      stage: "ready",
+      stage: "downloaded",
       progress: 100,
       message: "Steam installer is downloaded.",
     };
@@ -1153,18 +1193,30 @@ function detect_downloaded_launcher_tasks(
 
   if (
     !apps.some((app) => app.id === "hoyoplay") &&
-    launcher_prefix_candidates(bottle.path, "hoyoplay").some((prefixPath) =>
-      existsSync(path.join(prefixPath, "_bdih_installers", "HoYoPlaySetup.exe")),
-    )
+    is_launcher_installer_downloaded(bottle.path, "hoyoplay", "HoYoPlaySetup.exe")
   ) {
     tasks.hoyoplay = {
-      stage: "ready",
+      stage: "downloaded",
       progress: 100,
       message: "HoYoPlay installer is downloaded.",
     };
   }
 
   return Object.keys(tasks).length > 0 ? tasks : undefined;
+}
+
+function is_launcher_installer_downloaded(
+  bottlePath: string,
+  launcher: BottleLauncherKind,
+  fileName: string,
+): boolean {
+  const expandedBottlePath = expand_user_home_path(bottlePath);
+  const cacheInstallerPath = path.join(expandedBottlePath, ".cache", "installers", launcher, fileName);
+
+  return existsSync(cacheInstallerPath) ||
+    launcher_prefix_candidates(expandedBottlePath, launcher).some((prefixPath) =>
+      existsSync(path.join(prefixPath, "_bdih_installers", fileName)),
+    );
 }
 
 function merge_launcher_download_tasks(
@@ -2022,7 +2074,7 @@ function app_source_or_default(value: unknown): InstalledBottleAppPayload["sourc
 }
 
 function bottle_task_stage_or_default(value: unknown): BottleTaskStage {
-  return value === "setup" || value === "dxmt" || value === "download" || value === "install" || value === "error"
+  return value === "setup" || value === "dxmt" || value === "download" || value === "downloaded" || value === "install" || value === "error"
     ? value
     : "ready";
 }

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { FolderOpen, Keyboard, MonitorCog, RotateCcw, Save, Trash2, Wine } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
+import { BDIH_DISCORD_URL, BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
 import { AppUpdateStatusPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
 import { I18N_RESOURCES } from "../../I18n/Resources";
 import { AppUpdatePanel } from "../../Component/AppUpdatePanel";
@@ -42,6 +42,7 @@ export interface PreferenceViewProps {
   appUpdateStatus?: AppUpdateStatusPayload;
   developerSiteUrl?: string;
   developerGitHubUrl?: string;
+  developerDiscordUrl?: string;
   developerYouTubeUrl?: string;
   isDeveloperOnAir?: boolean;
   initialCategory?: PreferenceCategory;
@@ -389,6 +390,7 @@ export function PreferenceView({
   appUpdateStatus,
   developerSiteUrl = BDIH_SITE_URL,
   developerGitHubUrl = BDIH_GITHUB_URL,
+  developerDiscordUrl = BDIH_DISCORD_URL,
   developerYouTubeUrl = BDIH_YOUTUBE_URL,
   isDeveloperOnAir = false,
   initialCategory = "general",
@@ -618,6 +620,7 @@ export function PreferenceView({
             <DeveloperLinkGroup
               siteUrl={developerSiteUrl}
               githubUrl={developerGitHubUrl}
+              discordUrl={developerDiscordUrl}
               youtubeUrl={developerYouTubeUrl}
               isYouTubeOnAir={isDeveloperOnAir}
             />

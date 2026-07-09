@@ -13,7 +13,7 @@ export const ZZZ_HOYO_GAME_PROFILE = {
   launchRoutine: {
     mode: "steam-stub",
     defaultLaunchOptions: {
-      enableMsync: true,
+      enableMsync: false,
       enableTimeoutFix: true,
       networkGate: false,
     },
@@ -33,7 +33,7 @@ export const ZZZ_HOYO_GAME_PROFILE = {
       label: "Wine msync",
       type: "boolean",
       envName: "WINEMSYNC",
-      defaultValue: true,
+      defaultValue: false,
     },
   ],
 } satisfies HoyoGameProfile;

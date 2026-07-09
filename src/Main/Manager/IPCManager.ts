@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { readdir, rm } from "fs/promises";
 import os from "os";
 import path from "path";
-import { DeleteBottleAppPayload, DeleteBottleAppResultPayload, DeleteBottlePayload, DeleteBottlePrefixPayload, DeleteBottlePrefixResultPayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, DxmtDeletePayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, JadeiteDeletePayload, JadeiteInstallPayload, LauncherDataDeleteTarget, LauncherPreferencePatch, LocaleResourcesPayload, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RendererLogPayload, RosettaStatusPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, RuntimeDeleteResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload, WineDeletePayload } from "../../Common/Types/IPC";
+import { ApplyBottleRecipePayload, DeleteBottleAppPayload, DeleteBottleAppResultPayload, DeleteBottlePayload, DeleteBottlePrefixPayload, DeleteBottlePrefixResultPayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, DownloadBottleLauncherInstallerPayload, DxmtDeletePayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, JadeiteDeletePayload, JadeiteInstallPayload, LauncherDataDeleteTarget, LauncherPreferencePatch, LocaleResourcesPayload, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RendererLogPayload, RosettaStatusPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, RuntimeDeleteResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload, WineDeletePayload } from "../../Common/Types/IPC";
 import {
   get_bottle_registry_path,
   get_default_bottle_prefix_path,
@@ -27,6 +27,7 @@ import { windowManager, WindowManager } from "./WindowManager";
 import { wineManager, WineManager } from "./WineManager";
 import { youtubeManager, YouTubeManager } from "./YouTubeManager";
 import { rosettaManager, RosettaManager } from "./RosettaManager";
+import { send_to_web_contents } from "../Util/SafeWebContents";
 
 /**
  * Owns every Electron IPC boundary used by the launcher.
@@ -202,6 +203,28 @@ export class IPCManager {
       },
     );
 
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.APPLY_RECIPE.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.APPLY_RECIPE.channelName,
+      async (event, request: ApplyBottleRecipePayload) => {
+        const result = await this.bottleExecutions.applyRecipe(request, event.sender);
+
+        this.bottles.clearCache();
+        return result;
+      },
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.DOWNLOAD_LAUNCHER_INSTALLER.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.DOWNLOAD_LAUNCHER_INSTALLER.channelName,
+      async (event, request: DownloadBottleLauncherInstallerPayload) => {
+        const result = await this.bottleExecutions.downloadLauncherInstaller(request, event.sender);
+
+        this.bottles.clearCache();
+        return result;
+      },
+    );
+
     ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.INSTALL_LAUNCHER.channelName);
     ipcMain.handle(
       IPC_CHANNELS.BOTTLE.INSTALL_LAUNCHER.channelName,
@@ -319,7 +342,7 @@ export class IPCManager {
         return;
       }
 
-      window.webContents.send(IPC_CHANNELS.APP.LOG_UPDATE.channelName, entry);
+      send_to_web_contents(window.webContents, IPC_CHANNELS.APP.LOG_UPDATE.channelName, entry);
     });
   }
 

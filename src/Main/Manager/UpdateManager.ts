@@ -5,6 +5,7 @@ import {
   IPC_CHANNELS,
 } from "../../Common/Types/IPC";
 import { logManager } from "./LogManager";
+import { send_to_web_contents } from "../Util/SafeWebContents";
 
 interface UpdateInfoLike {
   version?: string;
@@ -144,10 +145,7 @@ export class UpdateManager {
 
   private emitStatus(payload: AppUpdateStatusPayload): void {
     this.logger.info(payload.status, payload.message ?? "");
-    this.window?.webContents.send(
-      IPC_CHANNELS.APP.UPDATE_STATUS.channelName,
-      payload,
-    );
+    send_to_web_contents(this.window?.webContents, IPC_CHANNELS.APP.UPDATE_STATUS.channelName, payload);
   }
 
   private describeError(error: unknown): string {

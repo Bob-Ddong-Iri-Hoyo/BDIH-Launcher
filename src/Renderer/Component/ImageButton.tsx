@@ -44,6 +44,7 @@ export interface ImageButtonProps {
   imageSize?: ImageButtonImageSize;
   isActive?: boolean;
   isRunning?: boolean;
+  isLaunching?: boolean;
   hasError?: boolean;
   className?: string;
   onClick?: () => void;
@@ -71,6 +72,7 @@ export function ImageButton({
   imageSize,
   isActive = false,
   isRunning = false,
+  isLaunching = false,
   hasError = false,
   className = "",
   onClick,
@@ -86,12 +88,14 @@ export function ImageButton({
   const resolvedBorder = border ?? image_button_default_border(preset);
   const resolvedImageShape = imageShape ?? image_button_default_image_shape(preset);
   const resolvedImageSize = imageSize ?? image_button_default_image_size(preset);
+  const isBusy = isRunning || isLaunching;
 
   return (
     <Button
       variant="ghost"
       size="md"
-      onClick={onClick}
+      disabled={isLaunching}
+      onClick={isBusy ? undefined : onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onMouseMove={onMouseHover}
@@ -101,7 +105,8 @@ export function ImageButton({
         presetClass,
         image_button_radius_class(resolvedRadius),
         image_button_border_class(resolvedBorder),
-        image_button_tone({ preset, isActive, isRunning, hasError }),
+        image_button_tone({ preset, isActive, isRunning, isLaunching, hasError }),
+        isBusy && "cursor-default",
         className,
       )}
       aria-label={`${name} ${resolvedActionLabel}`}
@@ -113,9 +118,10 @@ export function ImageButton({
           "relative",
           image_frame_spacing_class(preset),
           "transition-transform duration-150 ease-out group-hover:scale-[1.04]",
-          !isRunning && "group-hover:blur-[1.5px]",
-          image_frame_tone({ isRunning, hasError }),
+          !isBusy && "group-hover:blur-[1.5px]",
+          image_frame_tone({ isRunning, isLaunching, hasError }),
           isRunning && "running-app-icon-frame",
+          isLaunching && "animate-pulse",
         )}
       >
         <AppImage src={src} name={name} />
@@ -134,12 +140,18 @@ export function ImageButton({
           {t("main.appContext.running")}
         </Inline>
       ) : null}
+      {preset === "desktop" && isLaunching ? (
+        <Inline className="mt-1 items-center rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-semibold text-sky-200 ring-1 ring-sky-200/20">
+          <RunningBeacon />
+          {t("main.appContext.launching")}
+        </Inline>
+      ) : null}
       {preset === "desktop" && hasError ? (
         <InlineText className="mt-1 rounded-full bg-red-400/15 px-2 py-0.5 text-[10px] font-semibold text-red-200">
           {t("main.appContext.launchFailed")}
         </InlineText>
       ) : null}
-      <ActionOverlay isRunning={isRunning} actionLabel={resolvedActionLabel} />
+      <ActionOverlay isRunning={isBusy} actionLabel={isLaunching ? t("main.appContext.launching") : resolvedActionLabel} />
     </Button>
   );
 }
@@ -300,17 +312,23 @@ function image_frame_spacing_class(preset: ImageButtonPreset): string {
 function image_button_tone({
   isActive,
   isRunning,
+  isLaunching,
   hasError,
   preset,
 }: {
   preset: ImageButtonPreset;
   isActive: boolean;
   isRunning: boolean;
+  isLaunching: boolean;
   hasError: boolean;
 }) {
   if (preset === "desktop") {
     if (isRunning) {
       return "bg-transparent text-white hover:bg-white/[0.045]";
+    }
+
+    if (isLaunching) {
+      return "bg-transparent text-sky-100 hover:bg-sky-500/[0.06]";
     }
 
     if (hasError) {
@@ -341,13 +359,19 @@ function image_button_tone({
 
 function image_frame_tone({
   isRunning,
+  isLaunching,
   hasError,
 }: {
   isRunning: boolean;
+  isLaunching: boolean;
   hasError: boolean;
 }) {
   if (isRunning) {
     return "ring-emerald-300/60 shadow-[0_0_32px_rgba(16,185,129,0.34)]";
+  }
+
+  if (isLaunching) {
+    return "ring-sky-300/55 shadow-[0_0_28px_rgba(56,189,248,0.24)]";
   }
 
   if (hasError) {

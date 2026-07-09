@@ -6,11 +6,13 @@ import os from "os";
 import path from "path";
 import { HOYOPLAY_WINDOWS_INSTALLER_URL, STEAM_WEBHELPER_ARGUMENTS, STEAM_WINDOWS_INSTALLER_URL } from "../../Common/Constant/RuntimeSources";
 import {
+  ApplyBottleRecipePayload,
   BottleLaunchOptionsPayload,
   BottleLauncherKind,
   BottlePrefixSessionPayload,
   BottleTaskResultPayload,
   BottleTaskStatusPayload,
+  DownloadBottleLauncherInstallerPayload,
   IPC_CHANNELS,
   InstallBottleLauncherPayload,
   RunBottleExecutablePayload,
@@ -43,6 +45,7 @@ import { wineOverseer } from "./WineOverseer";
 import type { HoyoOverseerEvent } from "./WineOverseer";
 import { bottleManager } from "./BottleManager";
 import { get_hoyo_game_profile, type HoyoGameProfile } from "../Data/Hoyoverse/HoyoGameProfile";
+import { send_to_web_contents } from "../Util/SafeWebContents";
 
 const LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS = 10 * 60 * 1000;
 const LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS = 1000;
@@ -59,12 +62,25 @@ interface PrefixSession {
   processId: string;
   launcher?: BottleLauncherKind;
   appId?: string;
+  appIds?: Set<string>;
   appName?: string;
   wineRuntimePath?: string;
   startedAt: string;
   sender?: WebContents;
   waiter?: ParamRunProgramReturn;
   ended: boolean;
+}
+
+interface LauncherInstallerProcess {
+  processId: string;
+  prefixSessionProcessId: string;
+  done: Promise<number>;
+}
+
+interface LauncherExecutableWaitResult {
+  detectedPath?: string;
+  message?: string;
+  error?: string;
 }
 
 /**
@@ -201,29 +217,113 @@ export class BottleExecutionManager {
     }
   }
 
+  async applyRecipe(
+    request: ApplyBottleRecipePayload,
+    sender?: WebContents,
+  ): Promise<BottleTaskResultPayload> {
+    const bottlePath = expand_user_home_path(request.bottlePath);
+
+    try {
+      const wineCommand = resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wine64");
+      const shouldPrepareDxmt = should_prepare_dxmt_runtime(request);
+
+      if (shouldPrepareDxmt) {
+        validate_dxmt_runtime(request.dxmtVersionId, request.dxmtPackagePath);
+      }
+
+      mkdirSync(bottlePath, { recursive: true });
+      this.sendStatus(sender, {
+        bottleId: request.bottleId,
+        stage: "setup",
+        progress: 28,
+        message: "Applying bottle recipe runtime metadata.",
+      });
+      write_bottle_runtime_metadata(request, bottlePath);
+
+      if (shouldPrepareDxmt) {
+        this.sendStatus(sender, {
+          bottleId: request.bottleId,
+          stage: "dxmt",
+          progress: 42,
+          message: "Preparing DXMT runtime cache.",
+        });
+
+        const dxmtRuntimePath = await resolve_dxmt_runtime_dir(
+          request.dxmtPackagePath,
+          request.dxmtVersionId,
+          bottlePath,
+          this.logger,
+        );
+
+        this.sendStatus(sender, {
+          bottleId: request.bottleId,
+          stage: "dxmt",
+          progress: 58,
+          message: "Preparing bottle shared DXMT Wine runtime.",
+        });
+
+        await prepare_bottle_builtin_dxmt_wine_runtime({
+          request,
+          bottlePath,
+          wineCommand,
+          dxmtRuntimePath,
+          logger: this.logger,
+        });
+
+        const prefixPaths = find_existing_bottle_prefix_paths(bottlePath);
+
+        this.sendStatus(sender, {
+          bottleId: request.bottleId,
+          stage: "dxmt",
+          progress: 74,
+          message: prefixPaths.length > 0
+            ? `Updating DXMT files in ${prefixPaths.length} existing prefix${prefixPaths.length === 1 ? "" : "es"}.`
+            : "No existing prefixes need DXMT updates.",
+        });
+
+        for (const prefixPath of prefixPaths) {
+          prepare_prefix_dxmt_runtime_files({
+            dxmtRuntimePath,
+            prefixPath,
+          });
+        }
+      }
+
+      this.sendStatus(sender, {
+        bottleId: request.bottleId,
+        stage: "ready",
+        progress: 100,
+        message: "Bottle recipe was applied.",
+      });
+
+      return { ok: true, refreshBottles: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.sendStatus(sender, {
+        bottleId: request.bottleId,
+        stage: "error",
+        progress: 0,
+        message,
+      });
+
+      return {
+        ok: false,
+        error: message,
+      };
+    }
+  }
+
   async installLauncher(
     request: InstallBottleLauncherPayload,
     sender?: WebContents,
   ): Promise<BottleTaskResultPayload> {
     try {
       const bottlePath = expand_user_home_path(request.bottlePath);
-
-      if (!is_wine_prefix_ready(bottlePath)) {
-        const setupResult = await this.setupPrefix(request, sender);
-
-        if (!setupResult.ok) {
-          throw new Error(setupResult.error || "Bottle prefix setup failed.");
-        }
-      } else {
-        this.trackWinePrefix(request);
-      }
-
       const installer = get_launcher_installer(request.launcher);
-      const installerDir = path.join(bottlePath, "_bdih_installers");
-      const installerPath = path.join(installerDir, installer.fileName);
-      const installerMetadataPath = `${installerPath}.bdih.json`;
+      const { installerDir, installerPath, installerMetadataPath } = get_launcher_installer_cache_paths(request.bottlePath, request.launcher);
 
       mkdirSync(installerDir, { recursive: true });
+      copy_legacy_launcher_installer_if_present(bottlePath, installerPath, installer.fileName);
       this.sendStatus(sender, {
         bottleId: request.bottleId,
         launcher: request.launcher,
@@ -260,12 +360,10 @@ export class BottleExecutionManager {
         this.sendStatus(sender, {
           bottleId: request.bottleId,
           launcher: request.launcher,
-          stage: "ready",
-          progress: 100,
-          message: `${installer.label} installer downloaded. Click again to start it in Wine.`,
+          stage: "install",
+          progress: 8,
+          message: `${installer.label} installer downloaded. Starting in Wine.`,
         });
-
-        return { ok: true, refreshBottles: false };
       } else {
         this.sendStatus(sender, {
           bottleId: request.bottleId,
@@ -276,6 +374,16 @@ export class BottleExecutionManager {
         });
       }
 
+      if (!is_wine_prefix_ready(bottlePath)) {
+        const setupResult = await this.setupPrefix(request, sender);
+
+        if (!setupResult.ok) {
+          throw new Error(setupResult.error || "Bottle prefix setup failed.");
+        }
+      } else {
+        this.trackWinePrefix(request);
+      }
+
       this.sendStatus(sender, {
         bottleId: request.bottleId,
         launcher: request.launcher,
@@ -284,20 +392,120 @@ export class BottleExecutionManager {
         message: `${installer.label} installer is starting in Wine.`,
       });
 
-      await this.launchInstallerExecutable(request, installerPath, installer.label, sender);
-      const detectedExecutablePath = await this.waitForInstalledLauncherExecutable(request, installer.label, sender);
+      const installerProcess = await this.launchInstallerExecutable(request, installerPath, installer.label, sender);
+      const waitResult = await this.waitForInstalledLauncherExecutable(request, installer.label, sender, installerProcess.done);
+      const detectedExecutablePath = waitResult.detectedPath;
+      const finalStage = detectedExecutablePath ? "ready" : "downloaded";
+      const finalMessage = detectedExecutablePath
+        ? `${installer.label} executable detected. App metadata will refresh shortly.`
+        : waitResult.message ?? `${installer.label} installer launched, but the launcher executable was not detected yet.`;
+
+      if (!detectedExecutablePath) {
+        this.finishPrefixSessionByProcessId(installerProcess.prefixSessionProcessId, waitResult.error);
+      }
 
       this.sendStatus(sender, {
         bottleId: request.bottleId,
         launcher: request.launcher,
-        stage: "ready",
+        stage: finalStage,
         progress: 100,
-        message: detectedExecutablePath
-          ? `${installer.label} executable detected. App metadata will refresh shortly.`
-          : `${installer.label} installer launched, but the launcher executable was not detected yet.`,
+        message: finalMessage,
+      });
+      await bottleManager.updateBottleLauncherTask({
+        bottleId: request.bottleId,
+        bottlePath: infer_bottle_root_from_launcher_prefix_path(request.bottlePath, request.launcher),
+        launcher: request.launcher,
+        task: {
+          stage: finalStage,
+          progress: 100,
+          message: finalMessage,
+        },
       });
 
       return { ok: true, refreshBottles: Boolean(detectedExecutablePath) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.sendStatus(sender, {
+        bottleId: request.bottleId,
+        launcher: request.launcher,
+        stage: "error",
+        progress: 0,
+        message,
+      });
+
+      return {
+        ok: false,
+        error: message,
+      };
+    }
+  }
+
+  async downloadLauncherInstaller(
+    request: DownloadBottleLauncherInstallerPayload,
+    sender?: WebContents,
+  ): Promise<BottleTaskResultPayload> {
+    try {
+      const installer = get_launcher_installer(request.launcher);
+      const { installerDir, installerPath, installerMetadataPath } = get_launcher_installer_cache_paths(request.bottlePath, request.launcher);
+
+      mkdirSync(installerDir, { recursive: true });
+      copy_legacy_launcher_installer_if_present(expand_user_home_path(request.bottlePath), installerPath, installer.fileName);
+      this.sendStatus(sender, {
+        bottleId: request.bottleId,
+        launcher: request.launcher,
+        stage: "download",
+        progress: 1,
+        message: `${installer.label} download started.`,
+      });
+
+      const downloadPlan = await resolve_installer_download_plan(
+        request.launcher,
+        installer.url,
+        installerPath,
+        installerMetadataPath,
+      );
+
+      if (downloadPlan.shouldDownload) {
+        if (existsSync(installerPath)) {
+          rmSync(installerPath, { force: true });
+        }
+
+        await this.downloadInstaller(
+          request.bottleId,
+          request.launcher,
+          installer.url,
+          installerDir,
+          installer.fileName,
+          sender,
+        );
+        write_installer_metadata(installerMetadataPath, {
+          url: installer.url,
+          remoteSignature: downloadPlan.remoteSignature,
+          downloadedAt: new Date().toISOString(),
+        });
+      }
+
+      const downloadedMessage = `${installer.label} installer is downloaded.`;
+
+      this.sendStatus(sender, {
+        bottleId: request.bottleId,
+        launcher: request.launcher,
+        stage: "downloaded",
+        progress: 100,
+        message: downloadedMessage,
+      });
+      await bottleManager.updateBottleLauncherTask({
+        bottleId: request.bottleId,
+        bottlePath: infer_bottle_root_from_launcher_prefix_path(request.bottlePath, request.launcher),
+        launcher: request.launcher,
+        task: {
+          stage: "downloaded",
+          progress: 100,
+          message: downloadedMessage,
+        },
+      });
+
+      return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.sendStatus(sender, {
@@ -440,6 +648,21 @@ export class BottleExecutionManager {
     let effectiveWineRuntimePath = request.wineRuntimePath;
     let effectiveLauncherOptionsManifest = launcherOptionsManifest;
 
+    await ensure_prefix_dxmt_runtime_files(request, bottlePath, appLogger);
+
+    const builtinDxmtWineRuntime = await prepare_steam_builtin_dxmt_wine_runtime({
+      request,
+      bottlePath,
+      wineCommand: effectiveWineCommand,
+      logger: appLogger,
+    });
+
+    if (builtinDxmtWineRuntime) {
+      effectiveWineCommand = builtinDxmtWineRuntime.wineCommand;
+      effectiveWineRuntimePath = builtinDxmtWineRuntime.wineRoot;
+      effectiveLauncherOptionsManifest = builtinDxmtWineRuntime.launcherOptionsManifest ?? effectiveLauncherOptionsManifest;
+    }
+
     const env = create_wine_environment(
       bottlePath,
       preference.debugFlagMode,
@@ -450,8 +673,6 @@ export class BottleExecutionManager {
     );
 
     apply_launch_options_to_env(env, launchOptions);
-
-    await ensure_prefix_dxmt_runtime_files(request, bottlePath, appLogger);
 
     const supportsSteamWebHelperArgs = is_launch_option_supported_by_manifest("steamWebHelperArgs", effectiveLauncherOptionsManifest);
 
@@ -509,12 +730,12 @@ export class BottleExecutionManager {
             appLogger.info("bottle app executable exited", { processId, code });
           }
 
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
           appLogger.error("bottle app executable failed", { processId, error: message });
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
         },
       );
       appLogger.info("bottle app executable started", {
@@ -552,6 +773,19 @@ export class BottleExecutionManager {
       }
 
       if (typeof earlyExit?.code === "number") {
+        if (earlyExit.code === 0 && launcherSessionKind === "steam" && prefixSessionProcessId) {
+          appLogger.info("Steam launch command handed off to prefix session", {
+            processId,
+            prefixSessionProcessId,
+            code: earlyExit.code,
+          });
+
+          return {
+            ok: true,
+            processId: prefixSessionProcessId,
+          };
+        }
+
         return {
           ok: false,
           error: earlyExit.code === 0
@@ -659,7 +893,7 @@ export class BottleExecutionManager {
             appLogger.info("HoYoPlay overseer exited", { processId, code });
           }
 
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
             processId: prefixSessionProcessId || processId,
             code,
             error: exitError,
@@ -670,7 +904,7 @@ export class BottleExecutionManager {
             processId,
             error: error.message,
           });
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
             processId: prefixSessionProcessId || processId,
             error: error.message,
           });
@@ -789,7 +1023,7 @@ export class BottleExecutionManager {
         : await this.runHoyoGenshinExecutable(strategyContext, sender);
 
     if (!result.ok) {
-      sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
+      send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
         processId: `overseer-event:${context.request.bottleId}:${event.game}:${Date.now().toString(36)}`,
         error: result.error ?? `${appName} launch failed.`,
       });
@@ -881,12 +1115,12 @@ export class BottleExecutionManager {
     try {
       const bottleRootPath = infer_hoyo_bottle_root_path(receivedPrefixPath);
       const runtimeRequest = request_with_bottle_runtime_lock(request, bottleRootPath);
-      const effectiveWineCommand = resolve_required_wine_tool(
+      let effectiveWineCommand = resolve_required_wine_tool(
         runtimeRequest.wineVersionId,
         runtimeRequest.wineRuntimePath,
         "wine64",
       );
-      const wineRoot = resolve_wine_runtime_root(runtimeRequest.wineRuntimePath, effectiveWineCommand);
+      let wineRoot = resolve_wine_runtime_root(runtimeRequest.wineRuntimePath, effectiveWineCommand);
 
       assert_hoyo_overseer_supported_wine(runtimeRequest.wineRuntimePath, wineRoot);
 
@@ -897,6 +1131,16 @@ export class BottleExecutionManager {
         bottleRootPath,
         appLogger,
       );
+      const builtinDxmtWineRuntime = await prepare_hoyo_builtin_dxmt_wine_runtime({
+        request: runtimeRequest,
+        bottleRootPath,
+        wineCommand: effectiveWineCommand,
+        dxmtRuntimePath,
+        logger: appLogger,
+      });
+
+      effectiveWineCommand = builtinDxmtWineRuntime.wineCommand;
+      wineRoot = builtinDxmtWineRuntime.wineRoot;
       const effectiveRequest = { ...runtimeRequest, wineRuntimePath: wineRoot };
 
       const gameWinPath = wine_z_path(gameHostPath);
@@ -909,12 +1153,13 @@ export class BottleExecutionManager {
         preference.wineDebugArgs,
         effectiveRequest.wineRuntimePath,
       );
-      const zzzLaunchOptions = {
-        enableMsync: true,
-        enableTimeoutFix: true,
-        ...gameProfile.launchRoutine.defaultLaunchOptions,
-        ...launchOptions,
-      };
+      const zzzLaunchOptions = merge_defined_launch_options(
+        {
+          enableTimeoutFix: true,
+          ...gameProfile.launchRoutine.defaultLaunchOptions,
+        },
+        launchOptions,
+      );
       const executableArgs = request.executableArgs ?? gameProfile.launchRoutine.defaultExecutableArgs ?? [];
 
       apply_launch_options_to_env(env, zzzLaunchOptions);
@@ -929,7 +1174,7 @@ export class BottleExecutionManager {
         GAME_WIN: gameWinPath,
         WINEDLLOVERRIDES: env.WINEDLLOVERRIDES ?? "",
         WINE_ENABLE_TIMEOUT_FIX: env.WINE_ENABLE_TIMEOUT_FIX ?? "1",
-        WINEMSYNC: env.WINEMSYNC ?? "1",
+        WINEMSYNC: env.WINEMSYNC ?? "0",
         DXMT_LOG_PATH: env.DXMT_LOG_PATH ?? dataRootPath,
         GST_PLUGIN_FEATURE_RANK: env.GST_PLUGIN_FEATURE_RANK ?? "atdec:MAX,avdec_h264:MAX",
         WINE_ENABLE_DISCONNECT: env.WINE_ENABLE_DISCONNECT ?? "0",
@@ -1028,12 +1273,12 @@ export class BottleExecutionManager {
             appLogger.info("HoYo ZZZ executable exited", { processId, code });
           }
 
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
           appLogger.error("HoYo ZZZ executable failed", { processId, error: message });
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
         },
       );
       appLogger.info("HoYo ZZZ executable started with Steam stub route", {
@@ -1145,12 +1390,12 @@ export class BottleExecutionManager {
     try {
       const bottleRootPath = infer_hoyo_bottle_root_path(receivedPrefixPath);
       const runtimeRequest = request_with_bottle_runtime_lock(request, bottleRootPath);
-      const effectiveWineCommand = resolve_required_wine_tool(
+      let effectiveWineCommand = resolve_required_wine_tool(
         runtimeRequest.wineVersionId,
         runtimeRequest.wineRuntimePath,
         "wine64",
       );
-      const wineRoot = resolve_wine_runtime_root(runtimeRequest.wineRuntimePath, effectiveWineCommand);
+      let wineRoot = resolve_wine_runtime_root(runtimeRequest.wineRuntimePath, effectiveWineCommand);
 
       assert_hoyo_overseer_supported_wine(runtimeRequest.wineRuntimePath, wineRoot);
 
@@ -1161,6 +1406,16 @@ export class BottleExecutionManager {
         bottleRootPath,
         appLogger,
       );
+      const builtinDxmtWineRuntime = await prepare_hoyo_builtin_dxmt_wine_runtime({
+        request: runtimeRequest,
+        bottleRootPath,
+        wineCommand: effectiveWineCommand,
+        dxmtRuntimePath,
+        logger: appLogger,
+      });
+
+      effectiveWineCommand = builtinDxmtWineRuntime.wineCommand;
+      wineRoot = builtinDxmtWineRuntime.wineRoot;
       const effectiveRequest = { ...runtimeRequest, wineRuntimePath: wineRoot };
 
       const gameWinPath = wine_z_path(gameHostPath);
@@ -1176,10 +1431,10 @@ export class BottleExecutionManager {
         preference.wineDebugArgs,
         effectiveRequest.wineRuntimePath,
       );
-      const hsrLaunchOptions = {
-        ...gameProfile.launchRoutine.defaultLaunchOptions,
-        ...launchOptions,
-      };
+      const hsrLaunchOptions = merge_defined_launch_options(
+        gameProfile.launchRoutine.defaultLaunchOptions,
+        launchOptions,
+      );
 
       apply_launch_options_to_env(env, hsrLaunchOptions);
       Object.assign(env, {
@@ -1195,7 +1450,7 @@ export class BottleExecutionManager {
         WINE_ENABLE_TIMEOUT_FIX: env.WINE_ENABLE_TIMEOUT_FIX ?? "1",
         WINE_ENABLE_DISCONNECT: env.WINE_ENABLE_DISCONNECT ?? "1",
         WINE_HOYO_DISCONNECT_SECONDS: env.WINE_HOYO_DISCONNECT_SECONDS ?? "15",
-        WINEMSYNC: env.WINEMSYNC ?? "1",
+        WINEMSYNC: env.WINEMSYNC ?? "0",
         DXMT_LOG_PATH: env.DXMT_LOG_PATH ?? dataRootPath,
         DXMT_CONFIG: env.DXMT_CONFIG ?? gameProfile.launchRoutine.dxmtConfig,
         DXMT_ENABLE_NVEXT: env.DXMT_ENABLE_NVEXT ?? (gameProfile.launchRoutine.dxmtEnableNvExt ? "1" : "0"),
@@ -1337,12 +1592,12 @@ export class BottleExecutionManager {
             appLogger.info("HoYo Star Rail executable exited", { processId, code });
           }
 
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
           appLogger.error("HoYo Star Rail executable failed", { processId, error: message });
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
         },
       );
       appLogger.info("HoYo Star Rail executable started with Jadeite", {
@@ -1448,12 +1703,12 @@ export class BottleExecutionManager {
     try {
       const bottleRootPath = infer_hoyo_bottle_root_path(receivedPrefixPath);
       const runtimeRequest = request_with_bottle_runtime_lock(request, bottleRootPath);
-      const effectiveWineCommand = resolve_required_wine_tool(
+      let effectiveWineCommand = resolve_required_wine_tool(
         runtimeRequest.wineVersionId,
         runtimeRequest.wineRuntimePath,
         "wine64",
       );
-      const wineRoot = resolve_wine_runtime_root(runtimeRequest.wineRuntimePath, effectiveWineCommand);
+      let wineRoot = resolve_wine_runtime_root(runtimeRequest.wineRuntimePath, effectiveWineCommand);
 
       assert_hoyo_overseer_supported_wine(runtimeRequest.wineRuntimePath, wineRoot);
 
@@ -1464,6 +1719,16 @@ export class BottleExecutionManager {
         bottleRootPath,
         appLogger,
       );
+      const builtinDxmtWineRuntime = await prepare_hoyo_builtin_dxmt_wine_runtime({
+        request: runtimeRequest,
+        bottleRootPath,
+        wineCommand: effectiveWineCommand,
+        dxmtRuntimePath,
+        logger: appLogger,
+      });
+
+      effectiveWineCommand = builtinDxmtWineRuntime.wineCommand;
+      wineRoot = builtinDxmtWineRuntime.wineRoot;
       const effectiveRequest = { ...runtimeRequest, wineRuntimePath: wineRoot };
 
       const gameWinPath = wine_z_path(gameHostPath);
@@ -1478,8 +1743,10 @@ export class BottleExecutionManager {
       );
 
       const genshinLaunchOptions = {
-        ...gameProfile.launchRoutine.defaultLaunchOptions,
-        ...launchOptions,
+        ...merge_defined_launch_options(
+          gameProfile.launchRoutine.defaultLaunchOptions,
+          launchOptions,
+        ),
         enableMsync: false,
         enableTimeoutFix: false,
         networkGate: false,
@@ -1622,12 +1889,12 @@ export class BottleExecutionManager {
             appLogger.info("HoYo Genshin executable exited", { processId, code });
           }
 
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
           appLogger.error("HoYo Genshin executable failed", { processId, error: message });
-          sender?.send(IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
+          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
         },
       );
       appLogger.info("HoYo Genshin executable started", {
@@ -1748,7 +2015,7 @@ export class BottleExecutionManager {
     executablePath: string,
     installerLabel: string,
     sender?: WebContents,
-  ): Promise<void> {
+  ): Promise<LauncherInstallerProcess> {
     const bottlePath = expand_user_home_path(request.bottlePath);
     const appName = `${installerLabel} Installer`;
     const appLogFileName = create_wine_app_log_file_name(request.bottleName, appName, request.bottleId, `installer:${request.launcher}`);
@@ -1781,7 +2048,7 @@ export class BottleExecutionManager {
       delete env.DXMT_ENABLE_NVEXT;
       delete env.DXMT_LOG_LEVEL;
       delete env.DXMT_LOG_PATH;
-      env.WINEMSYNC = env.WINEMSYNC ?? "1";
+      delete env.WINEMSYNC;
     }
 
     if (request.launcher === "hoyoplay") {
@@ -1817,12 +2084,11 @@ export class BottleExecutionManager {
       onLog: (data) => appLogger.info("stdout", data.trim()),
       onError: (data) => appLogger.warn("stderr", data.trim()),
     });
-    this.startPrefixSession(
+    const prefixSessionProcessId = this.startPrefixSession(
       request,
       {
-        launcher: request.launcher,
-        appId: request.launcher,
-        appName: installerLabel,
+        appId: `installer:${request.launcher}`,
+        appName,
       },
       sender,
     );
@@ -1858,17 +2124,33 @@ export class BottleExecutionManager {
       path.basename(executablePath),
       path.basename(executablePath).replace(/\.exe$/i, ""),
     ]);
+
+    return {
+      processId,
+      prefixSessionProcessId,
+      done: process.done,
+    };
   }
 
   private async waitForInstalledLauncherExecutable(
     request: InstallBottleLauncherPayload,
     installerLabel: string,
     sender?: WebContents,
-  ): Promise<string | undefined> {
+    installerDone?: Promise<number>,
+  ): Promise<LauncherExecutableWaitResult> {
     const bottlePath = expand_user_home_path(request.bottlePath);
     const candidates = launcher_executable_candidates(request.launcher, bottlePath);
     const startedAt = Date.now();
     let lastProgressUpdate = 0;
+    let installerExit: { code?: number; error?: string } | undefined;
+    const installerDoneState = installerDone?.then(
+      (code) => {
+        installerExit = { code };
+      },
+      (error) => {
+        installerExit = { error: error instanceof Error ? error.message : String(error) };
+      },
+    );
 
     while (Date.now() - startedAt < LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS) {
       const detectedPath = candidates.find((candidatePath) => existsSync(candidatePath));
@@ -1881,7 +2163,28 @@ export class BottleExecutionManager {
           progress: 96,
           message: `${installerLabel} executable detected: ${detectedPath}`,
         });
-        return detectedPath;
+        return { detectedPath };
+      }
+
+      if (installerExit) {
+        const message = installerExit.error
+          ? `${installerLabel} installer closed with error: ${installerExit.error}`
+          : installerExit.code && installerExit.code !== 0
+            ? `${installerLabel} installer exited with code ${installerExit.code}.`
+            : `${installerLabel} installer was closed before the launcher executable was detected.`;
+
+        this.sendStatus(sender, {
+          bottleId: request.bottleId,
+          launcher: request.launcher,
+          stage: "downloaded",
+          progress: 100,
+          message,
+        });
+
+        return {
+          message,
+          error: installerExit.error,
+        };
       }
 
       const elapsedMs = Date.now() - startedAt;
@@ -1897,7 +2200,10 @@ export class BottleExecutionManager {
         });
       }
 
-      await delay(LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS);
+      await Promise.race([
+        delay(LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS),
+        installerDoneState ?? delay(LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS),
+      ]);
     }
 
     this.sendStatus(sender, {
@@ -1908,7 +2214,9 @@ export class BottleExecutionManager {
       message: `${installerLabel} installer was launched, but the executable was not detected yet.`,
     });
 
-    return undefined;
+    return {
+      message: `${installerLabel} installer was launched, but the executable was not detected yet.`,
+    };
   }
 
   async stopAllWineProcesses(): Promise<void> {
@@ -2014,6 +2322,10 @@ export class BottleExecutionManager {
       existingSession.sender = sender ?? existingSession.sender;
       existingSession.launcher = context.launcher ?? existingSession.launcher;
       existingSession.appId = context.appId ?? existingSession.appId;
+      if (context.appId) {
+        existingSession.appIds = existingSession.appIds ?? new Set<string>();
+        existingSession.appIds.add(context.appId);
+      }
       existingSession.appName = context.appName ?? existingSession.appName;
       this.sendPrefixSessionUpdate(existingSession, true);
       return existingSession.processId;
@@ -2027,6 +2339,7 @@ export class BottleExecutionManager {
       processId,
       launcher: context.launcher,
       appId: context.appId,
+      appIds: context.appId ? new Set([context.appId]) : undefined,
       appName: context.appName,
       wineRuntimePath: request.wineRuntimePath,
       startedAt: new Date().toISOString(),
@@ -2116,6 +2429,16 @@ export class BottleExecutionManager {
     this.sendPrefixSessionUpdate(session, false, error);
   }
 
+  private finishPrefixSessionByProcessId(processId: string, error?: string): void {
+    const session = this.prefixSessionsByProcessId.get(processId);
+
+    if (!session) {
+      return;
+    }
+
+    this.finishPrefixSession(session, error);
+  }
+
   private sendPrefixSessionUpdate(
     session: PrefixSession,
     isRunning: boolean,
@@ -2135,13 +2458,14 @@ export class BottleExecutionManager {
       isRunning,
       launcher: session.launcher,
       appId: session.appId,
+      appIds: session.appIds ? [...session.appIds] : undefined,
       appName: session.appName,
       startedAt: session.startedAt,
       endedAt: isRunning ? undefined : new Date().toISOString(),
       error,
     };
 
-    sender.send(IPC_CHANNELS.BOTTLE.PREFIX_SESSION_UPDATE.channelName, payload);
+    send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PREFIX_SESSION_UPDATE.channelName, payload);
   }
 
   private async runWineTool(
@@ -2243,7 +2567,7 @@ export class BottleExecutionManager {
     sender: WebContents | undefined,
     payload: BottleTaskStatusPayload,
   ): void {
-    sender?.send(IPC_CHANNELS.BOTTLE.STATUS_UPDATE.channelName, payload);
+    send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.STATUS_UPDATE.channelName, payload);
   }
 }
 
@@ -2716,6 +3040,95 @@ function optional_runtime_string(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
+function write_bottle_runtime_metadata(request: ApplyBottleRecipePayload, bottlePath: string): void {
+  const metadataPath = path.join(bottlePath, "bdih-bottle.json");
+  let current: Record<string, unknown> = {};
+
+  if (existsSync(metadataPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(metadataPath, "utf8"));
+
+      if (is_plain_record(parsed)) {
+        current = parsed;
+      }
+    } catch {
+      current = {};
+    }
+  }
+
+  writeFileSync(
+    metadataPath,
+    JSON.stringify(
+      {
+        ...current,
+        schemaVersion: 1,
+        id: request.bottleId,
+        bottleId: request.bottleId,
+        name: request.bottleName,
+        bottleName: request.bottleName,
+        path: bottlePath,
+        wineVersionId: request.wineVersionId,
+        wineRuntimePath: request.wineRuntimePath,
+        dxmtVersionId: request.dxmtVersionId,
+        dxmtPackagePath: request.dxmtPackagePath,
+        jadeiteVersionId: request.jadeiteVersionId,
+        jadeiteRuntimePath: request.jadeiteRuntimePath,
+        status: typeof current.status === "string" ? current.status : "ready",
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
+function find_existing_bottle_prefix_paths(bottlePath: string): string[] {
+  const metadataPath = path.join(bottlePath, "bdih-bottle.json");
+  const candidates = new Set<string>();
+
+  for (const prefixName of [
+    "steam-prefix",
+    "hoyo-prefix",
+    "hoyoplay-prefix",
+    "zzz-prefix",
+    "hsr-prefix",
+    "genshin-prefix",
+    "manual-prefix",
+  ]) {
+    candidates.add(path.join(bottlePath, prefixName));
+  }
+
+  for (const entry of safe_readdir(bottlePath)) {
+    const entryPath = path.join(bottlePath, entry);
+
+    if (safe_is_directory(entryPath) && /-prefix$/i.test(entry)) {
+      candidates.add(entryPath);
+    }
+  }
+
+  if (existsSync(metadataPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(metadataPath, "utf8"));
+
+      if (is_plain_record(parsed) && Array.isArray(parsed.prefixes)) {
+        for (const prefix of parsed.prefixes) {
+          if (is_plain_record(prefix) && typeof prefix.path === "string") {
+            candidates.add(expand_user_home_path(prefix.path));
+          }
+        }
+      }
+    } catch {
+      // Prefix metadata is best-effort; discovered directories are enough.
+    }
+  }
+
+  return [...candidates]
+    .map((candidatePath) => path.resolve(candidatePath))
+    .filter((candidatePath, index, allPaths) => allPaths.indexOf(candidatePath) === index)
+    .filter(is_wine_prefix_ready);
+}
+
 async function ensure_prefix_dxmt_runtime_files(
   request: RunBottleExecutablePayload,
   prefixPath: string,
@@ -2745,6 +3158,53 @@ async function ensure_prefix_dxmt_runtime_files(
     dxmtRuntimePath,
     prefixPath,
   });
+}
+
+async function prepare_bottle_builtin_dxmt_wine_runtime(options: {
+  request: ApplyBottleRecipePayload;
+  bottlePath: string;
+  wineCommand: string;
+  dxmtRuntimePath: string;
+  logger: ReturnType<typeof logManager.createLogger>;
+}): Promise<string> {
+  const baseWineRoot = resolve_wine_runtime_root(options.request.wineRuntimePath, options.wineCommand);
+  const resolvedDxmtPackagePath = expand_user_home_path(options.request.dxmtPackagePath ?? "");
+  const cacheName = safe_log_file_part(
+    [
+      path.basename(baseWineRoot),
+      options.request.dxmtVersionId ?? path.basename(strip_archive_extension(resolvedDxmtPackagePath)),
+    ].filter(Boolean).join("-"),
+    "bottle-dxmt-wine",
+  );
+  const bottleWineRoot = path.join(options.bottlePath, ".cache", "builtin-wine", cacheName);
+  const metadataPath = path.join(bottleWineRoot, ".bdih-bottle-dxmt-wine.json");
+  const metadata: HoyoBuiltinDxmtWineMetadata = {
+    schemaVersion: 1,
+    baseWineRoot,
+    baseWineSignature: runtime_file_signature(resolve_wine_tool(baseWineRoot, "wine64")),
+    dxmtVersionId: options.request.dxmtVersionId,
+    dxmtPackagePath: resolvedDxmtPackagePath,
+    dxmtPackageSignature: runtime_file_signature(resolvedDxmtPackagePath),
+  };
+
+  if (!is_hoyo_builtin_dxmt_wine_cache_valid(bottleWineRoot, metadataPath, metadata)) {
+    rmSync(bottleWineRoot, { recursive: true, force: true });
+    mkdirSync(path.dirname(bottleWineRoot), { recursive: true });
+    options.logger.info("copying bottle shared DXMT Wine runtime for recipe", {
+      baseWineRoot,
+      bottleWineRoot,
+      dxmtRuntimePath: options.dxmtRuntimePath,
+    });
+    await run_system_command("ditto", [baseWineRoot, bottleWineRoot], options.logger);
+  }
+
+  prepare_builtin_dxmt_wine_runtime_files({
+    dxmtRuntimePath: options.dxmtRuntimePath,
+    wineRoot: bottleWineRoot,
+  });
+  writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), "utf8");
+
+  return bottleWineRoot;
 }
 
 async function prepare_steam_builtin_dxmt_wine_runtime(options: {
@@ -3023,7 +3483,7 @@ function is_prefix_dxmt_runtime_ready(prefixPath: string, dxmtRuntimePath: strin
 
     return existsSync(sourcePath) &&
       existsSync(targetPath) &&
-      runtime_file_signature(sourcePath) === runtime_file_signature(targetPath);
+      runtime_file_content_matches(sourcePath, targetPath);
   });
 }
 
@@ -3038,6 +3498,18 @@ function runtime_file_signature(targetPath: string): string | undefined {
     return `${stat.size}:${Math.trunc(stat.mtimeMs)}`;
   } catch {
     return undefined;
+  }
+}
+
+function runtime_file_content_matches(leftPath: string, rightPath: string): boolean {
+  try {
+    const leftStat = statSync(leftPath);
+    const rightStat = statSync(rightPath);
+
+    return leftStat.size === rightStat.size &&
+      readFileSync(leftPath).equals(readFileSync(rightPath));
+  } catch {
+    return false;
   }
 }
 
@@ -3412,10 +3884,6 @@ function create_wine_helper_environment(
     if (value) {
       helperEnv[key] = value;
     }
-  }
-
-  if (!helperEnv.WINEMSYNC && !helperEnv.WINEESYNC && !helperEnv.WINEFSYNC) {
-    helperEnv.WINEMSYNC = "1";
   }
 
   return helperEnv;
@@ -3964,6 +4432,7 @@ function create_wine_environment(
   const wineDebug = resolve_wine_debug_env(debugFlagMode, loggingLevel, wineDebugArgs);
 
   apply_wine_launcher_options_manifest_defaults(env, manifest);
+  delete env.WINEMSYNC;
 
   if (wineDebug) {
     env.WINEDEBUG = wineDebug;
@@ -4069,6 +4538,26 @@ function apply_launch_options_to_env(
   if (options.hoyoplayInProcessGpu) {
     env.WINE_HOYOPLAY_ARGS = "--in-process-gpu";
   }
+}
+
+function merge_defined_launch_options(
+  ...sources: Array<Partial<BottleLaunchOptionsPayload> | undefined>
+): BottleLaunchOptionsPayload {
+  const merged: Record<string, unknown> = {};
+
+  for (const source of sources) {
+    if (!source) {
+      continue;
+    }
+
+    for (const [key, value] of Object.entries(source)) {
+      if (value !== undefined) {
+        merged[key] = value;
+      }
+    }
+  }
+
+  return merged as BottleLaunchOptionsPayload;
 }
 
 function executable_args_with_launch_options(
@@ -4334,6 +4823,52 @@ function get_launcher_installer(launcher: BottleLauncherKind): {
     url: HOYOPLAY_WINDOWS_INSTALLER_URL,
     fileName: "HoYoPlaySetup.exe",
   };
+}
+
+function get_launcher_installer_cache_paths(
+  launcherPrefixPath: string,
+  launcher: BottleLauncherKind,
+): {
+  installerDir: string;
+  installerPath: string;
+  installerMetadataPath: string;
+} {
+  const installer = get_launcher_installer(launcher);
+  const bottleRootPath = infer_bottle_root_from_launcher_prefix_path(launcherPrefixPath, launcher);
+  const installerDir = path.join(bottleRootPath, ".cache", "installers", launcher);
+  const installerPath = path.join(installerDir, installer.fileName);
+
+  return {
+    installerDir,
+    installerPath,
+    installerMetadataPath: `${installerPath}.bdih.json`,
+  };
+}
+
+function infer_bottle_root_from_launcher_prefix_path(
+  launcherPrefixPath: string,
+  launcher: BottleLauncherKind,
+): string {
+  const expandedPrefixPath = path.resolve(expand_user_home_path(launcherPrefixPath));
+  const parentPath = path.dirname(expandedPrefixPath);
+  const expectedLauncherPrefixPath = path.resolve(expand_user_home_path(create_launcher_prefix_path(parentPath, launcher)));
+
+  return expectedLauncherPrefixPath === expandedPrefixPath ? parentPath : expandedPrefixPath;
+}
+
+function copy_legacy_launcher_installer_if_present(
+  launcherPrefixPath: string,
+  installerPath: string,
+  fileName: string,
+): void {
+  const legacyInstallerPath = path.join(launcherPrefixPath, "_bdih_installers", fileName);
+
+  if (existsSync(installerPath) || !existsSync(legacyInstallerPath)) {
+    return;
+  }
+
+  mkdirSync(path.dirname(installerPath), { recursive: true });
+  copyFileSync(legacyInstallerPath, installerPath);
 }
 
 function escape_apple_script_string(value: string): string {

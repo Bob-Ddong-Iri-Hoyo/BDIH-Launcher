@@ -98,6 +98,15 @@ export function AppLibraryPanel({
         danger: true,
         onSelect: () => setConfirmAction({ type: "stop", appId: contextApp.id }),
       },
+    ] : contextApp.isLaunching ? [
+      {
+        id: "launching",
+        label: t("main.appContext.launching"),
+        icon: Play,
+        iconTone: "info",
+        disabled: true,
+        onSelect: () => undefined,
+      },
     ] : [
       {
         id: "run",
@@ -291,11 +300,14 @@ export function AppLibraryPanel({
                 subtitle={app.launchError ? `${t("main.appContext.launchFailed")}: ${app.launchError}` : `${app.subtitle} · ${app.lastPlayedKey ? t(app.lastPlayedKey) : app.lastPlayed}`}
                 isActive={app.wineVersionId === selectedWineVersionId}
                 isRunning={Boolean(app.processId)}
+                isLaunching={Boolean(app.isLaunching)}
                 hasError={Boolean(app.launchError)}
                 actionLabel={
                   app.status === "needs-prefix"
                     ? t("common.actions.createPrefix")
-                    : t("common.actions.run")
+                    : app.isLaunching
+                      ? t("main.appContext.launching")
+                      : t("common.actions.run")
                 }
                 onClick={() => onLaunchBottleApp?.(bottle.id, app.id)}
                 onContextMenu={(event) => open_app_context_menu(event, app.id)}

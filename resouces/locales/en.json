@@ -118,6 +118,7 @@
         "prefixPath": "Prefix path",
         "runtimeExists": "Installed",
         "downloadRuntime": "Download",
+        "downloadUnavailable": "Unavailable",
         "currentRecipe": "Current recipe",
         "applyChanges": "Apply changes",
         "pendingChanges": "Recipe changes are pending. Apply them before launching apps.",
@@ -235,6 +236,7 @@
         "deleteFiles": "Delete app files",
         "removeFromList": "Remove from app list",
         "running": "Running",
+        "launching": "Preparing",
         "launchFailed": "Launch failed",
         "appLogsTitle": "{{name}} logs",
         "appLogsDescription": "Compact Wine launch log for this app.",
@@ -268,11 +270,12 @@
       },
       "installers": {
         "title": "Launcher installers",
-        "description": "The app downloads official Windows installers and starts them with this bottle prefix.",
+        "description": "The first click only downloads the official Windows installer. Prefix and Wine setup happen when you run the installer.",
         "modalTitle": "Launcher installers",
-        "modalDescription": "Download, install, or run launcher apps inside this bottle.",
+        "modalDescription": "Download the installer first, then click again after the download to run it with Wine.",
         "openAction": "Open launcher installers",
         "install": "Download installer",
+        "runInstaller": "Run installer",
         "installSteam": "Download / run Steam installer",
         "installHoyoplay": "Download / run HoYoPlay installer",
         "installing": "Preparing installer...",
@@ -285,6 +288,7 @@
           "setup": "Setting up",
           "dxmt": "DXMT",
           "download": "Downloading",
+          "downloaded": "Downloaded",
           "install": "Starting in Wine",
           "ready": "Ready",
           "error": "Error"
@@ -323,6 +327,9 @@
         "prefixResetAction": "Reset",
         "prefixCustomNamePrompt": "Enter a name for the new prefix.",
         "prefixCustomNameDefault": "Custom prefix",
+        "prefixAdded": "{{name}} prefix was added.",
+        "prefixAffectedApps": "{{count}} app(s) using this prefix will be removed from the list.",
+        "prefixAffectedAppsMore": "{{count}} more",
         "prefixDeleteConfirm": "Delete {{name}} prefix? Apps inside this prefix will also be removed from the bottle.",
         "prefixResetConfirm": "Reset {{name}} prefix? Apps inside this prefix will also be removed from the bottle.",
         "prefixDeleted": "Prefix deleted.",
@@ -482,7 +489,8 @@
       },
       "developerLinks": {
         "site": "Site",
-        "github": "GitHub"
+        "github": "GitHub",
+        "discord": "Discord"
       },
       "appUpdate": {
         "title": "App update",

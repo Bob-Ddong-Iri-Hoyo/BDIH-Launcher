@@ -3,7 +3,7 @@ import { spawn } from "child_process";
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, rmSync, statSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 import { PREDEFINED_WINE_VERSIONS } from "../../Common/Constant/WineCatalog";
 import { BDIH_WINE_REPOSITORY } from "../../Common/Constant/RuntimeSources";
 import {
@@ -20,6 +20,7 @@ import { fetch_github_release_catalog } from "../Runtime/GitHubReleaseCatalog";
 import { downloadManager } from "./DownloadManager";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
+import { send_to_web_contents } from "../Util/SafeWebContents";
 
 /**
  * Resolves, downloads, and extracts Wine runtime versions.
@@ -81,7 +82,6 @@ export class WineManager {
       this.cachedVersions = [...PREDEFINED_WINE_VERSIONS];
     }
 
-    this.cachedVersions = with_dev_local_wine_versions(this.cachedVersions, preference.wineInstallPath);
     this.logger.debug("loaded wine version list", { count: this.cachedVersions.length });
     return [...this.cachedVersions];
   }
@@ -367,7 +367,7 @@ export class WineManager {
     sender: WebContents | undefined,
     payload: WineStatusPayload,
   ): void {
-    sender?.send(IPC_CHANNELS.WINE.STATUS_UPDATE.channelName, payload);
+    send_to_web_contents(sender, IPC_CHANNELS.WINE.STATUS_UPDATE.channelName, payload);
   }
 
   private async clearQuarantineAttribute(versionId: string, targetPath: string): Promise<void> {
@@ -540,88 +540,6 @@ function is_safe_runtime_delete_path(targetPath: string, installRoot: string): b
 
 function unique_paths(paths: string[]): string[] {
   return [...new Set(paths.map((targetPath) => path.resolve(expand_user_home_path(targetPath))))];
-}
-
-function with_dev_local_wine_versions(versions: WineVersion[], installPath: string): WineVersion[] {
-  const localVersion = resolve_dev_local_wine_version(installPath);
-
-  if (!localVersion) {
-    return versions;
-  }
-
-  return [
-    localVersion,
-    ...versions.filter((version) => version.id !== localVersion.id),
-  ];
-}
-
-function resolve_dev_local_wine_version(installPath: string): WineVersion | undefined {
-  const projectRoot = find_wine_project_root();
-
-  if (!projectRoot) {
-    return undefined;
-  }
-
-  const archivePath = path.join(projectRoot, "Wine-build", "artifacts", "wine-winehq-11.11", "wine-winehq-11.11.tar.gz");
-
-  if (!existsSync(archivePath)) {
-    return undefined;
-  }
-
-  const metadataSourcePath = path.join(projectRoot, "Wine-build", "metadata", "bdhi-launcher-options.winehq-11.11.json");
-  const downloadUrl = pathToFileURL(archivePath).toString();
-  const archiveInstallPath = get_download_target_path(installPath, downloadUrl, "wine-winehq-11.11.tar.gz");
-  const runtimePath = find_wine_runtime_root(get_extract_target_path(archiveInstallPath));
-  const metadata = read_wine_launcher_options_metadata(
-    runtimePath,
-    existsSync(metadataSourcePath) ? metadataSourcePath : undefined,
-  );
-  const isInstalled = Boolean(runtimePath);
-
-  return {
-    id: "local-winehq-11.11-patched",
-    name: "Local patched Wine 11.11",
-    version: "11.11",
-    downloadUrl,
-    metadataUrl: existsSync(metadataSourcePath) ? pathToFileURL(metadataSourcePath).toString() : undefined,
-    type: "custom",
-    status: isInstalled ? "installed" : "available",
-    progress: isInstalled ? 100 : 0,
-    path: runtimePath,
-    metadataPath: metadata.path,
-    launcherOptionsManifest: metadata.manifest,
-  };
-}
-
-function find_wine_project_root(): string | undefined {
-  const starts = [process.cwd(), __dirname];
-  const seen = new Set<string>();
-
-  for (const start of starts) {
-    let current = path.resolve(start);
-
-    for (let depth = 0; depth < 8; depth += 1) {
-      if (seen.has(current)) {
-        break;
-      }
-
-      seen.add(current);
-
-      if (existsSync(path.join(current, "Wine-build", "artifacts"))) {
-        return current;
-      }
-
-      const parent = path.dirname(current);
-
-      if (parent === current) {
-        break;
-      }
-
-      current = parent;
-    }
-  }
-
-  return undefined;
 }
 
 function read_file_header(targetPath: string, length: number): Buffer {

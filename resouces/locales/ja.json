@@ -118,6 +118,7 @@
         "prefixPath": "Prefixパス",
         "runtimeExists": "インストール済み",
         "downloadRuntime": "ダウンロード",
+        "downloadUnavailable": "利用不可",
         "currentRecipe": "現在のレシピ",
         "applyChanges": "変更を適用",
         "pendingChanges": "レシピ変更が保留中です。アプリを起動する前に適用してください。",
@@ -235,6 +236,7 @@
         "deleteFiles": "アプリファイルを削除",
         "removeFromList": "アプリ一覧から削除",
         "running": "実行中",
+        "launching": "起動準備中",
         "launchFailed": "起動失敗",
         "appLogsTitle": "{{name}} のログ",
         "appLogsDescription": "このアプリの簡易Wine起動ログです。",
@@ -268,11 +270,12 @@
       },
       "installers": {
         "title": "ランチャーインストーラ",
-        "description": "公式Windowsインストーラをダウンロードし、このボトルprefixで起動します。",
+        "description": "最初のクリックでは公式Windowsインストーラだけをダウンロードします。prefixとWine設定はインストーラ実行時に準備します。",
         "modalTitle": "ランチャーインストーラ",
-        "modalDescription": "このボトル内でランチャーアプリをダウンロード、インストール、実行します。",
+        "modalDescription": "まずインストーラをダウンロードし、完了後にもう一度クリックしてWineで実行します。",
         "openAction": "ランチャーインストーラを開く",
         "install": "インストーラをダウンロード",
+        "runInstaller": "インストーラを実行",
         "installSteam": "Steamインストーラをダウンロード/実行",
         "installHoyoplay": "HoYoPlayインストーラをダウンロード/実行",
         "installing": "インストーラを準備中...",
@@ -285,6 +288,7 @@
           "setup": "設定中",
           "dxmt": "DXMT",
           "download": "ダウンロード中",
+          "downloaded": "ダウンロード済み",
           "install": "Wineで起動中",
           "ready": "準備完了",
           "error": "エラー"
@@ -323,6 +327,9 @@
         "prefixResetAction": "初期化",
         "prefixCustomNamePrompt": "新しいprefix名を入力してください。",
         "prefixCustomNameDefault": "Custom prefix",
+        "prefixAdded": "{{name}} prefixを追加しました。",
+        "prefixAffectedApps": "このprefixを使用するアプリ{{count}}件が一覧から削除されます。",
+        "prefixAffectedAppsMore": "ほか{{count}}件",
         "prefixDeleteConfirm": "{{name}} prefixを削除しますか？このprefix内のアプリもボトルから削除されます。",
         "prefixResetConfirm": "{{name}} prefixを初期化しますか？このprefix内のアプリもボトルから削除されます。",
         "prefixDeleted": "prefixを削除しました。",
@@ -482,7 +489,8 @@
       },
       "developerLinks": {
         "site": "サイト",
-        "github": "GitHub"
+        "github": "GitHub",
+        "discord": "Discord"
       },
       "appUpdate": {
         "title": "アプリアップデート",

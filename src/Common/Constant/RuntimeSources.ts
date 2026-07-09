@@ -1,5 +1,6 @@
 export const BDIH_SITE_URL = "https://bdih.faby.day/";
 export const BDIH_SITE_FAVICON_URL = "https://bdih.faby.day/favicon.ico";
+export const BDIH_DISCORD_URL = "https://discord.faby.day/";
 export const BDIH_YOUTUBE_HANDLE = "@molera1708";
 export const BDIH_YOUTUBE_URL = "https://www.youtube.com/@molera1708/live";
 export const BDIH_GITHUB_URL = "https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher";

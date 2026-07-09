@@ -15,6 +15,7 @@ import { JadeiteVersion } from "../../Common/Types/Wine";
 import { downloadManager } from "./DownloadManager";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
+import { send_to_web_contents } from "../Util/SafeWebContents";
 
 const JADEITE_CATALOG: JadeiteVersion[] = [
   {
@@ -265,7 +266,7 @@ export class JadeiteManager {
   }
 
   private sendStatus(sender: WebContents | undefined, payload: JadeiteStatusPayload): void {
-    sender?.send(IPC_CHANNELS.JADEITE.STATUS_UPDATE.channelName, payload);
+    send_to_web_contents(sender, IPC_CHANNELS.JADEITE.STATUS_UPDATE.channelName, payload);
   }
 }
 

@@ -339,6 +339,7 @@ export interface BottlePrefixSessionPayload {
   isRunning: boolean;
   launcher?: BottleLauncherKind;
   appId?: string;
+  appIds?: string[];
   appName?: string;
   startedAt?: string;
   endedAt?: string;
@@ -379,6 +380,7 @@ export type BottleTaskStage =
   | "setup"
   | "dxmt"
   | "download"
+  | "downloaded"
   | "install"
   | "ready"
   | "error";
@@ -399,6 +401,9 @@ export interface SetupBottlePrefixPayload {
 export interface InstallBottleLauncherPayload extends SetupBottlePrefixPayload {
   launcher: BottleLauncherKind;
 }
+
+export type DownloadBottleLauncherInstallerPayload = InstallBottleLauncherPayload;
+export type ApplyBottleRecipePayload = SetupBottlePrefixPayload;
 
 export interface BottleTaskStatusPayload {
   bottleId: string;
@@ -531,6 +536,8 @@ export interface BottleChannelSchema {
   readonly RUN_EXECUTABLE: IpcChannelUnit<RunBottleExecutablePayload>;
   readonly STOP_PROCESS: IpcChannelUnit<StopBottleProcessPayload>;
   readonly SETUP_PREFIX: IpcChannelUnit<SetupBottlePrefixPayload>;
+  readonly APPLY_RECIPE: IpcChannelUnit<ApplyBottleRecipePayload>;
+  readonly DOWNLOAD_LAUNCHER_INSTALLER: IpcChannelUnit<DownloadBottleLauncherInstallerPayload>;
   readonly INSTALL_LAUNCHER: IpcChannelUnit<InstallBottleLauncherPayload>;
   readonly STATUS_UPDATE: IpcChannelUnit<BottleTaskStatusPayload>;
   readonly PROCESS_EXIT: IpcChannelUnit<BottleProcessExitPayload>;
@@ -698,6 +705,18 @@ export const BOTTLE = {
     method: "invoke",
     direction: "RENDERER_TO_MAIN",
     payload: {} as SetupBottlePrefixPayload,
+  },
+  APPLY_RECIPE: {
+    channelName: "bottle:apply-recipe",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as ApplyBottleRecipePayload,
+  },
+  DOWNLOAD_LAUNCHER_INSTALLER: {
+    channelName: "bottle:download-launcher-installer",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as DownloadBottleLauncherInstallerPayload,
   },
   INSTALL_LAUNCHER: {
     channelName: "bottle:install-launcher",

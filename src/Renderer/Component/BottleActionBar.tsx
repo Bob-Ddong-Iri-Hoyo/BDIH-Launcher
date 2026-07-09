@@ -20,6 +20,7 @@ export function BottleActionBar({
   bottle,
   wineRuntimePath,
   dxmtPackagePath,
+  onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
   onRegisterBottleExecutable,
@@ -29,6 +30,7 @@ export function BottleActionBar({
   bottle: Bottle;
   wineRuntimePath?: string;
   dxmtPackagePath?: string;
+  onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
   onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
@@ -47,7 +49,8 @@ export function BottleActionBar({
     bottle.apps.some((app) => app.id === launcher) ||
     (
       bottle.launcherTasks?.[launcher]?.stage === "ready" &&
-      (bottle.launcherTasks?.[launcher]?.progress ?? 0) >= 100
+      (bottle.launcherTasks?.[launcher]?.progress ?? 0) >= 100 &&
+      !is_legacy_downloaded_installer_task(bottle.launcherTasks?.[launcher])
     ),
   ).length;
 
@@ -119,6 +122,7 @@ export function BottleActionBar({
             launcher="steam"
             iconSrc={STEAM_ICON_URL}
             label={t("main.installers.steam.title")}
+            onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
             onInstallBottleLauncher={onInstallBottleLauncher}
             onLaunchBottleApp={onLaunchBottleApp}
           />
@@ -127,6 +131,7 @@ export function BottleActionBar({
             launcher="hoyoplay"
             iconSrc={HOYOPLAY_ICON_URL}
             label={t("main.installers.hoyoplay.title")}
+            onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
             onInstallBottleLauncher={onInstallBottleLauncher}
             onLaunchBottleApp={onLaunchBottleApp}
           />
@@ -141,6 +146,7 @@ function LauncherInstallIconButton({
   launcher,
   iconSrc,
   label,
+  onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
 }: {
@@ -148,6 +154,7 @@ function LauncherInstallIconButton({
   launcher: BottleLauncherKind;
   iconSrc: string;
   label: string;
+  onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
 }) {
@@ -155,8 +162,8 @@ function LauncherInstallIconButton({
   const task = bottle.launcherTasks?.[launcher];
   const isWorking = task ? ["setup", "dxmt", "download", "install"].includes(task.stage) : false;
   const launcherApp = bottle.apps.find((app) => app.id === launcher);
-  const isInstallerDownloaded = Boolean(task && !isWorking && task.stage === "ready" && task.progress >= 100);
-  const isReady = Boolean(launcherApp) || isInstallerDownloaded;
+  const isDownloaded = Boolean(task && !isWorking && task.progress >= 100 && (task.stage === "downloaded" || is_legacy_downloaded_installer_task(task)));
+  const isReady = Boolean(launcherApp) || Boolean(task && !isWorking && task.stage === "ready" && task.progress >= 100 && !is_legacy_downloaded_installer_task(task));
   const isError = task?.stage === "error";
   const progress = Math.max(0, Math.min(100, task?.progress ?? 0));
   const displayProgress = Math.round(progress);
@@ -164,6 +171,7 @@ function LauncherInstallIconButton({
     stage: task?.stage,
     progress: displayProgress,
     isWorking,
+    isDownloaded,
     isReady,
     isError,
     translate: t,
@@ -178,7 +186,12 @@ function LauncherInstallIconButton({
       return;
     }
 
-    onInstallBottleLauncher?.(bottle.id, launcher);
+    if (isDownloaded) {
+      onInstallBottleLauncher?.(bottle.id, launcher);
+      return;
+    }
+
+    onDownloadBottleLauncherInstaller?.(bottle.id, launcher);
   }
 
   return (
@@ -192,6 +205,8 @@ function LauncherInstallIconButton({
           ? "accent-border bg-white/[0.07] text-slate-100 hover:bg-white/[0.1]"
         : isError
           ? "border-rose-400/35 bg-rose-500/10 text-rose-100 hover:bg-rose-500/15"
+          : isDownloaded
+          ? "border-sky-300/25 bg-sky-500/10 text-sky-100 hover:bg-sky-500/15"
           : isWorking
             ? "border-white/10 bg-white/[0.035] text-slate-300 hover:border-white/15 hover:bg-white/[0.05]"
             : "border-white/10 bg-white/[0.025] text-slate-500 grayscale hover:border-white/15 hover:bg-white/[0.04]"
@@ -206,12 +221,19 @@ function LauncherInstallIconButton({
           <Box className="pointer-events-none absolute inset-[-5px] rounded-full launcher-action-progress-ring" />
         ) : null}
       </Box>
-      <InlineText className={isReady ? "min-w-0 truncate text-left text-xs font-semibold text-slate-200" : "min-w-0 truncate text-left text-xs font-semibold text-slate-500"}>
-        {label}
-      </InlineText>
+      <Stack className="min-w-0 gap-0.5">
+        <InlineText className={isReady || isDownloaded ? "min-w-0 truncate text-left text-xs font-semibold text-slate-200" : "min-w-0 truncate text-left text-xs font-semibold text-slate-500"}>
+          {label}
+        </InlineText>
+        {task?.message ? (
+          <Text className="min-w-0 truncate text-[10px] leading-4 text-slate-500">
+            {task.message}
+          </Text>
+        ) : null}
+      </Stack>
       <Inline className="min-w-0 justify-end">
         <InlineText className={`inline-flex h-7 w-28 items-center justify-center truncate rounded-full border px-2 text-center text-[10px] font-black ${
-          launcher_status_tone_class({ isWorking, isReady, isError })
+          launcher_status_tone_class({ isWorking, isDownloaded, isReady, isError })
         }`}>
           {statusLabel}
         </InlineText>
@@ -224,6 +246,7 @@ function launcher_status_label({
   stage,
   progress,
   isWorking,
+  isDownloaded,
   isReady,
   isError,
   translate,
@@ -231,6 +254,7 @@ function launcher_status_label({
   stage?: string;
   progress: number;
   isWorking: boolean;
+  isDownloaded: boolean;
   isReady: boolean;
   isError: boolean;
   translate: (key: string) => string;
@@ -247,6 +271,10 @@ function launcher_status_label({
     return translate(`main.installers.stage.${stage ?? "install"}`);
   }
 
+  if (isDownloaded) {
+    return translate("main.installers.runInstaller");
+  }
+
   if (isReady) {
     return translate("main.installers.stage.ready");
   }
@@ -256,10 +284,12 @@ function launcher_status_label({
 
 function launcher_status_tone_class({
   isWorking,
+  isDownloaded,
   isReady,
   isError,
 }: {
   isWorking: boolean;
+  isDownloaded: boolean;
   isReady: boolean;
   isError: boolean;
 }) {
@@ -271,9 +301,23 @@ function launcher_status_tone_class({
     return "border-sky-300/25 bg-sky-500/15 text-sky-100";
   }
 
+  if (isDownloaded) {
+    return "border-sky-300/25 bg-sky-500/10 text-sky-100";
+  }
+
   if (isReady) {
     return "border-emerald-300/25 bg-emerald-500/15 text-emerald-100";
   }
 
   return "border-white/10 bg-white/[0.04] text-slate-400";
+}
+
+type LauncherTask = NonNullable<Bottle["launcherTasks"]>[BottleLauncherKind];
+
+function is_legacy_downloaded_installer_task(task?: LauncherTask): boolean {
+  return Boolean(
+    task &&
+    task.stage === "ready" &&
+    /installer\s+is\s+downloaded/i.test(task.message ?? ""),
+  );
 }

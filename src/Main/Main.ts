@@ -3,6 +3,7 @@ import path from "path";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
 import { bottleExecutionManager } from "./Manager/BottleExecutionManager";
+import { downloadManager } from "./Manager/DownloadManager";
 import { ipcManager } from "./Manager/IPCManager";
 import { log_level_from_preference, logManager } from "./Manager/LogManager";
 import { preferenceManager } from "./Manager/PreferenceManager";
@@ -77,13 +78,18 @@ function expand_user_home_path(targetPath: string): string {
  */
 async function cleanupBeforeQuit(): Promise<void> {
   shortcutManager.unregisterAll();
-  const shouldShowShutdownWindow = bottleExecutionManager.hasActiveWineProcesses();
+  const shouldShowShutdownWindow =
+    bottleExecutionManager.hasActiveWineProcesses() ||
+    downloadManager.listActiveDownloadIds().length > 0;
 
   if (shouldShowShutdownWindow) {
     await windowManager.showShutdownWindow();
   }
 
-  await bottleExecutionManager.stopAllWineProcesses();
+  await Promise.all([
+    downloadManager.stopAll(),
+    bottleExecutionManager.stopAllWineProcesses(),
+  ]);
 }
 
 app.whenReady().then(async () => {
