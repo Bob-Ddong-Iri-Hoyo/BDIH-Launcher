@@ -1,5 +1,5 @@
 import React from "react";
-import { ExternalLink, Globe2, MessageCircle, Radio } from "lucide-react";
+import { ExternalLink, Globe2, Radio } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
 import { Box, Button, InlineText } from "./Primitives";
@@ -31,7 +31,7 @@ export function DeveloperLinkGroup({
     <Box className="flex flex-wrap justify-end gap-2">
       <DeveloperExternalLink url={siteUrl} label={t("preferences.developerLinks.site")} icon={<Globe2 className="h-5 w-5 text-sky-200" />} />
       <DeveloperExternalLink url={githubUrl} label={t("preferences.developerLinks.github")} icon={<GitHubMark className="h-5 w-5 text-slate-200" />} />
-      <DeveloperExternalLink url={discordUrl} label={t("preferences.developerLinks.discord")} icon={<MessageCircle className="h-5 w-5 text-indigo-200" />} />
+      <DeveloperExternalLink url={discordUrl} label={t("preferences.developerLinks.discord")} icon={<DiscordMark className="h-5 w-5 text-[#5865F2]" />} />
       <DeveloperYouTubeLink url={youtubeUrl} isOnAir={isYouTubeOnAir} />
     </Box>
   );
@@ -105,6 +105,14 @@ function GitHubMark({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
       <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.29 9.4 7.86 10.93.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.88-1.54-3.88-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.16 1.18.92-.26 1.9-.38 2.88-.39.98.01 1.96.13 2.88.39 2.19-1.49 3.15-1.18 3.15-1.18.63 1.58.24 2.75.12 3.04.74.8 1.18 1.83 1.18 3.08 0 4.42-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
+    </svg>
+  );
+}
+
+function DiscordMark({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 127.14 96.36" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21A105.73 105.73 0 0 0 32.71 96.36a77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.35 2.66-2.05a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2.05a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z" />
     </svg>
   );
 }

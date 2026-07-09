@@ -17,8 +17,8 @@
 
 
 <p align="center">
-<img width="200" src="./resouces/docs/Launcher-Main.png"/>
-<img width="250" src="./resouces/docs/Launcher-Slash.png"/>
+<img width="300" src="./resouces/docs/Screenshot 2026-07-01 at 3.33.11 AM.png"/>
+<img width="380" src="./resouces/docs/Screenshot 2026-07-01 at 3.32.41 AM.png"/>
 </p>
 
 

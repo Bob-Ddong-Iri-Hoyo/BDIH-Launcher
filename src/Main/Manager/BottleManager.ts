@@ -825,6 +825,10 @@ function normalize_bottle(value: unknown, fallbackPath = ""): BottleMetadataPayl
   const id = string_or_default(value.id, string_or_default(value.bottleId, ""));
   const name = string_or_default(value.name, string_or_default(value.bottleName, path.basename(fallbackPath)));
   const bottlePath = string_or_default(value.path, string_or_default(value.bottlePath, fallbackPath));
+  const normalizedBottlePath = normalize_host_path(bottlePath);
+  const normalizedPrefixPath = optional_string(value.prefixPath)
+    ? normalize_host_path(string_or_default(value.prefixPath, ""))
+    : path.dirname(normalizedBottlePath);
   const createdAt = string_or_default(value.createdAt, string_or_default(value.updatedAt, new Date().toISOString()));
 
   if (!id || !name || !bottlePath) {
@@ -836,12 +840,12 @@ function normalize_bottle(value: unknown, fallbackPath = ""): BottleMetadataPayl
     name,
     description: string_or_default(value.description, name),
     wineVersionId: string_or_default(value.wineVersionId, ""),
-    wineRuntimePath: optional_string(value.wineRuntimePath),
+    wineRuntimePath: normalize_optional_host_path(value.wineRuntimePath),
     dxmtVersionId: optional_string(value.dxmtVersionId),
-    dxmtPackagePath: optional_string(value.dxmtPackagePath),
+    dxmtPackagePath: normalize_optional_host_path(value.dxmtPackagePath),
     jadeiteVersionId: optional_string(value.jadeiteVersionId),
-    path: bottlePath,
-    prefixPath: optional_string(value.prefixPath) ?? path.dirname(bottlePath),
+    path: normalizedBottlePath,
+    prefixPath: normalizedPrefixPath,
     status: bottle_status_or_default(value.status, "ready"),
     setupTask: is_record(value.setupTask) ? {
       stage: bottle_task_stage_or_default(value.setupTask.stage),
@@ -877,7 +881,7 @@ function normalize_bottle_prefixes(value: unknown): BottlePrefixMetadataPayload[
       return {
         id,
         name,
-        path: prefixPath,
+        path: normalize_host_path(prefixPath),
         kind: prefix.kind === "preset" ? "preset" : "custom",
         presetId: bottle_prefix_preset_id_or_undefined(prefix.presetId),
         createdAt: optional_string(prefix.createdAt),
@@ -1004,7 +1008,7 @@ function normalize_apps(value: unknown): InstalledBottleAppPayload[] {
         subtitle: string_or_default(app.subtitle, name),
         wineVersionId,
         executablePath,
-        prefixPath,
+        prefixPath: prefixPath ? normalize_host_path(prefixPath) : undefined,
         executableArgs: executableArgs.length > 0
           ? executableArgs
           : steamAppId
@@ -1962,28 +1966,17 @@ function merge_apps(
 
 async function write_prefix_metadata(bottle: BottleMetadataPayload): Promise<void> {
   try {
-    await mkdir(bottle.path, { recursive: true });
+    const normalizedBottle = normalize_bottle_host_paths(bottle);
+
+    await mkdir(normalizedBottle.path, { recursive: true });
     await writeFile(
-      path.join(bottle.path, "bdih-bottle.json"),
+      path.join(normalizedBottle.path, "bdih-bottle.json"),
       JSON.stringify(
         {
           schemaVersion: 1,
-          id: bottle.id,
-          bottleId: bottle.id,
-          name: bottle.name,
-          bottleName: bottle.name,
-          description: bottle.description,
-          path: bottle.path,
-          prefixPath: bottle.prefixPath,
-          wineVersionId: bottle.wineVersionId,
-          wineRuntimePath: bottle.wineRuntimePath,
-          dxmtVersionId: bottle.dxmtVersionId,
-          dxmtPackagePath: bottle.dxmtPackagePath,
-          jadeiteVersionId: bottle.jadeiteVersionId,
-          status: bottle.status,
-          launcherTasks: bottle.launcherTasks,
-          apps: bottle.apps,
-          createdAt: bottle.createdAt,
+          ...normalizedBottle,
+          bottleId: normalizedBottle.id,
+          bottleName: normalizedBottle.name,
           updatedAt: new Date().toISOString(),
         },
         null,
@@ -2008,8 +2001,36 @@ function expand_user_home_path(targetPath: string): string {
   return targetPath;
 }
 
+function normalize_host_path(targetPath: string): string {
+  return path.resolve(expand_user_home_path(targetPath.trim()));
+}
+
+function normalize_optional_host_path(value: unknown): string | undefined {
+  const targetPath = optional_string(value);
+
+  return targetPath ? normalize_host_path(targetPath) : undefined;
+}
+
+function normalize_bottle_host_paths(bottle: BottleMetadataPayload): BottleMetadataPayload {
+  return {
+    ...bottle,
+    path: normalize_host_path(bottle.path),
+    prefixPath: normalize_host_path(bottle.prefixPath),
+    wineRuntimePath: bottle.wineRuntimePath ? normalize_host_path(bottle.wineRuntimePath) : undefined,
+    dxmtPackagePath: bottle.dxmtPackagePath ? normalize_host_path(bottle.dxmtPackagePath) : undefined,
+    prefixes: bottle.prefixes?.map((prefix) => ({
+      ...prefix,
+      path: normalize_host_path(prefix.path),
+    })),
+    apps: bottle.apps.map((app) => ({
+      ...app,
+      prefixPath: app.prefixPath ? normalize_host_path(app.prefixPath) : undefined,
+    })),
+  };
+}
+
 function unique_paths(paths: string[]): string[] {
-  return [...new Set(paths.map((targetPath) => path.resolve(targetPath)))];
+  return [...new Set(paths.map(normalize_host_path))];
 }
 
 function unique_scan_jobs(jobs: Array<{ prefixPath: string; rootPath: string }>): Array<{ prefixPath: string; rootPath: string }> {
