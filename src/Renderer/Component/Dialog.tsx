@@ -57,6 +57,15 @@ export interface DialogHostProps {
   dialog?: React.ReactNode;
 }
 
+export interface DialogCloseButtonProps {
+  onClose: () => void;
+  ariaLabel?: string;
+  variant?: "ghost" | "glass";
+  size?: "xs" | "sm";
+  iconSize?: number;
+  className?: string;
+}
+
 const TONE_CLASS_MAP: Record<DialogTone, { icon: string; iconBox: string; border: string; defaultIcon: LucideIcon }> = {
   neutral: {
     icon: "text-slate-200",
@@ -95,6 +104,40 @@ const ACTION_CLASS_MAP: Record<DialogActionVariant, string> = {
   secondary: "",
   danger: "border-red-400/25 bg-red-500/15 text-red-100 hover:bg-red-500/25",
 };
+
+/**
+ * Close control shared by dialogs and dialog-like panels.
+ *
+ * Electron draggable regions can otherwise consume pointer input before a
+ * nested button receives its click. Keep every visible close control in a
+ * no-drag region and route it through the owning popup's close callback.
+ */
+export function DialogCloseButton({
+  onClose,
+  ariaLabel = "Close dialog",
+  variant = "ghost",
+  size = "xs",
+  iconSize = 16,
+  className = "",
+}: DialogCloseButtonProps) {
+  return (
+    <Button
+      type="button"
+      variant={variant}
+      size={size}
+      className={`[-webkit-app-region:no-drag] ${className}`}
+      aria-label={ariaLabel}
+      icon={<X size={iconSize} />}
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
+    />
+  );
+}
 
 /**
  * Simple host that renders page content and an optional dialog sibling.
@@ -192,14 +235,10 @@ export function Dialog({
             ) : null}
           </Stack>
 
-          {showCloseButton ? (
-            <Button
-              variant="ghost"
-              size="xs"
+          {showCloseButton && onClose ? (
+            <DialogCloseButton
+              onClose={onClose}
               className="w-8 px-0 text-slate-400 hover:bg-white/5 hover:text-white"
-              aria-label="Close dialog"
-              icon={<X size={16} />}
-              onClick={onClose}
             />
           ) : null}
         </Inline>

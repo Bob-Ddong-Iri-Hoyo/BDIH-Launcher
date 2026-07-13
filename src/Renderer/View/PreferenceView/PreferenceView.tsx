@@ -16,7 +16,7 @@ import { is_supported_locale, LOCALE_OPTIONS, SupportedLocale } from "../../I18n
 import { ACCENT_COLOR_ITEMS, AccentColor, is_accent_color } from "../../Theme";
 
 type PreferenceCategory = "general" | "wine" | "shortcut";
-export type PreferencePathKey = "dataRootPath" | "bottlePrefixPath";
+export type PreferencePathKey = "dataRootPath" | "bottlePrefixPath" | "gameInstallPath";
 
 const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   launch: "Command + Return",
@@ -29,6 +29,7 @@ export interface PreferenceViewProps {
   installPath?: string;
   bottlePrefixPath?: string;
   dxmtCachePath?: string;
+  gameInstallPath?: string;
   locale?: SupportedLocale;
   accentColor?: AccentColor;
   themeMode?: RendererThemeMode;
@@ -51,6 +52,7 @@ export interface PreferenceViewProps {
   onInstallPathChange?: (installPath: string) => void;
   onBottlePrefixPathChange?: (bottlePrefixPath: string) => void;
   onDxmtCachePathChange?: (dxmtCachePath: string) => void;
+  onGameInstallPathChange?: (gameInstallPath: string) => void;
   onLocaleChange?: (locale: SupportedLocale) => void;
   onAccentColorChange?: (accentColor: AccentColor) => void;
   onThemeModeChange?: (themeMode: RendererThemeMode) => void;
@@ -377,6 +379,7 @@ export function PreferenceView({
   installPath = "~/Library/Application Support/BDIH Launcher/Wine",
   bottlePrefixPath = "~/Library/Application Support/BDIH Launcher/Bottles",
   dxmtCachePath = "~/Library/Application Support/BDIH Launcher/DXMT",
+  gameInstallPath = "~/Library/Application Support/BDIH Launcher/Games",
   locale,
   accentColor = "rose",
   themeMode = "system",
@@ -397,6 +400,7 @@ export function PreferenceView({
   initialHasChanges = false,
   onDataRootPathChange,
   onBottlePrefixPathChange,
+  onGameInstallPathChange,
   onLocaleChange,
   onAccentColorChange,
   onThemeModeChange,
@@ -425,6 +429,7 @@ export function PreferenceView({
   const [shortcutValidationErrors, setShortcutValidationErrors] = useState<Partial<Record<LauncherShortcutAction, boolean>>>({});
   const [shortcutDuplicateConflictActions, setShortcutDuplicateConflictActions] = useState<LauncherShortcutAction[]>([]);
   const defaultBottlePrefixPath = useMemo(() => create_data_root_child_path(dataRootPath, "Bottles"), [dataRootPath]);
+  const defaultGameInstallPath = useMemo(() => create_data_root_child_path(dataRootPath, "Games"), [dataRootPath]);
   const [isAdvancedStorageOpen, setIsAdvancedStorageOpen] = useState(() =>
     bottlePrefixPath.trim().replace(/\/+$/, "") !== defaultBottlePrefixPath.trim().replace(/\/+$/, ""),
   );
@@ -786,15 +791,15 @@ export function PreferenceView({
               />
             </Box>
 
-            <Box className="mt-5 rounded-lg border border-red-400/20 bg-red-500/[0.06] p-4">
+            <Box className="preference-danger-zone mt-5 rounded-lg border border-red-400/20 bg-red-500/[0.06] p-4">
               <Box className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <Box className="min-w-0">
-                  <Text className="text-sm font-semibold text-red-100">{t("preferences.dangerZone.title")}</Text>
-                  <Text className="mt-1 text-xs leading-5 text-red-100/65">{t("preferences.dangerZone.description")}</Text>
+                  <Text className="preference-danger-zone__title text-sm font-semibold text-red-100">{t("preferences.dangerZone.title")}</Text>
+                  <Text className="preference-danger-zone__description mt-1 text-xs leading-5 text-red-100/65">{t("preferences.dangerZone.description")}</Text>
                 </Box>
                 <Button
                   type="button"
-                  className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-red-400/25 bg-red-500/15 px-4 text-sm font-semibold text-red-100 transition hover:bg-red-500/25"
+                  className="preference-danger-zone__primary-action inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-red-400/25 bg-red-500/15 px-4 text-sm font-semibold text-red-100 transition hover:bg-red-500/25"
                   onClick={() => openDeleteDialog(["all"])}
                 >
                   <Trash2 size={16} />
@@ -803,15 +808,15 @@ export function PreferenceView({
               </Box>
               <Box className="mt-4 grid gap-3 md:grid-cols-2">
                 {deleteTargetOptions.map((option) => (
-                  <Box key={option.id} className="rounded-lg border border-white/10 bg-[#0b1020]/70 p-3">
+                  <Box key={option.id} className="preference-danger-zone__target rounded-lg border border-white/10 bg-[#0b1020]/70 p-3">
                     <Box className="flex items-start justify-between gap-3">
                       <Box className="min-w-0">
-                        <Text className="text-sm font-semibold text-slate-100">{option.title}</Text>
-                        <Text className="mt-1 text-xs leading-5 text-slate-500">{option.description}</Text>
+                        <Text className="preference-danger-zone__target-title text-sm font-semibold text-slate-100">{option.title}</Text>
+                        <Text className="preference-danger-zone__target-description mt-1 text-xs leading-5 text-slate-500">{option.description}</Text>
                       </Box>
                       <Button
                         type="button"
-                        className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-red-400/20 px-3 text-xs font-semibold text-red-100 transition hover:bg-red-500/15"
+                        className="preference-danger-zone__target-action inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-red-400/20 px-3 text-xs font-semibold text-red-100 transition hover:bg-red-500/15"
                         onClick={() => openDeleteDialog([option.id])}
                       >
                         <Trash2 size={14} />
@@ -894,6 +899,24 @@ export function PreferenceView({
                     }}
                   />
                 ) : null}
+                <PathSettingRow
+                  id="shared-games-path"
+                  title={t("preferences.storagePaths.sharedGamesPathTitle")}
+                  description={t("preferences.storagePaths.sharedGamesPathDescription")}
+                  value={gameInstallPath}
+                  onChange={(value) => {
+                    onGameInstallPathChange?.(value);
+                    markChanged();
+                  }}
+                  onBrowse={() => {
+                    onBrowsePath?.("gameInstallPath");
+                    markChanged();
+                  }}
+                  onReset={() => {
+                    onGameInstallPathChange?.(defaultGameInstallPath);
+                    markChanged();
+                  }}
+                />
               </Box>
             </PreferenceSection>
 
@@ -1112,9 +1135,7 @@ export function PreferenceView({
         icon={Trash2}
         placement="center"
         widthClassName="max-w-2xl"
-        onClose={() => undefined}
-        closeOnBackdrop={false}
-        showCloseButton={false}
+        onClose={() => setDeleteResult(undefined)}
         actions={[
           {
             label: t("common.actions.close"),

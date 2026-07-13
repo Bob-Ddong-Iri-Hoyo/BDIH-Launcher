@@ -10,7 +10,7 @@ import { LaunchOptionsDialog } from "../../Component/LaunchOptionsDialog";
 import { LogEntry, log_session_file_path, log_session_reveal_path, LogSession, LogSourceOption, LogViewer } from "../../Component/LogViewer";
 import { MacTitleBar } from "../../Component/MacTitleBar";
 import { MainFrame, RendererViewKey } from "../../Component/MainFrame";
-import { Box, Input, InlineText } from "../../Component/Primitives";
+import { Box, Input, InlineText, Textarea } from "../../Component/Primitives";
 import { ViewSurface } from "../../Component/ViewSurface";
 import { SupportedLocale } from "../../I18n";
 import { AccentColor } from "../../Theme";
@@ -39,7 +39,9 @@ export interface DashboardViewProps {
   onSelectBottle?: (bottleId: string) => void;
   onBottleHome?: () => void;
   onCreateBottle?: (input: CreateBottleInput) => void;
+  onReorderBottles?: (orderedBottleIds: string[]) => Promise<void> | void;
   onRenameBottle?: (bottleId: string, name: string) => void;
+  onChangeBottleDescription?: (bottleId: string, description: string) => void;
   onRevealBottle?: (path: string) => void;
   onDeleteBottle?: (bottleId: string) => void;
   onSelectBottlePrefixPath?: (currentPath: string) => Promise<string | undefined>;
@@ -92,6 +94,7 @@ export interface LauncherViewProps extends DashboardViewProps {
   dataRootPath?: string;
   bottlePrefixPath?: string;
   dxmtCachePath?: string;
+  gameInstallPath?: string;
   isDeveloperOnAir?: boolean;
   logEntries?: LogEntry[];
   logSessions?: LogSession[];
@@ -103,6 +106,7 @@ export interface LauncherViewProps extends DashboardViewProps {
   onInstallPathChange: (installPath: string) => void;
   onBottlePrefixPathChange?: (bottlePrefixPath: string) => void;
   onDxmtCachePathChange?: (dxmtCachePath: string) => void;
+  onGameInstallPathChange?: (gameInstallPath: string) => void;
   onLocaleChange: (locale: SupportedLocale) => void;
   onAccentColorChange: (accentColor: AccentColor) => void;
   onThemeModeChange?: (themeMode: RendererThemeMode) => void;
@@ -146,7 +150,9 @@ export function DashboardView({
   onSelectBottle,
   onBottleHome,
   onCreateBottle,
+  onReorderBottles,
   onRenameBottle,
+  onChangeBottleDescription,
   onRevealBottle,
   onDeleteBottle,
   onSelectBottlePrefixPath,
@@ -183,6 +189,10 @@ export function DashboardView({
   const [renameDraft, setRenameDraft] = React.useState<{
     bottleId: string;
     name: string;
+  } | null>(null);
+  const [descriptionDraft, setDescriptionDraft] = React.useState<{
+    bottleId: string;
+    description: string;
   } | null>(null);
   const [launchOptionsBottleId, setLaunchOptionsBottleId] = React.useState<string | null>(null);
   const [noticeDialog, setNoticeDialog] = React.useState<{
@@ -241,6 +251,13 @@ export function DashboardView({
         onSelect: () => open_rename_bottle(contextBottle),
       },
       {
+        id: "edit-description",
+        label: t("main.contextMenu.editDescription"),
+        icon: Pencil,
+        iconTone: "default",
+        onSelect: () => open_edit_bottle_description(contextBottle),
+      },
+      {
         id: "copy-path",
         label: t("main.contextMenu.copyPath"),
         icon: Copy,
@@ -275,6 +292,16 @@ export function DashboardView({
   );
   const normalizedRenameDraft = renameDraft?.name.trim() ?? "";
   const canSubmitRename = Boolean(renameDraft && normalizedRenameDraft.length > 0);
+  const descriptionBottle = React.useMemo(
+    () => bottles.find((bottle) => bottle.id === descriptionDraft?.bottleId),
+    [bottles, descriptionDraft?.bottleId],
+  );
+  const normalizedDescriptionDraft = descriptionDraft?.description.trim() ?? "";
+  const canSubmitDescription = Boolean(
+    descriptionDraft
+    && descriptionBottle
+    && normalizedDescriptionDraft !== (descriptionBottle.description ?? "").trim(),
+  );
 
   function show_running_rename_notice(bottle: { name: string }) {
     setNoticeDialog({
@@ -330,6 +357,27 @@ export function DashboardView({
     setNoticeDialog({
       title: t("main.renameBottle.successTitle"),
       description: t("main.renameBottle.successDescription", { name: normalizedRenameDraft }),
+      tone: "success",
+    });
+  }
+
+  function open_edit_bottle_description(bottle: Bottle) {
+    setDescriptionDraft({
+      bottleId: bottle.id,
+      description: bottle.description ?? "",
+    });
+  }
+
+  function submit_bottle_description() {
+    if (!descriptionDraft || !descriptionBottle || !canSubmitDescription) {
+      return;
+    }
+
+    onChangeBottleDescription?.(descriptionDraft.bottleId, normalizedDescriptionDraft);
+    setDescriptionDraft(null);
+    setNoticeDialog({
+      title: t("main.editBottleDescription.successTitle"),
+      description: t("main.editBottleDescription.successDescription", { name: descriptionBottle.name }),
       tone: "success",
     });
   }
@@ -406,6 +454,7 @@ export function DashboardView({
         onDeleteJadeiteVersion={onDeleteJadeiteVersion}
         onSelectBottle={onSelectBottle}
         onBottleContextMenu={handle_bottle_context_menu}
+        onReorderBottles={onReorderBottles}
         onCreateBottle={open_create_bottle_dialog}
       />
       <ContextMenu
@@ -464,6 +513,45 @@ export function DashboardView({
         </Box>
       </Dialog>
       <Dialog
+        open={Boolean(descriptionDraft && descriptionBottle)}
+        title={t("main.editBottleDescription.title")}
+        description={t("main.editBottleDescription.description", { name: descriptionBottle?.name ?? "" })}
+        tone="info"
+        icon={Pencil}
+        placement="center"
+        onClose={() => setDescriptionDraft(null)}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "secondary",
+            onClick: () => setDescriptionDraft(null),
+          },
+          {
+            label: t("common.actions.apply"),
+            variant: "primary",
+            disabled: !canSubmitDescription,
+            onClick: submit_bottle_description,
+          },
+        ]}
+      >
+        <Box as="label" className="grid gap-2">
+          <InlineText className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {t("main.editBottleDescription.descriptionLabel")}
+          </InlineText>
+          <Textarea
+            value={descriptionDraft?.description ?? ""}
+            onChange={(event) => setDescriptionDraft((currentDraft) =>
+              currentDraft ? { ...currentDraft, description: event.target.value } : currentDraft,
+            )}
+            placeholder={t("main.editBottleDescription.placeholder")}
+            maxLength={500}
+            rows={4}
+            autoFocus
+            className="min-h-28 w-full resize-y rounded-lg border border-white/10 bg-[#0b1020] px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+          />
+        </Box>
+      </Dialog>
+      <Dialog
         open={Boolean(noticeDialog)}
         title={noticeDialog?.title ?? ""}
         description={noticeDialog?.description}
@@ -488,6 +576,7 @@ export function DashboardView({
         selectedDxmtVersionId={selectedDxmtVersionId}
         selectedJadeiteVersionId={selectedJadeiteVersionId}
         bottlePrefixPath={bottlePrefixPath}
+        existingBottleNames={bottles.map((bottle) => bottle.name)}
         onSelectBottlePrefixPath={onSelectBottlePrefixPath}
         onClose={() => setIsCreateBottleOpen(false)}
         onCreateBottle={onCreateBottle}
@@ -532,6 +621,7 @@ export function LauncherView({
   dataRootPath,
   bottlePrefixPath,
   dxmtCachePath,
+  gameInstallPath,
   isDeveloperOnAir,
   logEntries = [],
   logSessions = [],
@@ -540,7 +630,9 @@ export function LauncherView({
   onOpenLogFile,
   onRevealLogFile,
   onCreateBottle,
+  onReorderBottles,
   onRenameBottle,
+  onChangeBottleDescription,
   onRevealBottle,
   onDeleteBottle,
   onSelectBottlePrefixPath,
@@ -570,6 +662,7 @@ export function LauncherView({
   onInstallPathChange,
   onBottlePrefixPathChange,
   onDxmtCachePathChange,
+  onGameInstallPathChange,
   onLocaleChange,
   onAccentColorChange,
   onThemeModeChange,
@@ -646,7 +739,9 @@ export function LauncherView({
           onSelectBottle={setSelectedBottleId}
           onBottleHome={() => setSelectedBottleId(undefined)}
           onCreateBottle={onCreateBottle}
+          onReorderBottles={onReorderBottles}
           onRenameBottle={onRenameBottle}
+          onChangeBottleDescription={onChangeBottleDescription}
           onRevealBottle={onRevealBottle}
           onDeleteBottle={(bottleId) => {
             if (selectedBottleId === bottleId) {
@@ -699,6 +794,7 @@ export function LauncherView({
           installPath={installPath}
           bottlePrefixPath={bottlePrefixPath}
           dxmtCachePath={dxmtCachePath}
+          gameInstallPath={gameInstallPath}
           locale={locale}
           accentColor={accentColor}
           themeMode={themeMode}
@@ -715,6 +811,7 @@ export function LauncherView({
           onInstallPathChange={onInstallPathChange}
           onBottlePrefixPathChange={onBottlePrefixPathChange}
           onDxmtCachePathChange={onDxmtCachePathChange}
+          onGameInstallPathChange={onGameInstallPathChange}
           onLocaleChange={onLocaleChange}
           onAccentColorChange={onAccentColorChange}
           onThemeModeChange={onThemeModeChange}

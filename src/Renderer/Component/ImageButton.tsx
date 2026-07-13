@@ -141,7 +141,7 @@ export function ImageButton({
         </Inline>
       ) : null}
       {preset === "desktop" && isLaunching ? (
-        <Inline className="mt-1 items-center rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-semibold text-sky-200 ring-1 ring-sky-200/20">
+        <Inline className="app-launching-indicator mt-1 items-center rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-semibold text-sky-200 ring-1 ring-sky-200/20">
           <RunningBeacon />
           {t("main.appContext.launching")}
         </Inline>

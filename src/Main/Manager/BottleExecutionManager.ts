@@ -1,6 +1,6 @@
 import { WebContents } from "electron";
 import { spawn } from "child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { request as httpsRequest } from "https";
 import os from "os";
 import path from "path";
@@ -41,16 +41,21 @@ import { downloadManager } from "./DownloadManager";
 import { processManager } from "./ProcessManager";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
+import type { LauncherPreference } from "./PreferenceManager";
+import { discordPresenceManager } from "./DiscordPresenceManager";
 import { wineOverseer } from "./WineOverseer";
 import type { HoyoOverseerEvent } from "./WineOverseer";
 import { bottleManager } from "./BottleManager";
 import { get_hoyo_game_profile, type HoyoGameProfile } from "../Data/Hoyoverse/HoyoGameProfile";
+import { get_launcher_runtime_profile } from "../Data/GameProfile";
+import { find_runtime_profile_executable } from "../Util/RuntimeExecutableDiscovery";
 import { send_to_web_contents } from "../Util/SafeWebContents";
 
 const LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS = 10 * 60 * 1000;
 const LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS = 1000;
 const LAUNCHER_EXECUTABLE_STABLE_MS = 2000;
 const PREFIX_SESSION_WATCH_DELAY_MS = 500;
+const STEAM_GAME_PROCESS_LOG_POLL_MS = 750;
 const HOYO_STEAM_STUB_WIN_PATH = "C:\\windows\\system32\\steam.exe";
 const DXMT_RUNTIME_CACHE_DIR_NAME = ".cache/dxmt";
 const DXMT_PREFIX_REQUIRED_WINDOWS_FILES = ["d3d10core.dll", "d3d11.dll", "dxgi.dll", "winemetal.dll"];
@@ -68,7 +73,17 @@ interface PrefixSession {
   startedAt: string;
   sender?: WebContents;
   waiter?: ParamRunProgramReturn;
+  steamGameProcessWatcher?: SteamGameProcessWatcher;
+  steamLauncherOwnerAppId?: string;
   ended: boolean;
+}
+
+interface SteamGameProcessWatcher {
+  logPath: string;
+  offset: number;
+  remainder: string;
+  trackedPidsByAppId: Map<string, Set<number>>;
+  timer: NodeJS.Timeout;
 }
 
 interface LauncherInstallerProcess {
@@ -137,6 +152,8 @@ export class BottleExecutionManager {
         sender,
         request.launcher,
       );
+
+      ensure_shared_games_drive(bottlePath, await preferenceManager.getPreference(), this.logger);
 
       if (shouldPrepareDxmt) {
         this.sendStatus(sender, {
@@ -229,6 +246,17 @@ export class BottleExecutionManager {
 
       if (shouldPrepareDxmt) {
         validate_dxmt_runtime(request.dxmtVersionId, request.dxmtPackagePath);
+      }
+
+      if (request.validateOnly) {
+        this.sendStatus(sender, {
+          bottleId: request.bottleId,
+          stage: "ready",
+          progress: 100,
+          message: "Bottle recipe validation completed; no runtime changes were required.",
+        });
+
+        return { ok: true, refreshBottles: false };
       }
 
       mkdirSync(bottlePath, { recursive: true });
@@ -592,6 +620,7 @@ export class BottleExecutionManager {
     });
     const processId = `bottle:${request.bottleId}:${request.appId ?? "manual"}:${Date.now().toString(36)}`;
     const preference = await preferenceManager.getPreference();
+    ensure_shared_games_drive(bottlePath, preference, appLogger);
     const hoyoGameKind = hoyo_game_from_run_request(request, appName, executablePath);
 
     if (hoyoGameKind) {
@@ -710,11 +739,14 @@ export class BottleExecutionManager {
               ...request,
               wineRuntimePath: effectiveWineRuntimePath,
             },
-            {
-              launcher: launcherSessionKind,
-              appId: request.appId ?? launcherSessionKind,
-              appName,
-            },
+          {
+            launcher: launcherSessionKind,
+            appId: request.appId ?? launcherSessionKind,
+            appName,
+            steamGameProcessLogPath: launcherSessionKind === "steam"
+              ? steam_game_process_log_path(bottlePath, executablePath)
+              : undefined,
+          },
             sender,
           )
         : undefined;
@@ -723,6 +755,10 @@ export class BottleExecutionManager {
         (code) => {
           const exitError = code === 0 ? undefined : `Wine exited with code ${code}.`;
           const exitPayload = exitError ? { processId, code, error: exitError } : { processId, code };
+
+          if (!prefixSessionProcessId) {
+            discordPresenceManager.clearActivity(processId);
+          }
 
           if (exitError) {
             appLogger.error("bottle app executable exited with error", { processId, code });
@@ -734,10 +770,22 @@ export class BottleExecutionManager {
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
+          if (!prefixSessionProcessId) {
+            discordPresenceManager.clearActivity(processId);
+          }
           appLogger.error("bottle app executable failed", { processId, error: message });
           send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
         },
       );
+      if (!prefixSessionProcessId) {
+        discordPresenceManager.setBottleActivity({
+          processId,
+          bottleName: request.bottleName,
+          appId: request.appId,
+          appName,
+          executablePath,
+        });
+      }
       appLogger.info("bottle app executable started", {
         bottleId: request.bottleId,
         bottleName: request.bottleName,
@@ -839,8 +887,10 @@ export class BottleExecutionManager {
     const receivedPrefixPath = expand_user_home_path(request.bottlePath);
     const bottleRootPath = infer_hoyo_bottle_root_path(receivedPrefixPath);
     const launcherPrefixPath = create_launcher_prefix_path(bottleRootPath, "hoyoplay");
-    const hoyoplayExecutablePath = launcher_executable_candidates("hoyoplay", launcherPrefixPath)
-      .find((candidatePath) => existsSync(candidatePath));
+    const hoyoplayProfile = get_launcher_runtime_profile("hoyoplay");
+    const hoyoplayExecutablePath = hoyoplayProfile
+      ? await find_runtime_profile_executable(launcherPrefixPath, hoyoplayProfile)
+      : undefined;
 
     if (!hoyoplayExecutablePath) {
       return {
@@ -1103,7 +1153,12 @@ export class BottleExecutionManager {
     const gameProfile = get_hoyo_game_profile(gameKind);
     const receivedPrefixPath = expand_user_home_path(request.bottlePath);
     const gamePrefixPath = normalize_hoyo_game_prefix_path(receivedPrefixPath, gameKind);
-    const gameHostPath = host_path_from_hoyo_executable_path(receivedPrefixPath, gamePrefixPath, executablePath);
+    const gameHostPath = host_path_from_hoyo_executable_path(
+      receivedPrefixPath,
+      gamePrefixPath,
+      executablePath,
+      shared_games_path(preference),
+    );
 
     if (!gameHostPath || !existsSync(gameHostPath)) {
       return {
@@ -1378,7 +1433,12 @@ export class BottleExecutionManager {
     const gameProfile = get_hoyo_game_profile(gameKind);
     const receivedPrefixPath = expand_user_home_path(request.bottlePath);
     const gamePrefixPath = normalize_hoyo_game_prefix_path(receivedPrefixPath, gameKind);
-    const gameHostPath = host_path_from_hoyo_executable_path(receivedPrefixPath, gamePrefixPath, executablePath);
+    const gameHostPath = host_path_from_hoyo_executable_path(
+      receivedPrefixPath,
+      gamePrefixPath,
+      executablePath,
+      shared_games_path(preference),
+    );
 
     if (!gameHostPath || !existsSync(gameHostPath)) {
       return {
@@ -1691,7 +1751,12 @@ export class BottleExecutionManager {
     const gameProfile = get_hoyo_game_profile(gameKind);
     const receivedPrefixPath = expand_user_home_path(request.bottlePath);
     const gamePrefixPath = normalize_hoyo_game_prefix_path(receivedPrefixPath, gameKind);
-    const gameHostPath = host_path_from_hoyo_executable_path(receivedPrefixPath, gamePrefixPath, executablePath);
+    const gameHostPath = host_path_from_hoyo_executable_path(
+      receivedPrefixPath,
+      gamePrefixPath,
+      executablePath,
+      shared_games_path(preference),
+    );
 
     if (!gameHostPath || !existsSync(gameHostPath)) {
       return {
@@ -1968,6 +2033,7 @@ export class BottleExecutionManager {
   ): Promise<void> {
     const bottleRootPath = infer_hoyo_bottle_root_path(gamePrefixPath);
     const runtimeRequest = request_with_bottle_runtime_lock(request, bottleRootPath);
+    const preference = await preferenceManager.getPreference();
     let dxmtRuntimePath: string | undefined;
 
     if (runtimeRequest.dxmtVersionId) {
@@ -1981,6 +2047,7 @@ export class BottleExecutionManager {
     }
 
     if (is_wine_prefix_ready(gamePrefixPath) && (!dxmtRuntimePath || is_prefix_dxmt_runtime_ready(gamePrefixPath, dxmtRuntimePath))) {
+      ensure_shared_games_drive(gamePrefixPath, preference, appLogger);
       return;
     }
 
@@ -2002,6 +2069,8 @@ export class BottleExecutionManager {
         prefixPath: gamePrefixPath,
       });
     }
+
+    ensure_shared_games_drive(gamePrefixPath, preference, appLogger);
 
     await stop_wine_prefix_best_effort(gamePrefixPath, runtimeRequest.wineRuntimePath, appLogger);
 
@@ -2029,6 +2098,7 @@ export class BottleExecutionManager {
       bottleName: request.bottleName,
     });
     const preference = await preferenceManager.getPreference();
+    ensure_shared_games_drive(bottlePath, preference, appLogger);
     const command = resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wine64");
     const processId = `bottle:${request.bottleId}:installer:${request.launcher}:${Date.now().toString(36)}`;
     const launcherOptionsManifest = request.launcherOptionsManifest ?? read_wine_launcher_options_manifest(request.wineRuntimePath);
@@ -2139,9 +2209,10 @@ export class BottleExecutionManager {
     installerDone?: Promise<number>,
   ): Promise<LauncherExecutableWaitResult> {
     const bottlePath = expand_user_home_path(request.bottlePath);
-    const candidates = launcher_executable_candidates(request.launcher, bottlePath);
+    const launcherProfile = get_launcher_runtime_profile(request.launcher);
     const startedAt = Date.now();
     let lastProgressUpdate = 0;
+    let lastFallbackScanAt = 0;
     let installerExit: { code?: number; error?: string } | undefined;
     const installerDoneState = installerDone?.then(
       (code) => {
@@ -2153,7 +2224,15 @@ export class BottleExecutionManager {
     );
 
     while (Date.now() - startedAt < LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS) {
-      const detectedPath = candidates.find((candidatePath) => existsSync(candidatePath));
+      const now = Date.now();
+      const includeFallback = now - lastFallbackScanAt >= 5000;
+      const detectedPath = launcherProfile
+        ? await find_runtime_profile_executable(bottlePath, launcherProfile, { includeFallback })
+        : undefined;
+
+      if (includeFallback) {
+        lastFallbackScanAt = now;
+      }
 
       if (detectedPath && await is_stable_launcher_executable(detectedPath, LAUNCHER_EXECUTABLE_STABLE_MS)) {
         this.sendStatus(sender, {
@@ -2226,6 +2305,7 @@ export class BottleExecutionManager {
 
     if (prefixes.length === 0) {
       await processManager.stopAll();
+      discordPresenceManager.clearAllActivities();
       return;
     }
 
@@ -2244,16 +2324,26 @@ export class BottleExecutionManager {
       ),
     );
     this.activeWinePrefixes.clear();
+    discordPresenceManager.clearAllActivities();
   }
 
   hasActiveWineProcesses(): boolean {
     return this.activeWinePrefixes.size > 0 || processManager.listRunningProcessIds().length > 0;
   }
 
-  async stopProcess(processId: string): Promise<void> {
+  async stopProcess(processId: string, appId?: string): Promise<void> {
     const prefixSession = this.prefixSessionsByProcessId.get(processId);
 
     if (prefixSession) {
+      if (
+        prefixSession.launcher === "steam"
+        && appId?.startsWith("steam:")
+        && prefixSession.steamLauncherOwnerAppId !== appId
+      ) {
+        await this.stopSteamGameProcess(prefixSession, appId);
+        return;
+      }
+
       await this.stopWinePrefix(prefixSession.prefixPath, prefixSession.wineRuntimePath);
       await prefixSession.waiter?.Stop().catch(() => undefined);
       this.finishPrefixSession(prefixSession);
@@ -2312,6 +2402,7 @@ export class BottleExecutionManager {
       launcher?: BottleLauncherKind;
       appId?: string;
       appName?: string;
+      steamGameProcessLogPath?: string;
     },
     sender?: WebContents,
   ): string {
@@ -2327,7 +2418,18 @@ export class BottleExecutionManager {
         existingSession.appIds.add(context.appId);
       }
       existingSession.appName = context.appName ?? existingSession.appName;
+      if (context.steamGameProcessLogPath) {
+        this.startSteamGameProcessWatcher(existingSession, context.steamGameProcessLogPath);
+      }
       this.sendPrefixSessionUpdate(existingSession, true);
+      discordPresenceManager.setBottleActivity({
+        processId: existingSession.processId,
+        bottleName: existingSession.bottleName,
+        launcher: existingSession.launcher,
+        appId: existingSession.appId,
+        appName: existingSession.appName,
+        startedAt: existingSession.startedAt,
+      });
       return existingSession.processId;
     }
 
@@ -2344,6 +2446,9 @@ export class BottleExecutionManager {
       wineRuntimePath: request.wineRuntimePath,
       startedAt: new Date().toISOString(),
       sender,
+      steamLauncherOwnerAppId: context.launcher === "steam" && context.appId?.startsWith("steam:")
+        ? context.appId
+        : undefined,
       ended: false,
     };
 
@@ -2361,10 +2466,239 @@ export class BottleExecutionManager {
       prefixPath,
       launcher: context.launcher,
       appId: context.appId,
+      steamLauncherOwnerAppId: session.steamLauncherOwnerAppId,
     });
+    discordPresenceManager.setBottleActivity({
+      processId,
+      bottleName: request.bottleName,
+      launcher: context.launcher,
+      appId: context.appId,
+      appName: context.appName,
+      startedAt: session.startedAt,
+    });
+
+    if (context.steamGameProcessLogPath) {
+      this.startSteamGameProcessWatcher(session, context.steamGameProcessLogPath);
+    }
 
     setTimeout(() => this.startPrefixSessionWaiter(session), PREFIX_SESSION_WATCH_DELAY_MS);
     return processId;
+  }
+
+  private startSteamGameProcessWatcher(session: PrefixSession, logPath: string): void {
+    if (session.steamGameProcessWatcher || session.ended) {
+      return;
+    }
+
+    const watcher: SteamGameProcessWatcher = {
+      logPath,
+      offset: safe_file_size(logPath),
+      remainder: "",
+      trackedPidsByAppId: new Map(),
+      timer: setInterval(() => this.pollSteamGameProcessLog(session), STEAM_GAME_PROCESS_LOG_POLL_MS),
+    };
+    watcher.timer.unref();
+    session.steamGameProcessWatcher = watcher;
+    this.logger.info("Steam game process log watcher started", {
+      bottleId: session.bottleId,
+      prefixPath: session.prefixPath,
+      logPath,
+    });
+  }
+
+  private async stopSteamGameProcess(session: PrefixSession, appId: string): Promise<void> {
+    const trackedPids = session.steamGameProcessWatcher?.trackedPidsByAppId.get(appId);
+    const pids = trackedPids ? [...trackedPids] : [];
+
+    if (pids.length === 0) {
+      this.logger.warn("Steam game stop requested without tracked PIDs; keeping Steam prefix alive", {
+        bottleId: session.bottleId,
+        appId,
+      });
+      this.removeSteamTrackedGame(session, appId);
+      return;
+    }
+
+    const wineCommand = resolve_wine_tool(session.wineRuntimePath, "wine64");
+    const taskkill = runProgram({
+      command: wineCommand,
+      args: [
+        "C:\\windows\\system32\\taskkill.exe",
+        ...pids.flatMap((pid) => ["/PID", String(pid)]),
+        "/T",
+        "/F",
+      ],
+      cwd: session.prefixPath,
+      env: {
+        WINEPREFIX: session.prefixPath,
+        WINEDEBUG: "-all",
+      },
+      onLog: (data) => this.logger.info("Steam game taskkill stdout", data.trim()),
+      onError: (data) => this.logger.warn("Steam game taskkill stderr", data.trim()),
+    });
+    const code = await taskkill.done;
+
+    if (code !== 0) {
+      this.logger.warn("Steam game taskkill exited with non-zero code", {
+        bottleId: session.bottleId,
+        appId,
+        pids,
+        code,
+      });
+      return;
+    }
+
+    this.logger.info("Steam game process tree stopped without stopping Steam", {
+      bottleId: session.bottleId,
+      appId,
+      pids,
+    });
+    this.removeSteamTrackedGame(session, appId);
+  }
+
+  private pollSteamGameProcessLog(session: PrefixSession): void {
+    const watcher = session.steamGameProcessWatcher;
+
+    if (!watcher || session.ended) {
+      return;
+    }
+
+    let fileSize: number;
+
+    try {
+      fileSize = statSync(watcher.logPath).size;
+    } catch {
+      return;
+    }
+
+    if (fileSize < watcher.offset) {
+      this.clearSteamTrackedGames(session);
+      watcher.offset = 0;
+      watcher.remainder = "";
+    }
+
+    if (fileSize === watcher.offset) {
+      return;
+    }
+
+    const chunkSize = fileSize - watcher.offset;
+    const buffer = Buffer.alloc(chunkSize);
+    let descriptor: number | undefined;
+    let bytesRead = 0;
+
+    try {
+      descriptor = openSync(watcher.logPath, "r");
+      bytesRead = readSync(descriptor, buffer, 0, chunkSize, watcher.offset);
+      watcher.offset += bytesRead;
+    } catch {
+      return;
+    } finally {
+      if (descriptor !== undefined) {
+        closeSync(descriptor);
+      }
+    }
+
+    const lines = `${watcher.remainder}${buffer.toString("utf8", 0, bytesRead)}`.split(/\r?\n/);
+    watcher.remainder = lines.pop() ?? "";
+
+    for (const line of lines) {
+      this.applySteamGameProcessLogLine(session, line);
+    }
+  }
+
+  private applySteamGameProcessLogLine(session: PrefixSession, line: string): void {
+    const watcher = session.steamGameProcessWatcher;
+
+    if (!watcher) {
+      return;
+    }
+
+    const started = line.match(/\bAppID\s+(\d+)\s+adding PID\s+(\d+)\s+as a tracked process/i);
+
+    if (started) {
+      const appId = `steam:${started[1]}`;
+      const pid = Number.parseInt(started[2], 10);
+      const trackedPids = watcher.trackedPidsByAppId.get(appId) ?? new Set<number>();
+      const wasRunning = trackedPids.size > 0;
+
+      trackedPids.add(pid);
+      watcher.trackedPidsByAppId.set(appId, trackedPids);
+      session.appIds = session.appIds ?? new Set<string>();
+      session.appIds.add(appId);
+
+      if (!wasRunning) {
+        this.logger.info("Steam game started inside prefix", {
+          bottleId: session.bottleId,
+          appId,
+          pid,
+        });
+        this.sendPrefixSessionUpdate(session, true);
+      }
+      return;
+    }
+
+    const stoppedPid = line.match(/\bAppID\s+(\d+)\s+no longer tracking PID\s+(\d+)/i);
+
+    if (stoppedPid) {
+      const appId = `steam:${stoppedPid[1]}`;
+      const trackedPids = watcher.trackedPidsByAppId.get(appId);
+      trackedPids?.delete(Number.parseInt(stoppedPid[2], 10));
+      return;
+    }
+
+    const removed = line.match(/\bRemove\s+(\d+)\s+from running list/i);
+
+    if (removed) {
+      this.removeSteamTrackedGame(session, `steam:${removed[1]}`);
+    }
+  }
+
+  private removeSteamTrackedGame(session: PrefixSession, appId: string): void {
+    const watcher = session.steamGameProcessWatcher;
+    const wasTracked = Boolean(watcher?.trackedPidsByAppId.delete(appId) || session.appIds?.has(appId));
+
+    if (!wasTracked) {
+      return;
+    }
+
+    session.appIds?.delete(appId);
+    if (session.steamLauncherOwnerAppId === appId) {
+      session.steamLauncherOwnerAppId = undefined;
+    }
+    if (session.appId === appId) {
+      session.appId = "steam";
+      session.appName = "Steam";
+      session.appIds = session.appIds ?? new Set<string>();
+      session.appIds.add("steam");
+    }
+
+    this.logger.info("Steam game stopped inside prefix", {
+      bottleId: session.bottleId,
+      appId,
+    });
+    this.sendPrefixSessionUpdate(session, true);
+  }
+
+  private clearSteamTrackedGames(session: PrefixSession): void {
+    const watcher = session.steamGameProcessWatcher;
+
+    if (!watcher || watcher.trackedPidsByAppId.size === 0) {
+      return;
+    }
+
+    const trackedAppIds = [...watcher.trackedPidsByAppId.keys()];
+    watcher.trackedPidsByAppId.clear();
+    for (const appId of trackedAppIds) {
+      session.appIds?.delete(appId);
+    }
+
+    if (session.appId && trackedAppIds.includes(session.appId)) {
+      session.appId = "steam";
+      session.appName = "Steam";
+      session.appIds = session.appIds ?? new Set<string>();
+      session.appIds.add("steam");
+    }
+    this.sendPrefixSessionUpdate(session, true);
   }
 
   private startPrefixSessionWaiter(session: PrefixSession): void {
@@ -2414,6 +2748,10 @@ export class BottleExecutionManager {
     }
 
     session.ended = true;
+    if (session.steamGameProcessWatcher) {
+      clearInterval(session.steamGameProcessWatcher.timer);
+      session.steamGameProcessWatcher = undefined;
+    }
     this.prefixSessionsByPrefixPath.delete(session.prefixPath);
     this.prefixSessionsByProcessId.delete(session.processId);
     this.activeWinePrefixes.delete(session.prefixPath);
@@ -2427,6 +2765,7 @@ export class BottleExecutionManager {
       error,
     });
     this.sendPrefixSessionUpdate(session, false, error);
+    discordPresenceManager.clearActivity(session.processId);
   }
 
   private finishPrefixSessionByProcessId(processId: string, error?: string): void {
@@ -2656,24 +2995,6 @@ function quarantine_invalid_wine_prefix(
       error: error instanceof Error ? error.message : String(error),
     });
   }
-}
-
-function launcher_executable_candidates(launcher: BottleLauncherKind, bottlePath: string): string[] {
-  if (launcher === "steam") {
-    return [
-      path.join(bottlePath, "drive_c", "Program Files (x86)", "Steam", "steam.exe"),
-      path.join(bottlePath, "drive_c", "Program Files (x86)", "Steam", "Steam.exe"),
-      path.join(bottlePath, "drive_c", "Program Files", "Steam", "steam.exe"),
-      path.join(bottlePath, "drive_c", "Program Files", "Steam", "Steam.exe"),
-    ];
-  }
-
-  return [
-    path.join(bottlePath, "drive_c", "Program Files", "HoYoPlay", "launcher.exe"),
-    path.join(bottlePath, "drive_c", "Program Files", "HoYoPlay", "HoYoPlay.exe"),
-    path.join(bottlePath, "drive_c", "Program Files (x86)", "HoYoPlay", "launcher.exe"),
-    path.join(bottlePath, "drive_c", "Program Files (x86)", "HoYoPlay", "HoYoPlay.exe"),
-  ];
 }
 
 async function is_stable_launcher_executable(targetPath: string, stableMs: number): Promise<boolean> {
@@ -4008,7 +4329,11 @@ function normalize_hoyo_game_prefix_path(receivedPrefixPath: string, gameKind: H
   return create_hoyo_game_prefix_path(trimmedPath, gameKind);
 }
 
-function host_path_from_wine_or_host_path(prefixPath: string, executablePath: string): string | undefined {
+function host_path_from_wine_or_host_path(
+  prefixPath: string,
+  executablePath: string,
+  sharedGamesPath?: string,
+): string | undefined {
   const normalizedPath = executablePath.replace(/\\/g, "/");
 
   if (/^[Cc]:\//.test(normalizedPath)) {
@@ -4017,6 +4342,13 @@ function host_path_from_wine_or_host_path(prefixPath: string, executablePath: st
 
   if (/^[Zz]:\//.test(normalizedPath)) {
     return `/${normalizedPath.replace(/^[Zz]:\/?/, "")}`;
+  }
+
+  if (/^[Gg]:\//.test(normalizedPath) && sharedGamesPath) {
+    return path.join(
+      expand_user_home_path(sharedGamesPath),
+      normalizedPath.replace(/^[Gg]:\/?/, ""),
+    );
   }
 
   if (path.isAbsolute(executablePath)) {
@@ -4030,8 +4362,9 @@ function host_path_from_hoyo_executable_path(
   receivedPrefixPath: string,
   gamePrefixPath: string,
   executablePath: string,
+  sharedGamesPath?: string,
 ): string | undefined {
-  const directHostPath = host_path_from_wine_or_host_path(gamePrefixPath, executablePath);
+  const directHostPath = host_path_from_wine_or_host_path(gamePrefixPath, executablePath, sharedGamesPath);
 
   if (!directHostPath || existsSync(directHostPath) || !/^[Cc]:[\\/]/.test(executablePath)) {
     return directHostPath;
@@ -4055,6 +4388,100 @@ function host_path_from_hoyo_executable_path(
   }
 
   return directHostPath;
+}
+
+function shared_games_path(preference: LauncherPreference): string | undefined {
+  return preference.gameInstallPath.trim().length > 0
+    ? preference.gameInstallPath
+    : undefined;
+}
+
+function steam_game_process_log_path(prefixPath: string, executablePath: string): string | undefined {
+  const steamExecutableHostPath = host_path_from_wine_or_host_path(prefixPath, executablePath);
+
+  return steamExecutableHostPath
+    ? path.join(path.dirname(steamExecutableHostPath), "logs", "gameprocess_log.txt")
+    : undefined;
+}
+
+function safe_file_size(targetPath: string): number {
+  try {
+    return statSync(targetPath).size;
+  } catch {
+    return 0;
+  }
+}
+
+function ensure_shared_games_drive(
+  prefixPath: string,
+  preference: LauncherPreference,
+  logger: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void },
+): void {
+  const dosDevicesPath = path.join(prefixPath, "dosdevices");
+  const driveLinkPath = path.join(dosDevicesPath, "g:");
+  const markerPath = path.join(prefixPath, ".bdih-shared-games-drive.json");
+  const managedTarget = read_shared_games_drive_marker(markerPath);
+  const currentLink = inspect_symlink(driveLinkPath);
+  const configuredPath = shared_games_path(preference);
+
+  if (!configuredPath) {
+    if (managedTarget && currentLink.target === managedTarget) {
+      rmSync(driveLinkPath, { force: true });
+    }
+    rmSync(markerPath, { force: true });
+    return;
+  }
+
+  const targetPath = path.resolve(expand_user_home_path(configuredPath));
+  mkdirSync(targetPath, { recursive: true });
+  mkdirSync(dosDevicesPath, { recursive: true });
+
+  if (currentLink.exists && currentLink.target !== targetPath) {
+    if (!currentLink.isSymbolicLink || !managedTarget || currentLink.target !== managedTarget) {
+      logger.warn("shared games G: drive was not changed because an unmanaged mapping already exists", {
+        prefixPath,
+        currentTarget: currentLink.target,
+        requestedTarget: targetPath,
+      });
+      return;
+    }
+
+    rmSync(driveLinkPath, { force: true });
+  }
+
+  if (!currentLink.exists || currentLink.target !== targetPath) {
+    symlinkSync(targetPath, driveLinkPath);
+  }
+
+  writeFileSync(markerPath, JSON.stringify({ schemaVersion: 1, targetPath }, null, 2));
+  logger.info("shared games G: drive configured", { prefixPath, targetPath });
+}
+
+function inspect_symlink(targetPath: string): { exists: boolean; isSymbolicLink: boolean; target?: string } {
+  try {
+    const stat = lstatSync(targetPath);
+
+    if (!stat.isSymbolicLink()) {
+      return { exists: true, isSymbolicLink: false };
+    }
+
+    return {
+      exists: true,
+      isSymbolicLink: true,
+      target: path.resolve(path.dirname(targetPath), readlinkSync(targetPath)),
+    };
+  } catch {
+    return { exists: false, isSymbolicLink: false };
+  }
+}
+
+function read_shared_games_drive_marker(markerPath: string): string | undefined {
+  try {
+    const value = JSON.parse(readFileSync(markerPath, "utf8")) as { targetPath?: unknown };
+    return typeof value.targetPath === "string" ? path.resolve(value.targetPath) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function infer_bottle_root_from_prefix_path(receivedPrefixPath: string, gamePrefixPath: string): string {
@@ -4960,7 +5387,19 @@ function normalize_executable_path(executablePath: string): string {
 
 function get_process_cwd(executablePath: string, bottlePath: string): string {
   if (is_windows_path(executablePath)) {
-    return bottlePath;
+    const sharedGamesPath = inspect_symlink(path.join(bottlePath, "dosdevices", "g:")).target;
+    const executableHostPath = host_path_from_wine_or_host_path(
+      bottlePath,
+      executablePath,
+      sharedGamesPath,
+    );
+
+    if (executableHostPath) {
+      return path.dirname(executableHostPath);
+    }
+
+    const windowsPath = path.join(bottlePath, "drive_c", "windows");
+    return existsSync(windowsPath) ? windowsPath : bottlePath;
   }
 
   const normalizedPath = expand_user_home_path(executablePath);

@@ -16,10 +16,41 @@ export const HOYOPLAY_LAUNCHER_PROFILE = {
     "launcher.exe",
     "HoYoPlay.exe",
   ],
+  executableDiscovery: {
+    preferredRelativePaths: [
+      "Program Files/HoYoPlay/launcher.exe",
+      "Program Files/HoYoPlay/HoYoPlay.exe",
+      "Program Files (x86)/HoYoPlay/launcher.exe",
+      "Program Files (x86)/HoYoPlay/HoYoPlay.exe",
+      "HoYoPlay/launcher.exe",
+      "HoYoPlay/HoYoPlay.exe",
+    ],
+    fallbackDrives: ["c"],
+    maxDepth: 5,
+    maxEntries: 5000,
+    skipDirectoryNames: [
+      "windows",
+      "$recycle.bin",
+      "temp",
+      "tmp",
+      "cache",
+    ],
+  },
   managedGames: [
     "zzz",
     "hsr",
     "genshin",
+  ],
+  allowedLaunchOptionKeys: [
+    "enableMsync",
+    "hoyoplayInProcessGpu",
+    "enableTimeoutFix",
+    "leftCommandIsCtrl",
+    "retinaMode",
+    "metalHud",
+    "earlyExitWaitMs",
+    "superviseWaitSeconds",
+    "allowDuplicateGame",
   ],
   configurableOptions: [
     {

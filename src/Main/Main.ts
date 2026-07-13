@@ -1,8 +1,10 @@
 import { app } from "electron";
+import { config as load_dotenv_config } from "dotenv";
 import path from "path";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
 import { bottleExecutionManager } from "./Manager/BottleExecutionManager";
+import { discordPresenceManager } from "./Manager/DiscordPresenceManager";
 import { downloadManager } from "./Manager/DownloadManager";
 import { ipcManager } from "./Manager/IPCManager";
 import { log_level_from_preference, logManager } from "./Manager/LogManager";
@@ -15,6 +17,8 @@ import { windowManager } from "./Manager/WindowManager";
 let isQuitCleanupComplete = false;
 let quitCleanupPromise: Promise<void> | null = null;
 const AUTO_UPDATE_CHECK_DELAY_MS = 2_000;
+
+load_dotenv_config({ quiet: true });
 
 /**
  * Applies user-facing app identity after preferences have loaded.
@@ -45,6 +49,7 @@ async function createApp(): Promise<void> {
     logDir: path.join(expand_user_home_path(preference.dataRootPath), "logs"),
     minLevel: log_level_from_preference(preference.appLoggingLevel),
   });
+  discordPresenceManager.init(preference.language);
   ipcManager.init();
 
   const mainWindow = await windowManager.createMainWindow();
@@ -87,6 +92,7 @@ async function cleanupBeforeQuit(): Promise<void> {
   }
 
   await Promise.all([
+    discordPresenceManager.shutdown(),
     downloadManager.stopAll(),
     bottleExecutionManager.stopAllWineProcesses(),
   ]);
@@ -132,4 +138,5 @@ app.on("before-quit", (event) => {
 
 app.on("will-quit", () => {
   shortcutManager.unregisterAll();
+  void discordPresenceManager.shutdown();
 });

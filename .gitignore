@@ -6,3 +6,4 @@ storybook-static/
 output/
 screenshots/
 tmp*
+.env

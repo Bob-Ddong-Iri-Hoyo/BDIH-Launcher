@@ -28,6 +28,10 @@
         "delete": "Delete"
       }
     },
+    "discordPresence": {
+      "browsingLibrary": "Browsing library",
+      "playingGame": "Playing game"
+    },
     "navigation": {
       "dashboard": {
         "label": "Bottles",
@@ -72,6 +76,48 @@
       "deleteFailed": "Runtime delete failed."
     },
     "main": {
+      "unsavedChanges": {
+        "title": "Save your changes?",
+        "description": "You have unsaved changes. Save before going back, or discard the changes.",
+        "continueEditing": "Continue editing",
+        "discard": "Discard and go back",
+        "save": "Save and go back"
+      },
+      "runtimeInstallFailure": {
+        "title": "Runtime installation failed",
+        "description": "Could not install {{resource}} {{versionId}}.",
+        "technicalDetails": "Technical error details",
+        "reasons": {
+          "diskSpace": {
+            "title": "There is not enough storage space",
+            "description": "Free space on the installation drive and try again. Extracting Wine can temporarily require several times more space than the downloaded archive."
+          },
+          "network": {
+            "title": "The download connection failed",
+            "description": "Check your internet connection and the download server, then try again. An incomplete download will be fetched again on the next attempt."
+          },
+          "archive": {
+            "title": "The downloaded archive could not be extracted",
+            "description": "The file may be incomplete or damaged. Installing again makes the launcher download a fresh archive and retry."
+          },
+          "permission": {
+            "title": "The installation folder is not writable",
+            "description": "Choose a writable data location in Settings or check the folder's access permissions."
+          },
+          "missingFile": {
+            "title": "A required installation file is missing",
+            "description": "A downloaded file or installation path may have been moved or deleted. Check the storage path and try again."
+          },
+          "cancelled": {
+            "title": "The installation was cancelled",
+            "description": "The app may have closed or the task may have been cancelled during installation. Try again when ready."
+          },
+          "unknown": {
+            "title": "An unknown installation error occurred",
+            "description": "Review the technical details below. If it happens again, share these details together with the logs."
+          }
+        }
+      },
       "heroTitle": "Ready to run Windows games on macOS",
       "heroDescription": "Manage bottles and Wine status, with install work flowing into terminal logs.",
       "metrics": {
@@ -129,7 +175,10 @@
         "applyPreparing": "Preparing recipe changes...",
         "applySaving": "Saving bottle recipe...",
         "applyRuntime": "Applying runtime settings...",
-        "applyComplete": "Recipe setup completed."
+        "applyComplete": "Recipe setup completed.",
+        "validatingRecipe": "Validating the current recipe settings...",
+        "validationComplete": "Recipe validation completed.",
+        "validationSkipped": "The current recipe is valid. No values changed, so the apply operation was skipped."
       },
       "openRecipeSettings": "Open recipe settings",
       "bottleStatus": {
@@ -143,6 +192,7 @@
         "launchOptions": "Launch options",
         "recipeSettings": "Recipe settings",
         "rename": "Rename",
+        "editDescription": "Edit description",
         "copyPath": "Copy path",
         "revealFolder": "Reveal in folder",
         "deleteBottle": "Delete bottle",
@@ -159,6 +209,14 @@
         "successTitle": "Bottle renamed",
         "successDescription": "Bottle name was changed to {{name}}."
       },
+      "editBottleDescription": {
+        "title": "Edit bottle description",
+        "description": "Update the description shown for {{name}}.",
+        "descriptionLabel": "Bottle description",
+        "placeholder": "Describe this bottle",
+        "successTitle": "Description updated",
+        "successDescription": "The description for {{name}} was saved."
+      },
       "launchOptionsUnavailable": {
         "title": "Launch options",
         "description": "Launch options are not opened from the bottle list yet. Use bottle details for launcher actions."
@@ -173,6 +231,12 @@
         "preset": "Preset",
         "searchPresets": "Search presets",
         "sections": "Sections",
+        "sectionDescriptions": {
+          "general": "Basic Wine and app behavior",
+          "dxmt": "Graphics and MetalFX settings",
+          "timing": "Startup and process supervision timing",
+          "network": "Game-specific network launch adjustments"
+        },
         "unsupportedByWine": "Unavailable for the selected Wine runtime metadata.",
         "general": "General",
         "timing": "Timing",
@@ -257,6 +321,7 @@
         "description": "Create a new bottle with a Wine runtime. Choose the prefix root; the bottle folder is created under it.",
         "nameLabel": "Bottle name",
         "namePlaceholder": "Raiden",
+        "duplicateName": "A bottle with this name already exists.",
         "randomName": "Random",
         "wineLabel": "Wine runtime",
         "dxmtLabel": "DXMT version",
@@ -351,7 +416,21 @@
         "run": "Run in bottle",
         "register": "Add to apps"
       },
-      "searchReady": "Search ready",
+      "searchReady": "Search bottles",
+      "bottleEdit": "Edit",
+      "bottleEditDone": "Done",
+      "bottleEditing": "Editing",
+      "bottleEditCancel": "Cancel",
+      "bottleEditApply": "Apply",
+      "bottleEditHint": "Drag bottles to place frequently used ones where you want them.",
+      "bottleSearchEmpty": "No bottles match this search.",
+      "bottleSize": {
+        "title": "Bottle card size",
+        "large": "Large",
+        "medium": "Medium",
+        "small": "Small",
+        "compact": "Compact"
+      },
       "wineVersions": "Wine versions",
       "runtimeDownloads": {
         "title": "Runtime downloads",
@@ -394,8 +473,10 @@
         "dataRootDescription": "The launcher stores Wine, Bottles, DXMT, logs, and appmeta.json under this folder.",
         "advancedBottleRoot": "Use a separate Bottle root",
         "advancedBottleRootDescription": "Keep Wine/DXMT/logs under the data location, but create bottle prefixes in a custom folder.",
-        "bottleRootTitle": "Bottle prefix root",
-        "bottleRootDescription": "Folder that contains launcher-managed bottle folders. Each bottle is created as root/bottle-name.",
+      "bottleRootTitle": "Bottle prefix root",
+      "bottleRootDescription": "Folder that contains launcher-managed bottle folders. Each bottle is created as root/bottle-name.",
+      "sharedGamesPathTitle": "Shared G: game folder",
+      "sharedGamesPathDescription": "Host folder where game launchers can download games for multiple Bottles to reference.",
         "wineInstallTitle": "Wine runtime storage",
         "wineInstallDescription": "Folder for downloaded Wine builds and runtimes.",
         "bottlePrefixTitle": "Bottle prefix storage",
@@ -632,7 +713,8 @@
     "locale": {
       "ko": "Korean",
       "en": "English",
-      "ja": "Japanese"
+      "ja": "Japanese",
+      "zh": "Simplified Chinese"
     },
     "theme": {
       "mode": {
@@ -646,6 +728,68 @@
         "emerald": "Emerald",
         "violet": "Violet",
         "amber": "Amber"
+      }
+    },
+    "logViewer": {
+      "app": "App",
+      "unknownApp": "Unknown app",
+      "modes": {
+        "appLogs": "App logs",
+        "bottleLogs": "Bottle logs"
+      },
+      "summary": {
+        "title": "Launcher app logs",
+        "description": "Overall launcher logging, preferences, updates, renderer, and app lifecycle events"
+      },
+      "targets": {
+        "title": "Log targets",
+        "count": "{{count}} targets",
+        "label": "Log target",
+        "search": "Search log targets",
+        "logs": "Logs",
+        "appLogs": "App Logs",
+        "applicationLogs": "Application logs",
+        "bottleLogs": "Bottle logs",
+        "appSessions": "{{count}} app log sessions",
+        "bottleSessions": "{{count}} Bottle log sessions",
+        "runningDescription": "{{description}} - {{count}} running"
+      },
+      "filters": {
+        "appExecutable": "App executable filter",
+        "allApps": "All apps",
+        "selected": "{{count}} selected",
+        "all": "All",
+        "allSources": "All sources",
+        "searchSources": "Search sources",
+        "filterText": "Filter text",
+        "levels": {
+          "all": "All",
+          "debug": "Debug",
+          "info": "Info",
+          "warn": "Warn",
+          "error": "Error"
+        }
+      },
+      "history": {
+        "title": "History",
+        "empty": "No log sessions"
+      },
+      "content": {
+        "noMatches": "No logs match the current filters.",
+        "noSession": "No log session selected.",
+        "selectTarget": "Select a target and history item",
+        "selectedAria": "Selected log content"
+      },
+      "actions": {
+        "logFolder": "Log folder",
+        "openFile": "Open file",
+        "showInFolder": "Show in folder",
+        "openLogFile": "Open log file",
+        "openContainingFolder": "Open containing folder"
+      },
+      "units": {
+        "sessions": "sessions",
+        "lines": "lines"
       }
     },
     "tray": {

@@ -103,6 +103,7 @@
     "@storybook/react": "8.6.0",
     "@storybook/react-webpack5": "8.6.0",
     "@tailwindcss/postcss": "^4.2.2",
+    "@types/discord-rpc": "^4.0.11",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
@@ -149,6 +150,8 @@
     "overrides": {}
   },
   "dependencies": {
+    "discord-rpc": "^4.0.1",
+    "dotenv": "^17.4.2",
     "node-pty": "^1.1.0"
   }
 }

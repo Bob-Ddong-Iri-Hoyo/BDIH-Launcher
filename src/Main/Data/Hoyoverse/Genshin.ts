@@ -30,6 +30,17 @@ export const GENSHIN_HOYO_GAME_PROFILE = {
       defaultDisabled: true,
     },
   },
+  allowedLaunchOptionKeys: [
+    "enableMsync",
+    "enableTimeoutFix",
+    "leftCommandIsCtrl",
+    "retinaMode",
+    "metalHud",
+    "dxmtPreferredMaxFrameRate",
+    "dxmtMetalFxSpatialUpscale",
+    "dxmtMetalFxSpatialUpscaleFactor",
+    "earlyExitWaitMs",
+  ],
   configurableOptions: [
     {
       key: "dxmtPreferredMaxFrameRate",

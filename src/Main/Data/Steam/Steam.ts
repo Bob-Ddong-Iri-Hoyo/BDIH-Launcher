@@ -26,10 +26,37 @@ export const STEAM_LAUNCHER_PROFILE = {
     "steam.exe",
     "Steam.exe",
   ],
+  executableDiscovery: {
+    preferredRelativePaths: [
+      "Program Files (x86)/Steam/steam.exe",
+      "Program Files/Steam/steam.exe",
+      "Steam/steam.exe",
+      "steam.exe",
+    ],
+    fallbackDrives: ["c"],
+    maxDepth: 5,
+    maxEntries: 5000,
+    skipDirectoryNames: [
+      "windows",
+      "$recycle.bin",
+      "temp",
+      "tmp",
+      "cache",
+    ],
+  },
   launchMode: "steam-client",
+  allowedLaunchOptionKeys: [
+    "enableMsync",
+    "steamWebHelperArgs",
+    "leftCommandIsCtrl",
+    "retinaMode",
+    "metalHud",
+    "earlyExitWaitMs",
+    "superviseWaitSeconds",
+  ],
   configurableOptions: [
     {
-      key: "steamWebHelperInProcessGpu",
+      key: "steamWebHelperArgs",
       label: "Steam web helper in-process GPU",
       type: "boolean",
       envName: "STEAM_WEBHELPER_ARGS",

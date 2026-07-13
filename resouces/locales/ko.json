@@ -28,6 +28,10 @@
         "delete": "삭제"
       }
     },
+    "discordPresence": {
+      "browsingLibrary": "라이브러리 보는 중",
+      "playingGame": "게임 실행 중"
+    },
     "navigation": {
       "dashboard": {
         "label": "Bottle",
@@ -72,6 +76,48 @@
       "deleteFailed": "런타임 삭제에 실패했습니다."
     },
     "main": {
+      "unsavedChanges": {
+        "title": "변경사항을 저장할까요?",
+        "description": "저장하지 않은 변경사항이 있습니다. 저장한 뒤 뒤로가거나 변경사항을 버릴 수 있습니다.",
+        "continueEditing": "계속 편집",
+        "discard": "버리고 뒤로가기",
+        "save": "저장하고 뒤로가기"
+      },
+      "runtimeInstallFailure": {
+        "title": "런타임 설치에 실패했습니다",
+        "description": "{{resource}} {{versionId}}을(를) 설치하지 못했습니다.",
+        "technicalDetails": "기술적 오류 내용",
+        "reasons": {
+          "diskSpace": {
+            "title": "저장 공간이 부족합니다",
+            "description": "설치 드라이브의 여유 공간을 확보한 뒤 다시 시도하세요. Wine 압축 해제 중에는 다운로드 파일 크기보다 몇 배 많은 임시 공간이 필요할 수 있습니다."
+          },
+          "network": {
+            "title": "다운로드 연결에 실패했습니다",
+            "description": "인터넷 연결과 다운로드 서버 상태를 확인한 뒤 다시 시도하세요. 불완전한 다운로드 파일은 다음 시도에서 다시 받아집니다."
+          },
+          "archive": {
+            "title": "다운로드한 압축 파일을 해제하지 못했습니다",
+            "description": "파일이 불완전하거나 손상되었을 수 있습니다. 다시 설치하면 런처가 압축 파일을 새로 받아 재시도합니다."
+          },
+          "permission": {
+            "title": "설치 폴더에 쓸 권한이 없습니다",
+            "description": "설정에서 쓰기 가능한 데이터 저장 경로를 선택하거나 해당 폴더의 접근 권한을 확인하세요."
+          },
+          "missingFile": {
+            "title": "설치에 필요한 파일을 찾지 못했습니다",
+            "description": "다운로드 파일이나 설치 경로가 이동 또는 삭제되었을 수 있습니다. 저장 경로를 확인한 뒤 다시 시도하세요."
+          },
+          "cancelled": {
+            "title": "설치가 취소되었습니다",
+            "description": "설치 도중 앱이 종료되었거나 작업이 취소되었습니다. 준비가 되면 다시 설치하세요."
+          },
+          "unknown": {
+            "title": "알 수 없는 설치 오류가 발생했습니다",
+            "description": "아래 기술적 오류 내용을 확인하세요. 같은 문제가 반복되면 이 내용을 로그와 함께 공유해 주세요."
+          }
+        }
+      },
       "heroTitle": "macOS에서 Windows 게임을 실행할 준비가 됐습니다",
       "heroDescription": "Bottle과 Wine 상태를 관리하고 설치 작업은 터미널 로그로 확인합니다.",
       "metrics": {
@@ -129,7 +175,10 @@
         "applyPreparing": "Recipe 변경을 준비하는 중...",
         "applySaving": "Bottle Recipe를 저장하는 중...",
         "applyRuntime": "런타임 설정을 적용하는 중...",
-        "applyComplete": "Recipe 설정이 완료되었습니다."
+        "applyComplete": "Recipe 설정이 완료되었습니다.",
+        "validatingRecipe": "현재 Recipe 설정을 검증하는 중...",
+        "validationComplete": "Recipe 검증이 완료되었습니다.",
+        "validationSkipped": "현재 Recipe 설정이 유효합니다. 변경할 항목이 없어 적용 작업은 건너뛰었습니다."
       },
       "openRecipeSettings": "Recipe 설정 열기",
       "bottleStatus": {
@@ -143,6 +192,7 @@
         "launchOptions": "Launch 옵션",
         "recipeSettings": "Recipe 설정",
         "rename": "이름 바꾸기",
+        "editDescription": "설명 바꾸기",
         "copyPath": "경로 복사",
         "revealFolder": "폴더에서 보기",
         "deleteBottle": "Bottle 삭제",
@@ -159,6 +209,14 @@
         "successTitle": "Bottle 이름을 변경했습니다",
         "successDescription": "Bottle 이름이 {{name}}(으)로 저장되었습니다."
       },
+      "editBottleDescription": {
+        "title": "Bottle 설명 바꾸기",
+        "description": "{{name}}에 표시할 설명을 수정합니다.",
+        "descriptionLabel": "Bottle 설명",
+        "placeholder": "이 Bottle에 대한 설명을 입력하세요",
+        "successTitle": "설명을 변경했습니다",
+        "successDescription": "{{name}}의 설명을 저장했습니다."
+      },
       "launchOptionsUnavailable": {
         "title": "Launch 옵션",
         "description": "Bottle 목록에서는 아직 Launch 옵션을 열지 않습니다. 런처 작업은 Bottle 상세 화면에서 사용하세요."
@@ -173,6 +231,12 @@
         "preset": "프리셋",
         "searchPresets": "프리셋 검색",
         "sections": "목차",
+        "sectionDescriptions": {
+          "general": "Wine 및 앱 기본 동작",
+          "dxmt": "그래픽과 MetalFX 설정",
+          "timing": "시작 및 프로세스 감시 시간",
+          "network": "게임별 네트워크 실행 보정"
+        },
         "unsupportedByWine": "선택한 Wine 런타임 메타데이터에서 지원하지 않는 옵션입니다.",
         "general": "일반",
         "timing": "대기",
@@ -257,6 +321,7 @@
         "description": "Wine 런타임을 사용하는 새 Bottle을 만듭니다. Prefix 루트를 선택하면 그 아래에 Bottle 폴더가 생성됩니다.",
         "nameLabel": "Bottle 이름",
         "namePlaceholder": "Raiden",
+        "duplicateName": "이미 같은 이름의 Bottle이 존재합니다.",
         "randomName": "랜덤",
         "wineLabel": "Wine 런타임",
         "dxmtLabel": "DXMT 버전",
@@ -351,7 +416,21 @@
         "run": "Bottle에서 실행",
         "register": "앱에 추가"
       },
-      "searchReady": "검색 준비됨",
+      "searchReady": "Bottle 검색",
+      "bottleEdit": "편집",
+      "bottleEditDone": "완료",
+      "bottleEditing": "편집중",
+      "bottleEditCancel": "취소",
+      "bottleEditApply": "적용",
+      "bottleEditHint": "Bottle을 드래그하여 자주 사용하는 위치로 옮길 수 있습니다.",
+      "bottleSearchEmpty": "검색 조건에 맞는 Bottle이 없습니다.",
+      "bottleSize": {
+        "title": "Bottle 카드 크기",
+        "large": "크게",
+        "medium": "중간",
+        "small": "작게",
+        "compact": "최소"
+      },
       "wineVersions": "Wine 버전",
       "runtimeDownloads": {
         "title": "런타임 다운로드",
@@ -394,8 +473,10 @@
         "dataRootDescription": "이 폴더 아래에 Wine, Bottles, DXMT, logs, appmeta.json이 함께 저장됩니다.",
         "advancedBottleRoot": "Bottle root를 따로 사용",
         "advancedBottleRootDescription": "Wine/DXMT/로그는 데이터 저장 위치에 두고, Bottle prefix들만 별도 폴더에 생성합니다.",
-        "bottleRootTitle": "Bottle prefix 루트",
-        "bottleRootDescription": "Bottle 폴더들을 담는 루트 위치입니다. 각 Bottle은 root/bottle-name 형태로 생성됩니다.",
+      "bottleRootTitle": "Bottle prefix 루트",
+      "bottleRootDescription": "Bottle 폴더들을 담는 루트 위치입니다. 각 Bottle은 root/bottle-name 형태로 생성됩니다.",
+      "sharedGamesPathTitle": "G: 공통 게임 폴더",
+      "sharedGamesPathDescription": "게임 런처가 공통으로 다운로드하고 여러 Bottle이 참조할 호스트 폴더입니다.",
         "wineInstallTitle": "Wine 런타임 저장 위치",
         "wineInstallDescription": "다운로드한 Wine 빌드와 런타임을 저장할 폴더입니다.",
         "bottlePrefixTitle": "Bottle prefix 저장 위치",
@@ -632,7 +713,8 @@
     "locale": {
       "ko": "한국어",
       "en": "영어",
-      "ja": "일본어"
+      "ja": "일본어",
+      "zh": "중국어(간체)"
     },
     "theme": {
       "mode": {
@@ -646,6 +728,68 @@
         "emerald": "에메랄드",
         "violet": "바이올렛",
         "amber": "앰버"
+      }
+    },
+    "logViewer": {
+      "app": "앱",
+      "unknownApp": "알 수 없는 앱",
+      "modes": {
+        "appLogs": "앱 로그",
+        "bottleLogs": "Bottle 로그"
+      },
+      "summary": {
+        "title": "런처 앱 로그",
+        "description": "런처 설정, 업데이트, 렌더러와 앱 수명 주기 기록을 확인합니다."
+      },
+      "targets": {
+        "title": "로그 대상",
+        "count": "대상 {{count}}개",
+        "label": "로그 대상",
+        "search": "로그 대상 검색",
+        "logs": "로그",
+        "appLogs": "앱 로그",
+        "applicationLogs": "애플리케이션 로그",
+        "bottleLogs": "Bottle 로그",
+        "appSessions": "앱 로그 세션 {{count}}개",
+        "bottleSessions": "Bottle 로그 세션 {{count}}개",
+        "runningDescription": "{{description}} - {{count}}개 실행 중"
+      },
+      "filters": {
+        "appExecutable": "실행 파일 필터",
+        "allApps": "모든 앱",
+        "selected": "{{count}}개 선택됨",
+        "all": "전체",
+        "allSources": "모든 소스",
+        "searchSources": "소스 검색",
+        "filterText": "로그 내용 필터",
+        "levels": {
+          "all": "전체",
+          "debug": "디버그",
+          "info": "정보",
+          "warn": "경고",
+          "error": "오류"
+        }
+      },
+      "history": {
+        "title": "기록",
+        "empty": "로그 세션이 없습니다."
+      },
+      "content": {
+        "noMatches": "현재 필터와 일치하는 로그가 없습니다.",
+        "noSession": "선택된 로그 세션이 없습니다.",
+        "selectTarget": "로그 대상과 기록을 선택하세요.",
+        "selectedAria": "선택된 로그 내용"
+      },
+      "actions": {
+        "logFolder": "로그 폴더",
+        "openFile": "파일 열기",
+        "showInFolder": "폴더에서 보기",
+        "openLogFile": "로그 파일 열기",
+        "openContainingFolder": "포함된 폴더 열기"
+      },
+      "units": {
+        "sessions": "세션",
+        "lines": "줄"
       }
     },
     "tray": {

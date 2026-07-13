@@ -1,4 +1,6 @@
 import React, { useMemo, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import {
   CalendarDays,
   ExternalLink,
@@ -115,14 +117,6 @@ export interface LogViewerProps {
   className?: string;
 }
 
-const LEVEL_LABEL: Record<LogLevelFilter, string> = {
-  all: "All",
-  debug: "Debug",
-  info: "Info",
-  warn: "Warn",
-  error: "Error",
-};
-
 const LEVELS: LogLevelFilter[] = ["all", "debug", "info", "warn", "error"];
 const LOG_BOTTOM_STICKY_THRESHOLD = 32;
 
@@ -156,10 +150,11 @@ export function LogViewer({
   onRevealLogFile,
   className = "",
 }: LogViewerProps) {
+  const { t } = useTranslation();
   const sortedSessions = useMemo(() => sort_sessions(sessions), [sessions]);
   const targets = useMemo(
-    () => create_log_targets(sortedSessions),
-    [sortedSessions],
+    () => create_log_targets(sortedSessions, t),
+    [sortedSessions, t],
   );
   const [localTargetId, setLocalTargetId] = useState("");
   const [localMode, setLocalMode] = useState<LogViewerMode>(() =>
@@ -168,7 +163,10 @@ export function LogViewer({
   const [localSessionId, setLocalSessionId] = useState("");
   const [localSourceId, setLocalSourceId] = useState<LogSourceFilter>("all");
   const [localLevel, setLocalLevel] = useState<LogLevelFilter>("all");
-  const [localSearch, setLocalSearch] = useState("");
+  const [localSearchByMode, setLocalSearchByMode] = useState<Record<LogViewerMode, string>>({
+    app: "",
+    bottle: "",
+  });
   const [localFavoriteTargetIds, setLocalFavoriteTargetIds] = useState<string[]>(favoriteTargetIds ?? []);
   const [localBottleAppFilterValues, setLocalBottleAppFilterValues] = useState<string[]>([]);
   const [contextMenuState, setContextMenuState] = useState<{
@@ -189,6 +187,7 @@ export function LogViewer({
     targetCandidates,
     visibleMode,
     selectedTargetId ?? localTargetId,
+    targetLabel,
   );
   const target = targets.find((candidate) => candidate.id === targetId);
   const targetSessions = useMemo(
@@ -196,8 +195,8 @@ export function LogViewer({
     [sortedSessions, targetId],
   );
   const bottleAppFilterOptions = useMemo(
-    () => create_bottle_app_filter_options(targetSessions),
-    [targetSessions],
+    () => create_bottle_app_filter_options(targetSessions, t),
+    [targetSessions, t],
   );
   const bottleAppFilterValues = normalize_bottle_app_filter_values(
     bottleAppFilterOptions,
@@ -226,7 +225,7 @@ export function LogViewer({
     selectedSourceId ?? localSourceId,
   );
   const level = selectedLevel ?? localLevel;
-  const search = searchValue ?? localSearch;
+  const search = searchValue ?? localSearchByMode[visibleMode];
   const filteredEntries = useMemo(
     () =>
       filter_entries(sessionEntries, {
@@ -336,7 +335,10 @@ export function LogViewer({
   }
 
   function change_search(nextSearch: string) {
-    setLocalSearch(nextSearch);
+    setLocalSearchByMode((currentSearchByMode) => ({
+      ...currentSearchByMode,
+      [visibleMode]: nextSearch,
+    }));
     onSearchChange?.(nextSearch);
   }
 
@@ -430,18 +432,20 @@ export function LogModeMenu({
   bottleCount: number;
   onModeChange: (mode: LogViewerMode) => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Box className="border-b border-white/10 bg-[#0f172a] px-3 py-3">
       <Inline className="w-full max-w-md items-center gap-2 rounded-lg border border-white/10 bg-[#08101f] p-1">
         <LogModeButton
           active={mode === "app"}
-          label="App logs"
+          label={t("logViewer.modes.appLogs")}
           count={appCount}
           onClick={() => onModeChange("app")}
         />
         <LogModeButton
           active={mode === "bottle"}
-          label="Bottle logs"
+          label={t("logViewer.modes.bottleLogs")}
           count={bottleCount}
           onClick={() => onModeChange("bottle")}
         />
@@ -484,6 +488,8 @@ export function LogAppSummaryHeader({
 }: {
   target?: LogTarget;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Box className="border-b border-white/10 bg-[#101827] px-4 py-3">
       <Inline className="min-w-0 items-center justify-between gap-3">
@@ -491,14 +497,14 @@ export function LogAppSummaryHeader({
           <Inline className="min-w-0 items-center gap-2 text-sm font-semibold text-slate-100">
             <FileText className="h-4 w-4 shrink-0 text-slate-400" />
             <InlineText className="truncate text-sm font-semibold text-slate-100">
-              Launcher app logs
+              {t("logViewer.summary.title")}
             </InlineText>
           </Inline>
           <Text className="truncate text-xs text-slate-500">
-            Overall launcher logging, preferences, updates, renderer, and app lifecycle events
+            {t("logViewer.summary.description")}
           </Text>
         </Stack>
-        {target ? <CountPill value={target.count} suffix="sessions" /> : null}
+        {target ? <CountPill value={target.count} suffix={t("logViewer.units.sessions")} /> : null}
       </Inline>
     </Box>
   );
@@ -513,6 +519,7 @@ export function LogBottleAppFilter({
   selectedValues: string[];
   onSelectedValuesChange: (values: string[]) => void;
 }) {
+  const { t } = useTranslation();
   const selectedValueSet = new Set(selectedValues);
   const isAllSelected = selectedValues.length === 0;
   const totalCount = options.reduce((count, option) => count + option.count, 0);
@@ -527,14 +534,16 @@ export function LogBottleAppFilter({
   }
 
   return (
-    <Box className="border-b border-white/10 bg-[#101827] px-3 pb-3">
-      <Stack className="gap-2 rounded-lg border border-white/10 bg-[#08101f] p-2">
+    <Box className="border-b border-white/10 bg-[#101827] p-3">
+      <Stack className="w-full gap-2 rounded-lg border border-white/10 bg-[#08101f] p-2">
         <Inline className="items-center justify-between gap-3">
           <InlineText className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            App executable filter
+            {t("logViewer.filters.appExecutable")}
           </InlineText>
           <InlineText className="text-[11px] tabular-nums text-slate-500">
-            {isAllSelected ? "All apps" : `${selectedValues.length} selected`}
+            {isAllSelected
+              ? t("logViewer.filters.allApps")
+              : t("logViewer.filters.selected", { count: selectedValues.length })}
           </InlineText>
         </Inline>
         <Inline className="flex-wrap gap-2">
@@ -547,7 +556,7 @@ export function LogBottleAppFilter({
                 : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
             }`}
           >
-            All
+            {t("logViewer.filters.all")}
             <InlineText className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums ${isAllSelected ? "bg-white/20 text-white" : "bg-white/10 text-slate-400"}`}>
               {totalCount}
             </InlineText>
@@ -600,7 +609,8 @@ export function LogTargetHeader({
   onTargetChange: (targetId: string) => void;
   onFavoriteTargetIdsChange: (targetIds: string[]) => void;
 }) {
-  const targetOptions = targets.map(target_to_select_option);
+  const { t } = useTranslation();
+  const targetOptions = targets.map((target) => target_to_select_option(target, t));
 
   if (displayMode === "label") {
     return (
@@ -610,11 +620,14 @@ export function LogTargetHeader({
             <Inline className="items-center gap-2 text-sm font-semibold text-slate-100">
               <FileText className="h-4 w-4 shrink-0 text-slate-400" />
               <InlineText className="truncate text-sm font-semibold text-slate-100">
-                {label ?? selectedTarget?.label ?? "Logs"}
+                {label ?? selectedTarget?.label ?? t("logViewer.targets.logs")}
               </InlineText>
+              {selectedTarget?.runningCount ? <LiveDot /> : null}
             </Inline>
             <Text className="text-xs text-slate-500">
-              {selectedTarget?.kind === "bottle" ? "Bottle logs" : "Application logs"}
+              {selectedTarget?.kind === "bottle"
+                ? t("logViewer.targets.bottleLogs")
+                : t("logViewer.targets.applicationLogs")}
             </Text>
           </Stack>
           {selectedTarget ? <CountPill value={selectedTarget.count} /> : null}
@@ -628,21 +641,21 @@ export function LogTargetHeader({
       <Inline className="mb-2 items-center justify-between gap-3">
         <Inline className="min-w-0 items-center gap-2 text-sm font-semibold text-slate-200">
           <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-          <InlineText className="truncate text-sm text-slate-200">Log targets</InlineText>
+          <InlineText className="truncate text-sm text-slate-200">{t("logViewer.targets.title")}</InlineText>
         </Inline>
         <Badge className="min-w-[5.5rem] rounded bg-white/[0.05] text-center text-xs font-normal tabular-nums text-slate-500">
-          {targets.length} targets
+          {t("logViewer.targets.count", { count: targets.length })}
         </Badge>
       </Inline>
 
       <Select
         value={selectedTargetId}
         options={targetOptions}
-        label="Log target"
+        label={t("logViewer.targets.label")}
         enableFavorites
         favoriteValues={favoriteTargetIds}
         onFavoriteValuesChange={onFavoriteTargetIdsChange}
-        searchPlaceholder="Search log targets"
+        searchPlaceholder={t("logViewer.targets.search")}
         onChange={onTargetChange}
       />
     </Box>
@@ -660,14 +673,16 @@ export function LogHistoryPane({
   onSessionChange: (sessionId: string) => void;
   onSessionContextMenu: (event: React.MouseEvent, session: LogSession) => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Box className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/10 bg-[#08101f] p-3">
       <Inline className="mb-2 items-center gap-2 text-sm font-semibold text-slate-200">
         <CalendarDays className="h-4 w-4 text-slate-400" />
-        <InlineText className="text-sm text-slate-200">History</InlineText>
+        <InlineText className="text-sm text-slate-200">{t("logViewer.history.title")}</InlineText>
       </Inline>
       <List className="min-h-0 flex-1 overflow-y-auto pr-1">
-        {sessions.length === 0 ? <EmptyListMessage>No log sessions</EmptyListMessage> : null}
+        {sessions.length === 0 ? <EmptyListMessage>{t("logViewer.history.empty")}</EmptyListMessage> : null}
         {sessions.map((session) => (
           <SessionButton
             key={session.id}
@@ -693,6 +708,8 @@ export function SessionButton({
   onClick: () => void;
   onContextMenu: (event: React.MouseEvent) => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <ListItem
       as="button"
@@ -701,15 +718,17 @@ export function SessionButton({
       interactive
       onClick={onClick}
       onContextMenu={onContextMenu}
-      title={session_title(session)}
+      title={session_title(session, t)}
       className="min-h-[5.25rem] w-full flex-col px-3 py-2"
     >
       <Inline className="min-w-0 shrink-0 items-center justify-between gap-2">
         <ListItemBody className="min-w-0 flex-row items-center gap-2">
           {session.isRunning ? <LiveDot /> : null}
-          <ListItemTitle className="leading-5">{session.label}</ListItemTitle>
+          <ListItemTitle className="leading-5">
+            {session.kind === "bottle" ? bottle_app_filter_label(session, t) : session.label}
+          </ListItemTitle>
         </ListItemBody>
-        {session.count !== undefined ? <CountPill value={session.count} suffix="lines" /> : null}
+        {session.count !== undefined ? <CountPill value={session.count} suffix={t("logViewer.units.lines")} /> : null}
       </Inline>
       <ListItemBody className="mt-1 flex-1 justify-end gap-0 overflow-hidden">
         <ListItemDescription>{log_file_name(session)}</ListItemDescription>
@@ -752,6 +771,8 @@ export function LogContent({
   onOpenLogFile?: (session: LogSession) => void;
   onRevealLogFile?: (session: LogSession) => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Box className="flex min-h-0 min-w-0 flex-col bg-[#0b1020]">
       <LogToolbar
@@ -773,7 +794,9 @@ export function LogContent({
         entries={entries}
         text={logText}
         scrollScopeKey={selectedSession?.id ?? "no-session"}
-        placeholder={selectedSession ? "No logs match the current filters." : "No log session selected."}
+        placeholder={selectedSession
+          ? t("logViewer.content.noMatches")
+          : t("logViewer.content.noSession")}
       />
     </Box>
   );
@@ -808,10 +831,11 @@ export function LogToolbar({
   onOpenLogFile?: (session: LogSession) => void;
   onRevealLogFile?: (session: LogSession) => void;
 }) {
+  const { t } = useTranslation();
   const hasSelectedSessionFile = Boolean(selectedSession && log_session_file_target(selectedSession));
   const hasSelectedSessionFolder = Boolean(selectedSession && log_session_reveal_target(selectedSession));
   const sourceSelectOptions: SelectMenuOption[] = [
-    { value: "all", label: "All sources" },
+    { value: "all", label: t("logViewer.filters.allSources") },
     ...sources.map((source) => ({
       value: source.id,
       label: source.count !== undefined ? `${source.label} (${source.count})` : source.label,
@@ -824,16 +848,18 @@ export function LogToolbar({
         <Stack className="min-w-0 gap-1">
           <Inline className="min-w-0 items-center gap-2 text-sm font-semibold text-slate-100">
             <ScrollText className="h-4 w-4 shrink-0 text-slate-400" />
-            <InlineText className="truncate text-sm font-semibold text-slate-100">{selectedSession?.label ?? "No session selected"}</InlineText>
+            <InlineText className="truncate text-sm font-semibold text-slate-100">
+              {selectedSession?.label ?? t("logViewer.content.noSession")}
+            </InlineText>
           </Inline>
           <Text className="truncate text-xs text-slate-500">
-            {selectedSession ? log_file_name(selectedSession) : "Select a target and history item"}
+            {selectedSession ? log_file_name(selectedSession) : t("logViewer.content.selectTarget")}
           </Text>
         </Stack>
         <Inline className="shrink-0 flex-wrap items-center justify-end gap-2">
           <Button variant="glass" size="xs" onClick={onOpenLogFolder}>
             <FolderOpen size={14} />
-            Log folder
+            {t("logViewer.actions.logFolder")}
           </Button>
           <Button
             variant="glass"
@@ -842,7 +868,7 @@ export function LogToolbar({
             onClick={() => selectedSession && onOpenLogFile?.(selectedSession)}
           >
             <FileText size={14} />
-            Open file
+            {t("logViewer.actions.openFile")}
           </Button>
           <Button
             variant="glass"
@@ -851,7 +877,7 @@ export function LogToolbar({
             onClick={() => selectedSession && onRevealLogFile?.(selectedSession)}
           >
             <ExternalLink size={14} />
-            Show in folder
+            {t("logViewer.actions.showInFolder")}
           </Button>
           <Badge className="inline-flex h-7 min-w-[5.75rem] items-center justify-center rounded-md bg-white/[0.05] px-2 text-center text-xs font-normal tabular-nums text-slate-400">
             {visibleCount} / {totalCount}
@@ -864,7 +890,7 @@ export function LogToolbar({
           <Input
             value={searchValue}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Filter text"
+            placeholder={t("logViewer.filters.filterText")}
             className="h-9 w-full rounded-md border border-white/10 bg-[#0b1020] px-3 pl-9 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
           />
         </RelativeBox>
@@ -872,8 +898,9 @@ export function LogToolbar({
           value={selectedSourceId}
           options={sourceSelectOptions}
           onChange={(value) => onSourceChange(value)}
+          compact
           className="min-w-36 flex-1"
-          searchPlaceholder="Search sources"
+          searchPlaceholder={t("logViewer.filters.searchSources")}
         />
         <Inline className="h-9 shrink-0 items-center gap-1 rounded-md border border-white/10 bg-[#0b1020] p-1">
           {LEVELS.map((level) => (
@@ -883,7 +910,7 @@ export function LogToolbar({
               size="xs"
               onClick={() => onLevelChange(level)}
             >
-              {LEVEL_LABEL[level]}
+              {t(`logViewer.filters.levels.${level}`)}
             </Button>
           ))}
         </Inline>
@@ -903,6 +930,8 @@ export function LogSessionContextMenu({
   onOpenLogFile?: (session: LogSession) => void;
   onRevealLogFile?: (session: LogSession) => void;
 }) {
+  const { t } = useTranslation();
+
   React.useEffect(() => {
     if (!state) {
       return undefined;
@@ -941,7 +970,7 @@ export function LogSessionContextMenu({
         }}
       >
         <FileText size={15} />
-        Open log file
+        {t("logViewer.actions.openLogFile")}
       </Button>
       <Button
         variant="ghost"
@@ -954,7 +983,7 @@ export function LogSessionContextMenu({
         }}
       >
         <FolderOpen size={15} />
-        Open containing folder
+        {t("logViewer.actions.openContainingFolder")}
       </Button>
     </Stack>
   );
@@ -977,10 +1006,12 @@ export interface LogTextPanelProps {
 export function LogTextPanel({
   text,
   entries = [],
-  placeholder = "No logs match the current filters.",
+  placeholder,
   scrollScopeKey = "default",
 }: LogTextPanelProps) {
+  const { t } = useTranslation();
   const textPanelRef = React.useRef<HTMLPreElement>(null);
+  const resolvedPlaceholder = placeholder ?? t("logViewer.content.noMatches");
   const shouldStickToBottomRef = React.useRef(true);
   const lastScrollScopeKeyRef = React.useRef(scrollScopeKey);
 
@@ -1011,13 +1042,13 @@ export function LogTextPanel({
     <Box className="min-h-0 flex-1 bg-[#0b1020] p-3">
       <CodeBlock
         ref={textPanelRef}
-        aria-label="Selected log content"
+        aria-label={t("logViewer.content.selectedAria")}
         className="h-full select-text overflow-auto rounded-md border border-white/10 bg-[#050914] p-3 text-xs leading-5 text-slate-200 selection:bg-[rgb(var(--accent-rgb)/0.32)] selection:text-white"
         onScroll={remember_scroll_position}
       >
-        {text || placeholder}
+        {text || resolvedPlaceholder}
       </CodeBlock>
-      {entries.length === 0 ? <InlineText className="sr-only">{placeholder}</InlineText> : null}
+      {entries.length === 0 ? <InlineText className="sr-only">{resolvedPlaceholder}</InlineText> : null}
     </Box>
   );
 }
@@ -1061,29 +1092,34 @@ function sort_sessions(sessions: LogSession[]) {
   });
 }
 
-function create_log_targets(sessions: LogSession[]): LogTarget[] {
+function create_log_targets(sessions: LogSession[], t: TFunction): LogTarget[] {
   const appSessions = sessions.filter((session) => session.kind !== "bottle");
   const bottleTargets = new Map<string, LogTarget>();
+  const bottleTargetKey = create_bottle_target_key_resolver(sessions);
 
   sessions.forEach((session) => {
     if (session.kind !== "bottle") {
       return;
     }
 
-    const bottleId = bottle_target_key(session);
-    const current = bottleTargets.get(bottleId);
+    const targetKey = bottleTargetKey(session);
+    const current = bottleTargets.get(targetKey);
 
     if (current) {
       current.count += 1;
       current.runningCount += session.isRunning ? 1 : 0;
+
+      if (!current.bottleId && session.bottleId) {
+        current.bottleId = session.bottleId;
+      }
       return;
     }
 
-    bottleTargets.set(bottleId, {
-      id: `bottle:${bottleId}`,
+    bottleTargets.set(targetKey, {
+      id: `bottle:${targetKey}`,
       label: session.bottleName ?? session.label,
       kind: "bottle",
-      bottleId,
+      bottleId: session.bottleId,
       count: 1,
       runningCount: session.isRunning ? 1 : 0,
     });
@@ -1092,7 +1128,7 @@ function create_log_targets(sessions: LogSession[]): LogTarget[] {
   return [
     {
       id: "app",
-      label: "App Logs",
+      label: t("logViewer.targets.appLogs"),
       kind: "app",
       count: appSessions.length,
       runningCount: appSessions.filter((session) => session.isRunning).length,
@@ -1101,18 +1137,23 @@ function create_log_targets(sessions: LogSession[]): LogTarget[] {
   ];
 }
 
-function target_to_select_option(target: LogTarget): SelectMenuOption {
+function target_to_select_option(target: LogTarget, t: TFunction): SelectMenuOption {
   const description =
     target.kind === "app"
-      ? `${target.count} app log sessions`
-      : `${target.count} bottle log sessions`;
+      ? t("logViewer.targets.appSessions", { count: target.count })
+      : t("logViewer.targets.bottleSessions", { count: target.count });
 
   return {
     value: target.id,
     label: target.label,
+    indicatorColor: target.runningCount > 0 ? "#34d399" : undefined,
+    indicatorPulse: target.runningCount > 0,
     description:
       target.runningCount > 0
-        ? `${description} - ${target.runningCount} running`
+        ? t("logViewer.targets.runningDescription", {
+            description,
+            count: target.runningCount,
+          })
         : description,
   };
 }
@@ -1121,6 +1162,7 @@ function resolve_target_id_for_mode(
   targets: LogTarget[],
   mode: LogViewerMode,
   requestedTargetId: string,
+  requestedTargetLabel?: string,
 ) {
   if (mode === "app") {
     return targets.find((target) => target.kind === "app")?.id ?? "app";
@@ -1128,6 +1170,26 @@ function resolve_target_id_for_mode(
 
   if (targets.some((target) => target.id === requestedTargetId)) {
     return requestedTargetId;
+  }
+
+  if (requestedTargetId.startsWith("bottle:")) {
+    const requestedBottleId = requestedTargetId.slice("bottle:".length);
+    const idMatch = targets.find((target) => target.bottleId === requestedBottleId);
+
+    if (idMatch) {
+      return idMatch.id;
+    }
+  }
+
+  if (requestedTargetLabel) {
+    const normalizedRequestedLabel = normalize_bottle_target_name(requestedTargetLabel);
+    const labelMatch = targets.find(
+      (target) => normalize_bottle_target_name(target.label) === normalizedRequestedLabel,
+    );
+
+    if (labelMatch) {
+      return labelMatch.id;
+    }
   }
 
   return targets[0]?.id ?? "";
@@ -1165,11 +1227,12 @@ function sessions_for_target(sessions: LogSession[], targetId: string) {
   }
 
   if (targetId.startsWith("bottle:")) {
-    const bottleId = targetId.slice("bottle:".length);
+    const targetKey = targetId.slice("bottle:".length);
+    const bottleTargetKey = create_bottle_target_key_resolver(sessions);
 
     return sessions.filter(
       (session) =>
-        session.kind === "bottle" && bottle_target_key(session) === bottleId,
+        session.kind === "bottle" && bottleTargetKey(session) === targetKey,
     );
   }
 
@@ -1221,7 +1284,7 @@ function create_source_options(
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function create_bottle_app_filter_options(sessions: LogSession[]): LogBottleAppFilterOption[] {
+function create_bottle_app_filter_options(sessions: LogSession[], t: TFunction): LogBottleAppFilterOption[] {
   const options = new Map<string, LogBottleAppFilterOption>();
 
   sessions.forEach((session) => {
@@ -1236,7 +1299,7 @@ function create_bottle_app_filter_options(sessions: LogSession[]): LogBottleAppF
 
     options.set(value, {
       value,
-      label: bottle_app_filter_label(session),
+      label: bottle_app_filter_label(session, t),
       count: 1,
       isRunning: Boolean(session.isRunning),
     });
@@ -1277,7 +1340,7 @@ function bottle_app_filter_value(session: LogSession): string {
   return normalize_filter_value(raw_bottle_app_name(session));
 }
 
-function bottle_app_filter_label(session: LogSession): string {
+function bottle_app_filter_label(session: LogSession, t: TFunction): string {
   const rawName = raw_bottle_app_name(session);
   const withoutExtension = rawName.replace(/\.(log|exe)$/i, "");
   const readable = withoutExtension
@@ -1285,7 +1348,7 @@ function bottle_app_filter_label(session: LogSession): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  return readable || "Unknown app";
+  return readable || t("logViewer.unknownApp");
 }
 
 function raw_bottle_app_name(session: LogSession): string {
@@ -1296,13 +1359,32 @@ function raw_bottle_app_name(session: LogSession): string {
     return explicitAppName;
   }
 
-  if (session.label && !looks_like_generic_log_session_label(session.label)) {
-    return session.label;
+  const labelWithoutBottleName = strip_bottle_name_prefix(session.label, session.bottleName);
+
+  if (labelWithoutBottleName && !looks_like_generic_log_session_label(labelWithoutBottleName)) {
+    return labelWithoutBottleName;
   }
 
   const idPart = session.id.split(":").pop() || session.id;
 
-  return idPart || "Unknown app";
+  return idPart || "";
+}
+
+function strip_bottle_name_prefix(label: string, bottleName?: string): string {
+  const trimmedLabel = label.trim();
+  const trimmedBottleName = bottleName?.trim();
+
+  if (!trimmedBottleName || !trimmedLabel.toLocaleLowerCase().startsWith(trimmedBottleName.toLocaleLowerCase())) {
+    return trimmedLabel;
+  }
+
+  const suffix = trimmedLabel.slice(trimmedBottleName.length);
+
+  if (suffix && !/^[\s/\\:|_-]/.test(suffix)) {
+    return trimmedLabel;
+  }
+
+  return suffix.replace(/^[\s/\\:|_-]+/, "").trim() || trimmedLabel;
 }
 
 function looks_like_generic_log_session_label(label: string): boolean {
@@ -1326,7 +1408,7 @@ function filter_entries(
     sourceId: LogSourceFilter;
   },
 ) {
-  const search = filters.search.trim().toLowerCase();
+  const search = filters.search.normalize("NFC").trim().toLocaleLowerCase();
 
   return entries.filter((entry) => {
     const matchesCategory =
@@ -1335,12 +1417,10 @@ function filter_entries(
       filters.sourceId === "all" || entry.source === filters.sourceId;
     const matchesLevel =
       filters.level === "all" || entry.level === filters.level;
-    const matchesSearch =
-      search.length === 0 ||
-      entry.message.toLowerCase().includes(search) ||
-      entry.source.toLowerCase().includes(search) ||
-      entry.bottleName?.toLowerCase().includes(search) ||
-      entry.detail?.toLowerCase().includes(search);
+    const matchesSearch = search.length === 0 || format_log_line(entry)
+      .normalize("NFC")
+      .toLocaleLowerCase()
+      .includes(search);
 
     return matchesCategory && matchesSource && matchesLevel && matchesSearch;
   });
@@ -1354,8 +1434,8 @@ function format_log_line(entry: LogEntry): string {
   return entry.detail ? `${line}\n${entry.detail}` : line;
 }
 
-function session_title(session: LogSession) {
-  const owner = session.kind === "bottle" ? session.bottleName : "App";
+function session_title(session: LogSession, t: TFunction) {
+  const owner = session.kind === "bottle" ? session.bottleName : t("logViewer.app");
 
   return [owner, format_session_time(session.startedAt), log_file_name(session)]
     .filter(Boolean)
@@ -1399,8 +1479,37 @@ function log_session_reveal_target(session: LogSession): string | undefined {
   return session.logFilePath ?? session.logDirectoryPath ?? session.logFileName;
 }
 
-function bottle_target_key(session: LogSession) {
-  return session.bottleId ?? session.bottleName ?? "unknown-bottle";
+function create_bottle_target_key_resolver(sessions: LogSession[]) {
+  const bottleNameKeyById = new Map<string, string>();
+
+  sessions.forEach((session) => {
+    if (session.kind !== "bottle" || !session.bottleId || !session.bottleName) {
+      return;
+    }
+
+    bottleNameKeyById.set(session.bottleId, `name:${normalize_bottle_target_name(session.bottleName)}`);
+  });
+
+  return (session: LogSession): string => {
+    if (session.bottleName) {
+      return `name:${normalize_bottle_target_name(session.bottleName)}`;
+    }
+
+    if (session.bottleId) {
+      return bottleNameKeyById.get(session.bottleId) ?? `id:${session.bottleId}`;
+    }
+
+    return `unknown:${normalize_bottle_target_name(session.label)}`;
+  };
+}
+
+function normalize_bottle_target_name(value: string) {
+  return value
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "") || "unknown-bottle";
 }
 
 function format_log_time(timestamp: string) {

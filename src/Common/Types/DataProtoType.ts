@@ -19,6 +19,7 @@ import type { BottleLaunchOptionsPayload } from "./IPC";
 
 export type RuntimeProfileKind = "launcher" | "game";
 export type RuntimeConfigValueType = "boolean" | "number" | "string" | "enum";
+export type RuntimeLaunchOptionKey = Exclude<keyof BottleLaunchOptionsPayload, "presetId">;
 
 export interface RuntimeConfigChoice {
   label: string;
@@ -46,6 +47,16 @@ export interface RuntimeLaunchRoutineConfig {
   runtimeFilesToHide?: string[];
 }
 
+export type RuntimeDiscoveryDrive = "c";
+
+export interface RuntimeExecutableDiscoveryDefinition {
+  preferredRelativePaths: readonly string[];
+  fallbackDrives: readonly RuntimeDiscoveryDrive[];
+  maxDepth: number;
+  maxEntries: number;
+  skipDirectoryNames?: readonly string[];
+}
+
 export interface RuntimeLauncherProfile<
   Id extends string = string,
   ManagedId extends string = string,
@@ -54,7 +65,9 @@ export interface RuntimeLauncherProfile<
   id: Id;
   displayName: string;
   executableNames: string[];
+  executableDiscovery: RuntimeExecutableDiscoveryDefinition;
   managedGames?: ManagedId[];
+  allowedLaunchOptionKeys: readonly RuntimeLaunchOptionKey[];
   configurableOptions: RuntimeConfigOptionDefinition[];
 }
 
@@ -66,5 +79,6 @@ export interface RuntimeGameProfile<Id extends string = string> {
   prefixName: string;
   executableNames: string[];
   launchRoutine: RuntimeLaunchRoutineConfig;
+  allowedLaunchOptionKeys: readonly RuntimeLaunchOptionKey[];
   configurableOptions: RuntimeConfigOptionDefinition[];
 }

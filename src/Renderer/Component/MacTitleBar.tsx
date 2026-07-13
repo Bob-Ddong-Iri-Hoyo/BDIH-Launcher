@@ -74,6 +74,7 @@ export function MacTitleBar({ title, rightSlot, className = "", onQuit, onMinimi
     <Box
       role="toolbar"
       aria-label={t("titleBar.label")}
+      data-window-drag-region
       className={`grid h-11 shrink-0 grid-cols-[12rem_minmax(0,1fr)_12rem] items-center border-b border-white/10 bg-[#0b1020]/95 text-slate-300 [-webkit-app-region:drag] ${className}`}
     >
       <Inline gap="xs" className="px-2">

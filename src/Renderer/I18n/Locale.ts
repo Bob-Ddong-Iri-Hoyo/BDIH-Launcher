@@ -14,6 +14,10 @@ export const LOCALE_OPTIONS = [
     value: "ja",
     fallbackNativeName: "日本語",
   },
+  {
+    value: "zh",
+    fallbackNativeName: "简体中文",
+  },
 ] as const;
 
 export type SupportedLocale = (typeof LOCALE_OPTIONS)[number]["value"];

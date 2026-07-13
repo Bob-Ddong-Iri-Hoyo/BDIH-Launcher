@@ -82,6 +82,12 @@ export function AppLibraryPanel({
     }
   }, [selectedLaunchOptionsApp, selectedLaunchOptionsAppId]);
 
+  const close_app_log_dialog = React.useCallback(() => {
+    setSelectedLogAppId(null);
+    setAppLogText("");
+    setIsAppLogLoading(false);
+  }, []);
+
   const appContextMenuItems = React.useMemo<ContextMenuItem[]>(() => {
     if (!contextApp) {
       return [];
@@ -362,18 +368,12 @@ export function AppLibraryPanel({
         icon={FileText}
         placement="center"
         widthClassName="max-w-4xl"
-        onClose={() => {
-          setSelectedLogAppId(null);
-          setAppLogText("");
-        }}
+        onClose={close_app_log_dialog}
         actions={[
           {
             label: t("common.actions.close"),
             variant: "secondary",
-            onClick: () => {
-              setSelectedLogAppId(null);
-              setAppLogText("");
-            },
+            onClick: close_app_log_dialog,
           },
         ]}
       >

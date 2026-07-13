@@ -14,6 +14,8 @@ const preview: Preview = {
         items: [
           { value: "ko", title: "한국어" },
           { value: "en", title: "English" },
+          { value: "ja", title: "日本語" },
+          { value: "zh", title: "简体中文" },
         ],
         showName: true,
       },

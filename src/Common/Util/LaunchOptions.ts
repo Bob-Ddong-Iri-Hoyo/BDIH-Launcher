@@ -38,6 +38,15 @@ const LAUNCH_OPTION_MANIFEST_OPTION_NAMES: Partial<Record<keyof BottleLaunchOpti
   allowDuplicateGame: ["SUPERVISOR_ALLOW_DUPLICATE_GAME"],
 };
 
+// These options come from the standard Wine Mac Driver or macOS itself, not
+// from a BDHI Wine patch. Older artifacts omit them from launcher-options.json
+// even though every currently supported Wine family can apply them.
+const MAC_RUNTIME_LAUNCH_OPTIONS = new Set<keyof BottleLaunchOptionsPayload>([
+  "leftCommandIsCtrl",
+  "retinaMode",
+  "metalHud",
+]);
+
 const PRESET_DEFAULTS: Record<Exclude<BottleLaunchOptionPresetId, "auto" | "custom">, BottleLaunchOptionsPayload> = {
   steam: {
     presetId: "steam",
@@ -235,6 +244,10 @@ export function is_launch_option_supported_by_manifest(
   key: keyof BottleLaunchOptionsPayload,
   manifest?: WineLauncherOptionsManifest,
 ): boolean {
+  if (MAC_RUNTIME_LAUNCH_OPTIONS.has(key)) {
+    return true;
+  }
+
   const requiredOptionNames = LAUNCH_OPTION_MANIFEST_OPTION_NAMES[key];
 
   if (!requiredOptionNames || requiredOptionNames.length === 0) {

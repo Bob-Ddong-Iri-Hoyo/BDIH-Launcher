@@ -99,4 +99,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: pnpm build && pnpm exec electron-builder --mac --publish always --config electron-builder.config.cjs
+          BDIH_DISCORD_CLIENT_ID: ${{ vars.BDIH_DISCORD_CLIENT_ID || secrets.BDIH_DISCORD_CLIENT_ID }}
+          BDIH_DISCORD_SHOW_IDLE: ${{ vars.BDIH_DISCORD_SHOW_IDLE || 'true' }}
+          BDIH_DISCORD_LARGE_IMAGE_KEY: ${{ vars.BDIH_DISCORD_LARGE_IMAGE_KEY || 'bdih_logo' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BDIH_DISCORD_CLIENT_ID:-}" ]]; then
+            echo "::warning::BDIH_DISCORD_CLIENT_ID is not set; Discord Rich Presence will be disabled in this build."
+          fi
+          pnpm build
+          pnpm exec electron-builder --mac --publish always --config electron-builder.config.cjs

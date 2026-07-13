@@ -1,10 +1,11 @@
-import { Layers3, Trash2, X } from "lucide-react";
+import { Layers3, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
 import { Box, Button, Inline, List, Stack, Surface, Text } from "./Primitives";
 import { RuntimeVersionSelect } from "./RuntimeVersionSelect";
 import { StatusBadge } from "./StatusBadge";
 import { WineVersionCard } from "./WineVersionCard";
+import { DialogCloseButton } from "./Dialog";
 
 /**
  * Props for rendering installed Wine runtime choices.
@@ -88,15 +89,14 @@ export function InstalledWinePanel({
             </Stack>
           </Inline>
           {onClose ? (
-            <Button
+            <DialogCloseButton
+              onClose={onClose}
               variant="glass"
               size="sm"
+              iconSize={17}
               className="w-9 px-0 text-slate-400"
               aria-label={t("common.actions.close")}
-              onClick={onClose}
-            >
-              <X size={17} />
-            </Button>
+            />
           ) : null}
         </Inline>
       ) : null}

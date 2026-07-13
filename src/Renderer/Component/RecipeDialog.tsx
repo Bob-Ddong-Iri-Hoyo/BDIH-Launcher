@@ -7,8 +7,11 @@ import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
 import { Box, Button, Inline, Stack, Text } from "./Primitives";
 import { RuntimeVersionSelect } from "./RuntimeVersionSelect";
+import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
-type RecipeChangePatch = Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>;
+type RecipeChangePatch = Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">> & {
+  validateOnly?: boolean;
+};
 type RecipeApplyProgressReporter = (update: { progress: number; message: string }) => void;
 
 /**
@@ -55,6 +58,7 @@ export function RecipeDialog({
   const [draftJadeiteVersionId, setDraftJadeiteVersionId] = React.useState(bottle.jadeiteVersionId || "");
   const [statusMessage, setStatusMessage] = React.useState("");
   const [isApplyConfirmOpen, setIsApplyConfirmOpen] = React.useState(false);
+  const [isCloseConfirmOpen, setIsCloseConfirmOpen] = React.useState(false);
   const [isApplyModalOpen, setIsApplyModalOpen] = React.useState(false);
   const [applyProgress, setApplyProgress] = React.useState(0);
   const [applyMessage, setApplyMessage] = React.useState("");
@@ -64,6 +68,7 @@ export function RecipeDialog({
     || draftDxmtVersionId !== (bottle.dxmtVersionId || "")
     || (draftJadeiteVersionId || fallbackJadeiteVersionId) !== (bottle.jadeiteVersionId || fallbackJadeiteVersionId);
   const isApplyComplete = applyProgress >= 100;
+  const canCloseApplyModal = Boolean(applyErrorMessage) || isApplyComplete;
 
   React.useEffect(() => {
     if (!open) {
@@ -75,28 +80,50 @@ export function RecipeDialog({
     setDraftJadeiteVersionId(bottle.jadeiteVersionId || "");
     setStatusMessage("");
     setIsApplyConfirmOpen(false);
+    setIsCloseConfirmOpen(false);
     setApplyErrorMessage("");
   }, [bottle.dxmtVersionId, bottle.jadeiteVersionId, bottle.wineVersionId, open]);
 
+  React.useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setStatusMessage(hasRecipeChanges ? t("main.recipeInfo.pendingChanges") : "");
+  }, [hasRecipeChanges, open, t]);
+
   function apply_recipe_changes() {
     if (!hasRecipeChanges) {
+      void confirm_apply_recipe_changes(true);
       return;
     }
 
     setIsApplyConfirmOpen(true);
   }
 
-  async function confirm_apply_recipe_changes() {
+  function request_close() {
+    if (hasRecipeChanges) {
+      setIsCloseConfirmOpen(true);
+      return;
+    }
+
+    onClose();
+  }
+
+  async function confirm_apply_recipe_changes(validateOnly = false) {
     const patch: RecipeChangePatch = {
       wineVersionId: draftWineVersionId,
       dxmtVersionId: draftDxmtVersionId,
       jadeiteVersionId: draftJadeiteVersionId || fallbackJadeiteVersionId,
+      validateOnly,
     };
 
     setIsApplyConfirmOpen(false);
     setApplyErrorMessage("");
     setApplyProgress(8);
-    setApplyMessage(t("main.recipeInfo.applyStoppingApps", { defaultValue: "앱들 종료중..." }));
+    setApplyMessage(validateOnly
+      ? t("main.recipeInfo.validatingRecipe")
+      : t("main.recipeInfo.applyStoppingApps", { defaultValue: "앱들 종료중..." }));
     setIsApplyModalOpen(true);
     onClose();
 
@@ -109,14 +136,16 @@ export function RecipeDialog({
       } else {
         setApplyProgress(36);
         setApplyMessage(t("main.recipeInfo.applySaving"));
-        onWineVersionChange?.(draftWineVersionId);
-        onDxmtVersionChange?.(draftDxmtVersionId);
-        onJadeiteVersionChange?.(draftJadeiteVersionId || fallbackJadeiteVersionId);
+        if (!validateOnly) {
+          onWineVersionChange?.(draftWineVersionId);
+          onDxmtVersionChange?.(draftDxmtVersionId);
+          onJadeiteVersionChange?.(draftJadeiteVersionId || fallbackJadeiteVersionId);
+        }
       }
 
       setApplyProgress(100);
-      setApplyMessage(t("main.recipeInfo.applyComplete"));
-      setStatusMessage(t("main.recipeInfo.applied"));
+      setApplyMessage(validateOnly ? t("main.recipeInfo.validationComplete") : t("main.recipeInfo.applyComplete"));
+      setStatusMessage(validateOnly ? t("main.recipeInfo.validationSkipped") : t("main.recipeInfo.applied"));
       window.setTimeout(() => {
         setIsApplyModalOpen(false);
       }, 900);
@@ -130,25 +159,24 @@ export function RecipeDialog({
   return (
     <>
       <Dialog
-        open={open && !isApplyModalOpen && !isApplyConfirmOpen}
+        open={open && !isApplyModalOpen && !isApplyConfirmOpen && !isCloseConfirmOpen}
         title={t("main.recipeSettings")}
         description={t("main.recipeSettingsDescription")}
         tone="info"
         icon={Settings}
         placement="center"
         widthClassName="max-w-xl"
-        onClose={onClose}
+        onClose={request_close}
         actions={[
           {
             label: t("common.actions.close"),
             variant: "secondary",
-            onClick: onClose,
+            onClick: request_close,
           },
           {
             label: t("main.recipeInfo.applyChanges"),
             icon: Settings,
             variant: "primary",
-            disabled: !hasRecipeChanges,
             onClick: apply_recipe_changes,
           },
         ]}
@@ -161,7 +189,6 @@ export function RecipeDialog({
             currentRecipeLabel={t("main.recipeInfo.currentRecipe")}
             onChange={(versionId) => {
               setDraftWineVersionId(versionId);
-              setStatusMessage(t("main.recipeInfo.pendingChanges"));
             }}
             onInstall={onInstallWineVersion}
           />
@@ -172,7 +199,6 @@ export function RecipeDialog({
             currentRecipeLabel={t("main.recipeInfo.currentRecipe")}
             onChange={(versionId) => {
               setDraftDxmtVersionId(versionId);
-              setStatusMessage(t("main.recipeInfo.pendingChanges"));
             }}
             onInstall={onInstallDxmtVersion}
           />
@@ -184,7 +210,6 @@ export function RecipeDialog({
               currentRecipeLabel={t("main.recipeInfo.currentRecipe")}
               onChange={(versionId) => {
                 setDraftJadeiteVersionId(versionId);
-                setStatusMessage(t("main.recipeInfo.pendingChanges"));
               }}
               onInstall={onInstallJadeiteVersion}
             />
@@ -210,6 +235,19 @@ export function RecipeDialog({
           </Box>
         </Stack>
       </Dialog>
+
+      <UnsavedChangesDialog
+        open={open && isCloseConfirmOpen}
+        onContinueEditing={() => setIsCloseConfirmOpen(false)}
+        onDiscard={() => {
+          setIsCloseConfirmOpen(false);
+          onClose();
+        }}
+        onSave={() => {
+          setIsCloseConfirmOpen(false);
+          setIsApplyConfirmOpen(true);
+        }}
+      />
 
       <Dialog
         open={isApplyConfirmOpen}
@@ -250,7 +288,9 @@ export function RecipeDialog({
         icon={Settings}
         placement="center"
         widthClassName="max-w-md"
-        onClose={() => undefined}
+        onClose={canCloseApplyModal ? () => setIsApplyModalOpen(false) : undefined}
+        closeOnBackdrop={canCloseApplyModal}
+        showCloseButton={canCloseApplyModal}
         actions={[]}
       >
         <Stack className="gap-4">

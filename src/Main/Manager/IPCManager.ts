@@ -19,6 +19,7 @@ import { apply_localized_app_name } from "../Environment/AppIdentity";
 import { preferenceManager, PreferenceManager } from "./PreferenceManager";
 import { bottleManager, BottleManager } from "./BottleManager";
 import { bottleExecutionManager, BottleExecutionManager } from "./BottleExecutionManager";
+import { discordPresenceManager } from "./DiscordPresenceManager";
 import { dxmtManager, DxmtManager } from "./DxmtManager";
 import { jadeiteManager, JadeiteManager } from "./JadeiteManager";
 import { log_level_from_preference, logManager } from "./LogManager";
@@ -190,7 +191,7 @@ export class IPCManager {
     ipcMain.handle(
       IPC_CHANNELS.BOTTLE.STOP_PROCESS.channelName,
       async (_event, request: StopBottleProcessPayload) => {
-        await this.bottleExecutions.stopProcess(request.processId);
+        await this.bottleExecutions.stopProcess(request.processId, request.appId);
         return { ok: true };
       },
     );
@@ -366,6 +367,7 @@ export class IPCManager {
         }
 
         apply_localized_app_name(preference.language);
+        discordPresenceManager.setLanguage(preference.language);
         logManager.setMinLevel(log_level_from_preference(preference.appLoggingLevel));
         return preference;
       },

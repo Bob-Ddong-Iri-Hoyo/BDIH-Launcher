@@ -347,7 +347,16 @@ jobs:
           PUBLISH_REPOSITORY: ${{ steps.target.outputs.release_repository }}
           RELEASE_TYPE: prerelease
           UPDATE_CHANNEL: nightly
-        run: pnpm build && pnpm exec electron-builder --mac --publish never --config electron-builder.config.cjs
+          BDIH_DISCORD_CLIENT_ID: ${{ vars.BDIH_DISCORD_CLIENT_ID || secrets.BDIH_DISCORD_CLIENT_ID }}
+          BDIH_DISCORD_SHOW_IDLE: ${{ vars.BDIH_DISCORD_SHOW_IDLE || 'true' }}
+          BDIH_DISCORD_LARGE_IMAGE_KEY: ${{ vars.BDIH_DISCORD_LARGE_IMAGE_KEY || 'bdih_logo' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BDIH_DISCORD_CLIENT_ID:-}" ]]; then
+            echo "::warning::BDIH_DISCORD_CLIENT_ID is not set; Discord Rich Presence will be disabled in this build."
+          fi
+          pnpm build
+          pnpm exec electron-builder --mac --publish never --config electron-builder.config.cjs
 
       - name: Update nightly release branch
         if: steps.decide.outputs.should_build == 'true'

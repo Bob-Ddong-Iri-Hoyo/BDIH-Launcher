@@ -16,11 +16,43 @@ import {
   resolve_launch_options_for_app,
 } from "../../Common/Util/LaunchOptions";
 import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
+import type { RuntimeLaunchOptionKey } from "../../Common/Types/DataProtoType";
+import {
+  launch_option_keys_for_app,
+  resolve_app_runtime_profile,
+} from "../../Main/Data/GameProfile";
 import type { Bottle } from "../Types/Bottle";
 import { Dialog } from "./Dialog";
 import { Box, Input, InlineText, Select, SelectMenuOption, Stack, Text } from "./Primitives";
+import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
 type LaunchOptionSectionId = "general" | "dxmt" | "timing" | "network";
+
+const SECTION_OPTION_KEYS: Record<LaunchOptionSectionId, readonly RuntimeLaunchOptionKey[]> = {
+  general: [
+    "enableMsync",
+    "steamWebHelperArgs",
+    "hoyoplayInProcessGpu",
+    "enableTimeoutFix",
+    "leftCommandIsCtrl",
+    "retinaMode",
+    "metalHud",
+  ],
+  dxmt: [
+    "dxmtPreferredMaxFrameRate",
+    "dxmtMetalFxSpatialUpscale",
+    "dxmtMetalFxSpatialUpscaleFactor",
+  ],
+  timing: ["earlyExitWaitMs", "superviseWaitSeconds"],
+  network: [
+    "networkGate",
+    "networkGateSeconds",
+    "waitForManualNetworkCut",
+    "autoNetworkCut",
+    "autoNetworkReconnectSeconds",
+    "allowDuplicateGame",
+  ],
+};
 
 export interface LaunchOptionsDialogProps {
   open: boolean;
@@ -51,18 +83,36 @@ export function LaunchOptionsDialog({
   const [selectedAppId, setSelectedAppId] = React.useState("");
   const selectedApp = bottle?.apps.find((app) => app.id === selectedAppId);
   const [draft, setDraft] = React.useState<BottleLaunchOptionsPayload>({ presetId: "auto" });
-  const sectionRefs = React.useRef<Record<LaunchOptionSectionId, HTMLDivElement | null>>({
-    general: null,
-    dxmt: null,
-    timing: null,
-    network: null,
-  });
+  const [savedDraft, setSavedDraft] = React.useState<BottleLaunchOptionsPayload>({ presetId: "auto" });
+  const [activeSection, setActiveSection] = React.useState<LaunchOptionSectionId>("general");
+  const [isUnsavedDialogOpen, setIsUnsavedDialogOpen] = React.useState(false);
+  const [pendingAppId, setPendingAppId] = React.useState<string | null>(null);
+  const runtimeProfile = React.useMemo(() => resolve_app_runtime_profile(selectedApp), [selectedApp]);
+  const allowedOptionKeys = React.useMemo(
+    () => new Set<RuntimeLaunchOptionKey>(launch_option_keys_for_app(selectedApp)),
+    [selectedApp],
+  );
+  const hasUnsavedChanges = !launch_options_equal(draft, savedDraft);
   const launchOptionSections: Array<{ id: LaunchOptionSectionId; label: string }> = [
     { id: "general", label: t("main.launchOptions.general") },
     { id: "dxmt", label: t("main.launchOptions.dxmt") },
     { id: "timing", label: t("main.launchOptions.timing") },
     { id: "network", label: t("main.launchOptions.network") },
   ];
+  const visibleSections = launchOptionSections.filter((section) =>
+    SECTION_OPTION_KEYS[section.id].some(
+      (key) =>
+        allowedOptionKeys.has(key) &&
+        is_launch_option_supported_by_manifest(key, launcherOptionsManifest),
+    ),
+  );
+  const visibleSectionKey = visibleSections.map((section) => section.id).join("|");
+  const profilePresetId = runtimeProfile && LAUNCH_OPTION_PRESET_IDS.includes(runtimeProfile.id as BottleLaunchOptionPresetId)
+    ? runtimeProfile.id as BottleLaunchOptionPresetId
+    : undefined;
+  const availablePresetIds = LAUNCH_OPTION_PRESET_IDS.filter((presetId) =>
+    presetId === "auto" || presetId === "custom" || presetId === profilePresetId,
+  );
 
   React.useEffect(() => {
     if (open) {
@@ -71,6 +121,10 @@ export function LaunchOptionsDialog({
 
     setSelectedAppId("");
     setDraft({ presetId: "auto" });
+    setSavedDraft({ presetId: "auto" });
+    setActiveSection("general");
+    setIsUnsavedDialogOpen(false);
+    setPendingAppId(null);
   }, [open]);
 
   React.useEffect(() => {
@@ -91,8 +145,18 @@ export function LaunchOptionsDialog({
       return;
     }
 
-    setDraft(normalize_dialog_launch_options(resolve_launch_options_for_app(selectedApp, selectedApp.launchOptions)));
+    const nextDraft = normalize_dialog_launch_options(resolve_launch_options_for_app(selectedApp, selectedApp.launchOptions));
+
+    setDraft(nextDraft);
+    setSavedDraft(nextDraft);
+    setActiveSection("general");
   }, [launcherOptionsManifest, open, selectedApp]);
+
+  React.useEffect(() => {
+    if (!visibleSections.some((section) => section.id === activeSection)) {
+      setActiveSection(visibleSections[0]?.id ?? "general");
+    }
+  }, [activeSection, visibleSectionKey]);
 
   function change_preset(presetId: string) {
     setDraft((currentDraft) =>
@@ -137,36 +201,86 @@ export function LaunchOptionsDialog({
     setDraft(normalize_dialog_launch_options(resolve_launch_options_for_app(selectedApp, { presetId: "auto" })));
   }
 
-  function register_section(sectionId: LaunchOptionSectionId) {
-    return (element: HTMLDivElement | null) => {
-      sectionRefs.current[sectionId] = element;
-    };
-  }
-
-  function scroll_to_section(sectionId: LaunchOptionSectionId) {
-    sectionRefs.current[sectionId]?.scrollIntoView({
-      block: "start",
-      behavior: "smooth",
-    });
-  }
-
   function close_dialog() {
+    setIsUnsavedDialogOpen(false);
+    setPendingAppId(null);
     setSelectedAppId("");
     setDraft({ presetId: "auto" });
+    setSavedDraft({ presetId: "auto" });
     onClose();
   }
 
-  function save() {
+  function save_current_draft(): boolean {
     if (!bottle || !selectedApp) {
-      return;
+      return false;
     }
+
+    const nextDraft = filter_launch_options_by_allowed_keys(
+      filter_launch_options_by_manifest(normalize_launch_options(draft), launcherOptionsManifest) ?? { presetId: "auto" },
+      allowedOptionKeys,
+    );
 
     onSave?.(
       bottle.id,
       selectedApp.id,
-      filter_launch_options_by_manifest(normalize_launch_options(draft), launcherOptionsManifest) ?? { presetId: "auto" },
+      nextDraft,
     );
+    setDraft(nextDraft);
+    setSavedDraft(nextDraft);
+    return true;
+  }
+
+  function save() {
+    if (!save_current_draft()) {
+      return;
+    }
+
     close_dialog();
+  }
+
+  function request_close() {
+    setPendingAppId(null);
+
+    if (hasUnsavedChanges) {
+      setIsUnsavedDialogOpen(true);
+      return;
+    }
+
+    close_dialog();
+  }
+
+  function request_app_change(nextAppId: string) {
+    if (nextAppId === selectedAppId) {
+      return;
+    }
+
+    if (hasUnsavedChanges) {
+      setPendingAppId(nextAppId);
+      setIsUnsavedDialogOpen(true);
+      return;
+    }
+
+    setSelectedAppId(nextAppId);
+  }
+
+  function finish_pending_navigation() {
+    const nextAppId = pendingAppId;
+
+    setIsUnsavedDialogOpen(false);
+    setPendingAppId(null);
+
+    if (nextAppId) {
+      setSelectedAppId(nextAppId);
+      return;
+    }
+
+    close_dialog();
+  }
+
+  function save_and_navigate() {
+    if (save_current_draft()) {
+      finish_pending_navigation();
+    }
   }
 
   function normalize_dialog_launch_options(options?: BottleLaunchOptionsPayload): BottleLaunchOptionsPayload {
@@ -175,6 +289,10 @@ export function LaunchOptionsDialog({
 
   function is_option_supported(key: keyof BottleLaunchOptionsPayload): boolean {
     return is_launch_option_supported_by_manifest(key, launcherOptionsManifest);
+  }
+
+  function is_option_allowed(key: RuntimeLaunchOptionKey): boolean {
+    return allowedOptionKeys.has(key) && is_option_supported(key);
   }
 
   function option_support_attrs(key: keyof BottleLaunchOptionsPayload): {
@@ -190,8 +308,9 @@ export function LaunchOptionsDialog({
   }
 
   return (
+    <>
     <Dialog
-      open={open}
+      open={open && !isUnsavedDialogOpen}
       title={t("main.launchOptions.title")}
       description={selectedApp
         ? t("main.launchOptions.description", { name: selectedApp.name })
@@ -200,7 +319,7 @@ export function LaunchOptionsDialog({
       icon={Settings2}
       placement="center"
       widthClassName="max-w-4xl"
-      onClose={close_dialog}
+      onClose={request_close}
       actions={[
         {
           label: t("common.actions.reset"),
@@ -211,7 +330,7 @@ export function LaunchOptionsDialog({
         {
           label: t("common.actions.cancel"),
           variant: "secondary",
-          onClick: close_dialog,
+          onClick: request_close,
         },
         {
           label: t("common.actions.save"),
@@ -234,7 +353,7 @@ export function LaunchOptionsDialog({
                 <Select
                   value={selectedAppId}
                   options={appOptions}
-                  onChange={setSelectedAppId}
+                  onChange={request_app_change}
                   searchPlaceholder={t("main.launchOptions.searchApps")}
                 />
               </OptionField>
@@ -242,7 +361,7 @@ export function LaunchOptionsDialog({
               <OptionField label={t("main.launchOptions.preset")}>
                 <Select
                   value={draft.presetId ?? "auto"}
-                  options={LAUNCH_OPTION_PRESET_IDS.map((presetId) => ({
+                  options={availablePresetIds.map((presetId) => ({
                     value: presetId,
                     label: t(`main.launchOptions.presets.${presetId}`, launch_option_preset_label(presetId)),
                   }))}
@@ -256,34 +375,49 @@ export function LaunchOptionsDialog({
               <InlineText className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 {t("main.launchOptions.sections")}
               </InlineText>
-              <Box className="mt-2 flex flex-wrap gap-2">
-                {launchOptionSections.map((section) => (
+              <Box className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {visibleSections.map((section) => {
+                  const isActive = activeSection === section.id;
+
+                  return (
                   <button
                     key={section.id}
                     type="button"
-                    className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-sky-300/40 hover:bg-sky-400/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-sky-400/30"
-                    onClick={() => scroll_to_section(section.id)}
+                    className={`rounded-lg border px-3 py-2.5 text-left transition focus:outline-none focus:ring-2 focus:ring-sky-400/30 ${
+                      isActive
+                        ? "accent-selection"
+                        : "border-white/10 bg-white/[0.035] text-slate-400 hover:bg-white/[0.07] hover:text-white"
+                    }`}
+                    onClick={() => setActiveSection(section.id)}
                   >
-                    {section.label}
+                    <InlineText className="block text-xs font-semibold">{section.label}</InlineText>
+                    <InlineText className="mt-1 block text-[11px] leading-4 text-slate-500">
+                      {t(`main.launchOptions.sectionDescriptions.${section.id}`)}
+                    </InlineText>
                   </button>
-                ))}
+                  );
+                })}
               </Box>
             </Box>
           </Box>
 
           <Box className="min-h-0 flex-1 overflow-y-auto pr-1">
             <Stack className="gap-4 pb-1">
-              <OptionSection title={t("main.launchOptions.general")} sectionRef={register_section("general")}>
-                <OptionCheckbox label={t("main.launchOptions.enableMsync")} description={t("main.launchOptions.descriptions.enableMsync")} checked={draft.enableMsync} onChange={(checked) => update_boolean("enableMsync", checked)} {...option_support_attrs("enableMsync")} />
-                <OptionCheckbox label={t("main.launchOptions.steamWebHelperArgs")} description={t("main.launchOptions.descriptions.steamWebHelperArgs")} checked={draft.steamWebHelperArgs} onChange={(checked) => update_boolean("steamWebHelperArgs", checked)} {...option_support_attrs("steamWebHelperArgs")} />
-                <OptionCheckbox label={t("main.launchOptions.hoyoplayInProcessGpu")} description={t("main.launchOptions.descriptions.hoyoplayInProcessGpu")} checked={draft.hoyoplayInProcessGpu} onChange={(checked) => update_boolean("hoyoplayInProcessGpu", checked)} {...option_support_attrs("hoyoplayInProcessGpu")} />
-                <OptionCheckbox label={t("main.launchOptions.enableTimeoutFix")} description={t("main.launchOptions.descriptions.enableTimeoutFix")} checked={draft.enableTimeoutFix} onChange={(checked) => update_boolean("enableTimeoutFix", checked)} {...option_support_attrs("enableTimeoutFix")} />
-                <OptionCheckbox label={t("main.launchOptions.leftCommandIsCtrl")} description={t("main.launchOptions.descriptions.leftCommandIsCtrl")} checked={draft.leftCommandIsCtrl} onChange={(checked) => update_boolean("leftCommandIsCtrl", checked)} {...option_support_attrs("leftCommandIsCtrl")} />
-                <OptionCheckbox label={t("main.launchOptions.retinaMode")} description={t("main.launchOptions.descriptions.retinaMode")} checked={draft.retinaMode} onChange={(checked) => update_boolean("retinaMode", checked)} {...option_support_attrs("retinaMode")} />
-                <OptionCheckbox label={t("main.launchOptions.metalHud")} description={t("main.launchOptions.descriptions.metalHud")} checked={draft.metalHud} onChange={(checked) => update_boolean("metalHud", checked)} {...option_support_attrs("metalHud")} />
+              {activeSection === "general" ? (
+              <OptionSection title={t("main.launchOptions.general")}>
+                {is_option_allowed("enableMsync") ? <OptionCheckbox label={t("main.launchOptions.enableMsync")} description={t("main.launchOptions.descriptions.enableMsync")} checked={draft.enableMsync} onChange={(checked) => update_boolean("enableMsync", checked)} {...option_support_attrs("enableMsync")} /> : null}
+                {is_option_allowed("steamWebHelperArgs") ? <OptionCheckbox label={t("main.launchOptions.steamWebHelperArgs")} description={t("main.launchOptions.descriptions.steamWebHelperArgs")} checked={draft.steamWebHelperArgs} onChange={(checked) => update_boolean("steamWebHelperArgs", checked)} {...option_support_attrs("steamWebHelperArgs")} /> : null}
+                {is_option_allowed("hoyoplayInProcessGpu") ? <OptionCheckbox label={t("main.launchOptions.hoyoplayInProcessGpu")} description={t("main.launchOptions.descriptions.hoyoplayInProcessGpu")} checked={draft.hoyoplayInProcessGpu} onChange={(checked) => update_boolean("hoyoplayInProcessGpu", checked)} {...option_support_attrs("hoyoplayInProcessGpu")} /> : null}
+                {is_option_allowed("enableTimeoutFix") ? <OptionCheckbox label={t("main.launchOptions.enableTimeoutFix")} description={t("main.launchOptions.descriptions.enableTimeoutFix")} checked={draft.enableTimeoutFix} onChange={(checked) => update_boolean("enableTimeoutFix", checked)} {...option_support_attrs("enableTimeoutFix")} /> : null}
+                {is_option_allowed("leftCommandIsCtrl") ? <OptionCheckbox label={t("main.launchOptions.leftCommandIsCtrl")} description={t("main.launchOptions.descriptions.leftCommandIsCtrl")} checked={draft.leftCommandIsCtrl} onChange={(checked) => update_boolean("leftCommandIsCtrl", checked)} {...option_support_attrs("leftCommandIsCtrl")} /> : null}
+                {is_option_allowed("retinaMode") ? <OptionCheckbox label={t("main.launchOptions.retinaMode")} description={t("main.launchOptions.descriptions.retinaMode")} checked={draft.retinaMode} onChange={(checked) => update_boolean("retinaMode", checked)} {...option_support_attrs("retinaMode")} /> : null}
+                {is_option_allowed("metalHud") ? <OptionCheckbox label={t("main.launchOptions.metalHud")} description={t("main.launchOptions.descriptions.metalHud")} checked={draft.metalHud} onChange={(checked) => update_boolean("metalHud", checked)} {...option_support_attrs("metalHud")} /> : null}
               </OptionSection>
+              ) : null}
 
-              <OptionSection title={t("main.launchOptions.dxmt")} sectionRef={register_section("dxmt")}>
+              {activeSection === "dxmt" ? (
+              <OptionSection title={t("main.launchOptions.dxmt")}>
+                {is_option_allowed("dxmtPreferredMaxFrameRate") ? (
                 <NumberField
                   label={t("main.launchOptions.dxmtPreferredMaxFrameRate")}
                   description={t("main.launchOptions.descriptions.dxmtPreferredMaxFrameRate")}
@@ -294,6 +428,8 @@ export function LaunchOptionsDialog({
                   onChange={(value) => update_number("dxmtPreferredMaxFrameRate", value)}
                   {...option_support_attrs("dxmtPreferredMaxFrameRate")}
                 />
+                ) : null}
+                {is_option_allowed("dxmtMetalFxSpatialUpscale") ? (
                 <OptionCheckbox
                   label={t("main.launchOptions.dxmtMetalFxSpatialUpscale")}
                   description={t("main.launchOptions.descriptions.dxmtMetalFxSpatialUpscale")}
@@ -301,6 +437,8 @@ export function LaunchOptionsDialog({
                   onChange={(checked) => update_boolean("dxmtMetalFxSpatialUpscale", checked)}
                   {...option_support_attrs("dxmtMetalFxSpatialUpscale")}
                 />
+                ) : null}
+                {is_option_allowed("dxmtMetalFxSpatialUpscaleFactor") ? (
                 <NumberField
                   label={t("main.launchOptions.dxmtMetalFxSpatialUpscaleFactor")}
                   description={t("main.launchOptions.descriptions.dxmtMetalFxSpatialUpscaleFactor")}
@@ -311,9 +449,13 @@ export function LaunchOptionsDialog({
                   onChange={(value) => update_number("dxmtMetalFxSpatialUpscaleFactor", value)}
                   {...option_support_attrs("dxmtMetalFxSpatialUpscaleFactor")}
                 />
+                ) : null}
               </OptionSection>
+              ) : null}
 
-              <OptionSection title={t("main.launchOptions.timing")} sectionRef={register_section("timing")}>
+              {activeSection === "timing" ? (
+              <OptionSection title={t("main.launchOptions.timing")}>
+                {is_option_allowed("earlyExitWaitMs") ? (
                 <NumberField
                   label={t("main.launchOptions.earlyExitWaitMs")}
                   description={t("main.launchOptions.descriptions.earlyExitWaitMs")}
@@ -324,6 +466,8 @@ export function LaunchOptionsDialog({
                   onChange={(value) => update_number("earlyExitWaitMs", value)}
                   {...option_support_attrs("earlyExitWaitMs")}
                 />
+                ) : null}
+                {is_option_allowed("superviseWaitSeconds") ? (
                 <NumberField
                   label={t("main.launchOptions.superviseWaitSeconds")}
                   description={t("main.launchOptions.descriptions.superviseWaitSeconds")}
@@ -334,10 +478,14 @@ export function LaunchOptionsDialog({
                   onChange={(value) => update_number("superviseWaitSeconds", value)}
                   {...option_support_attrs("superviseWaitSeconds")}
                 />
+                ) : null}
               </OptionSection>
+              ) : null}
 
-              <OptionSection title={t("main.launchOptions.network")} sectionRef={register_section("network")}>
-                <OptionCheckbox label={t("main.launchOptions.networkGate")} description={t("main.launchOptions.descriptions.networkGate")} checked={draft.networkGate} onChange={(checked) => update_boolean("networkGate", checked)} {...option_support_attrs("networkGate")} />
+              {activeSection === "network" ? (
+              <OptionSection title={t("main.launchOptions.network")}>
+                {is_option_allowed("networkGate") ? <OptionCheckbox label={t("main.launchOptions.networkGate")} description={t("main.launchOptions.descriptions.networkGate")} checked={draft.networkGate} onChange={(checked) => update_boolean("networkGate", checked)} {...option_support_attrs("networkGate")} /> : null}
+                {is_option_allowed("networkGateSeconds") ? (
                 <NumberField
                   label={t("main.launchOptions.networkGateSeconds")}
                   description={t("main.launchOptions.descriptions.networkGateSeconds")}
@@ -348,8 +496,10 @@ export function LaunchOptionsDialog({
                   onChange={(value) => update_number("networkGateSeconds", value)}
                   {...option_support_attrs("networkGateSeconds")}
                 />
-                <OptionCheckbox label={t("main.launchOptions.waitForManualNetworkCut")} description={t("main.launchOptions.descriptions.waitForManualNetworkCut")} checked={draft.waitForManualNetworkCut} onChange={(checked) => update_boolean("waitForManualNetworkCut", checked)} {...option_support_attrs("waitForManualNetworkCut")} />
-                <OptionCheckbox label={t("main.launchOptions.autoNetworkCut")} description={t("main.launchOptions.descriptions.autoNetworkCut")} checked={draft.autoNetworkCut} onChange={(checked) => update_boolean("autoNetworkCut", checked)} {...option_support_attrs("autoNetworkCut")} />
+                ) : null}
+                {is_option_allowed("waitForManualNetworkCut") ? <OptionCheckbox label={t("main.launchOptions.waitForManualNetworkCut")} description={t("main.launchOptions.descriptions.waitForManualNetworkCut")} checked={draft.waitForManualNetworkCut} onChange={(checked) => update_boolean("waitForManualNetworkCut", checked)} {...option_support_attrs("waitForManualNetworkCut")} /> : null}
+                {is_option_allowed("autoNetworkCut") ? <OptionCheckbox label={t("main.launchOptions.autoNetworkCut")} description={t("main.launchOptions.descriptions.autoNetworkCut")} checked={draft.autoNetworkCut} onChange={(checked) => update_boolean("autoNetworkCut", checked)} {...option_support_attrs("autoNetworkCut")} /> : null}
+                {is_option_allowed("autoNetworkReconnectSeconds") ? (
                 <NumberField
                   label={t("main.launchOptions.autoNetworkReconnectSeconds")}
                   description={t("main.launchOptions.descriptions.autoNetworkReconnectSeconds")}
@@ -360,27 +510,37 @@ export function LaunchOptionsDialog({
                   onChange={(value) => update_number("autoNetworkReconnectSeconds", value)}
                   {...option_support_attrs("autoNetworkReconnectSeconds")}
                 />
-                <OptionCheckbox label={t("main.launchOptions.allowDuplicateGame")} description={t("main.launchOptions.descriptions.allowDuplicateGame")} checked={draft.allowDuplicateGame} onChange={(checked) => update_boolean("allowDuplicateGame", checked)} {...option_support_attrs("allowDuplicateGame")} />
+                ) : null}
+                {is_option_allowed("allowDuplicateGame") ? <OptionCheckbox label={t("main.launchOptions.allowDuplicateGame")} description={t("main.launchOptions.descriptions.allowDuplicateGame")} checked={draft.allowDuplicateGame} onChange={(checked) => update_boolean("allowDuplicateGame", checked)} {...option_support_attrs("allowDuplicateGame")} /> : null}
               </OptionSection>
+              ) : null}
             </Stack>
           </Box>
         </Box>
       )}
     </Dialog>
+    <UnsavedChangesDialog
+      open={open && isUnsavedDialogOpen}
+      onContinueEditing={() => {
+        setIsUnsavedDialogOpen(false);
+        setPendingAppId(null);
+      }}
+      onDiscard={finish_pending_navigation}
+      onSave={save_and_navigate}
+    />
+    </>
   );
 }
 
 function OptionSection({
   title,
   children,
-  sectionRef,
 }: {
   title: string;
   children: React.ReactNode;
-  sectionRef?: (element: HTMLDivElement | null) => void;
 }) {
   return (
-    <div ref={sectionRef} className="scroll-mt-3 rounded-lg border border-white/10 bg-[#0b1020]/70 p-3">
+    <div className="rounded-lg border border-white/10 bg-[#0b1020]/70 p-3">
       <Text className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
         {title}
       </Text>
@@ -389,6 +549,29 @@ function OptionSection({
       </Box>
     </div>
   );
+}
+
+function launch_options_equal(
+  left?: BottleLaunchOptionsPayload,
+  right?: BottleLaunchOptionsPayload,
+): boolean {
+  return JSON.stringify(normalize_launch_options(left) ?? {})
+    === JSON.stringify(normalize_launch_options(right) ?? {});
+}
+
+function filter_launch_options_by_allowed_keys(
+  options: BottleLaunchOptionsPayload,
+  allowedKeys: ReadonlySet<RuntimeLaunchOptionKey>,
+): BottleLaunchOptionsPayload {
+  const filtered = { ...options };
+
+  for (const key of Object.keys(filtered) as Array<keyof BottleLaunchOptionsPayload>) {
+    if (key !== "presetId" && !allowedKeys.has(key as RuntimeLaunchOptionKey)) {
+      delete filtered[key];
+    }
+  }
+
+  return filtered;
 }
 
 function OptionField({

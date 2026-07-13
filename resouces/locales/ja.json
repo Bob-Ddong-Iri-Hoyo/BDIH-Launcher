@@ -28,6 +28,10 @@
         "delete": "削除"
       }
     },
+    "discordPresence": {
+      "browsingLibrary": "ライブラリを閲覧中",
+      "playingGame": "ゲームを実行中"
+    },
     "navigation": {
       "dashboard": {
         "label": "ボトル",
@@ -72,6 +76,48 @@
       "deleteFailed": "ランタイムの削除に失敗しました。"
     },
     "main": {
+      "unsavedChanges": {
+        "title": "変更内容を保存しますか？",
+        "description": "保存されていない変更があります。保存して戻るか、変更を破棄できます。",
+        "continueEditing": "編集を続ける",
+        "discard": "破棄して戻る",
+        "save": "保存して戻る"
+      },
+      "runtimeInstallFailure": {
+        "title": "ランタイムのインストールに失敗しました",
+        "description": "{{resource}} {{versionId}} をインストールできませんでした。",
+        "technicalDetails": "技術的なエラー内容",
+        "reasons": {
+          "diskSpace": {
+            "title": "ストレージの空き容量が不足しています",
+            "description": "インストール先の空き容量を確保してから再試行してください。Wineの展開中は、ダウンロードファイルの数倍の一時領域が必要になる場合があります。"
+          },
+          "network": {
+            "title": "ダウンロード接続に失敗しました",
+            "description": "インターネット接続とダウンロードサーバーの状態を確認してから再試行してください。不完全なファイルは次回の試行で再ダウンロードされます。"
+          },
+          "archive": {
+            "title": "ダウンロードしたアーカイブを展開できませんでした",
+            "description": "ファイルが不完全または破損している可能性があります。再インストールすると、新しいアーカイブをダウンロードして再試行します。"
+          },
+          "permission": {
+            "title": "インストール先への書き込み権限がありません",
+            "description": "設定で書き込み可能なデータ保存先を選択するか、フォルダのアクセス権限を確認してください。"
+          },
+          "missingFile": {
+            "title": "インストールに必要なファイルが見つかりません",
+            "description": "ダウンロードファイルまたはインストール先が移動・削除された可能性があります。保存先を確認して再試行してください。"
+          },
+          "cancelled": {
+            "title": "インストールがキャンセルされました",
+            "description": "インストール中にアプリが終了したか、処理がキャンセルされました。準備ができたら再試行してください。"
+          },
+          "unknown": {
+            "title": "不明なインストールエラーが発生しました",
+            "description": "以下の技術的なエラー内容を確認してください。再発する場合は、ログと一緒にこの内容を共有してください。"
+          }
+        }
+      },
       "heroTitle": "macOSでWindowsゲームを実行する準備ができました",
       "heroDescription": "ボトルとWineの状態を管理し、インストール作業はターミナルログで確認できます。",
       "metrics": {
@@ -129,7 +175,10 @@
         "applyPreparing": "レシピ変更を準備中...",
         "applySaving": "ボトルレシピを保存中...",
         "applyRuntime": "ランタイム設定を適用中...",
-        "applyComplete": "レシピ設定が完了しました。"
+        "applyComplete": "レシピ設定が完了しました。",
+        "validatingRecipe": "現在のレシピ設定を検証中...",
+        "validationComplete": "レシピの検証が完了しました。",
+        "validationSkipped": "現在のレシピ設定は有効です。変更項目がないため、適用処理をスキップしました。"
       },
       "openRecipeSettings": "レシピ設定を開く",
       "bottleStatus": {
@@ -143,6 +192,7 @@
         "launchOptions": "起動オプション",
         "recipeSettings": "レシピ設定",
         "rename": "名前を変更",
+        "editDescription": "説明を変更",
         "copyPath": "パスをコピー",
         "revealFolder": "フォルダで表示",
         "deleteBottle": "ボトルを削除",
@@ -159,6 +209,14 @@
         "successTitle": "ボトル名を変更しました",
         "successDescription": "ボトル名を {{name}} に変更しました。"
       },
+      "editBottleDescription": {
+        "title": "ボトルの説明を変更",
+        "description": "{{name}} に表示する説明を編集します。",
+        "descriptionLabel": "ボトルの説明",
+        "placeholder": "このボトルの説明を入力してください",
+        "successTitle": "説明を変更しました",
+        "successDescription": "{{name}} の説明を保存しました。"
+      },
       "launchOptionsUnavailable": {
         "title": "起動オプション",
         "description": "ボトル一覧からはまだ起動オプションを開けません。ランチャー操作はボトル詳細で使用してください。"
@@ -173,6 +231,12 @@
         "preset": "プリセット",
         "searchPresets": "プリセットを検索",
         "sections": "セクション",
+        "sectionDescriptions": {
+          "general": "Wineとアプリの基本動作",
+          "dxmt": "グラフィックとMetalFX設定",
+          "timing": "起動とプロセス監視の時間",
+          "network": "ゲーム別ネットワーク起動補正"
+        },
         "unsupportedByWine": "選択中のWineランタイムメタデータでは利用できません。",
         "general": "一般",
         "timing": "タイミング",
@@ -257,6 +321,7 @@
         "description": "Wineランタイムを使う新しいボトルを作成します。Prefixルートを選ぶと、その下にボトルフォルダが作成されます。",
         "nameLabel": "ボトル名",
         "namePlaceholder": "Raiden",
+        "duplicateName": "同じ名前のボトルがすでに存在します。",
         "randomName": "ランダム",
         "wineLabel": "Wineランタイム",
         "dxmtLabel": "DXMTバージョン",
@@ -351,7 +416,21 @@
         "run": "ボトルで実行",
         "register": "アプリに追加"
       },
-      "searchReady": "検索準備完了",
+      "searchReady": "ボトルを検索",
+      "bottleEdit": "編集",
+      "bottleEditDone": "完了",
+      "bottleEditing": "編集中",
+      "bottleEditCancel": "キャンセル",
+      "bottleEditApply": "適用",
+      "bottleEditHint": "ボトルをドラッグして、よく使う位置へ移動できます。",
+      "bottleSearchEmpty": "検索条件に一致するボトルはありません。",
+      "bottleSize": {
+        "title": "ボトルカードのサイズ",
+        "large": "大",
+        "medium": "中",
+        "small": "小",
+        "compact": "最小"
+      },
       "wineVersions": "Wineバージョン",
       "runtimeDownloads": {
         "title": "ランタイムダウンロード",
@@ -394,8 +473,10 @@
         "dataRootDescription": "ランチャーはWine、Bottles、DXMT、ログ、appmeta.jsonをこのフォルダに保存します。",
         "advancedBottleRoot": "別のBottleルートを使用",
         "advancedBottleRootDescription": "Wine/DXMT/ログはデータ場所に置き、ボトルprefixだけをカスタムフォルダに作成します。",
-        "bottleRootTitle": "Bottle prefixルート",
-        "bottleRootDescription": "ランチャー管理のボトルフォルダを含むフォルダです。各ボトルはroot/bottle-nameとして作成されます。",
+      "bottleRootTitle": "Bottle prefixルート",
+      "bottleRootDescription": "ランチャー管理のボトルフォルダを含むフォルダです。各ボトルはroot/bottle-nameとして作成されます。",
+      "sharedGamesPathTitle": "共有G:ゲームフォルダ",
+      "sharedGamesPathDescription": "複数のBottleから参照できるゲームをランチャーがダウンロードするホストフォルダです。",
         "wineInstallTitle": "Wineランタイム保存先",
         "wineInstallDescription": "ダウンロードしたWineビルドとランタイムのフォルダです。",
         "bottlePrefixTitle": "Bottle prefix保存先",
@@ -632,7 +713,8 @@
     "locale": {
       "ko": "韓国語",
       "en": "英語",
-      "ja": "日本語"
+      "ja": "日本語",
+      "zh": "中国語（簡体字）"
     },
     "theme": {
       "mode": {
@@ -646,6 +728,68 @@
         "emerald": "エメラルド",
         "violet": "バイオレット",
         "amber": "アンバー"
+      }
+    },
+    "logViewer": {
+      "app": "アプリ",
+      "unknownApp": "不明なアプリ",
+      "modes": {
+        "appLogs": "アプリログ",
+        "bottleLogs": "Bottleログ"
+      },
+      "summary": {
+        "title": "ランチャーアプリログ",
+        "description": "ランチャー設定、更新、レンダラー、アプリのライフサイクルイベントを確認します。"
+      },
+      "targets": {
+        "title": "ログ対象",
+        "count": "{{count}}件の対象",
+        "label": "ログ対象",
+        "search": "ログ対象を検索",
+        "logs": "ログ",
+        "appLogs": "アプリログ",
+        "applicationLogs": "アプリケーションログ",
+        "bottleLogs": "Bottleログ",
+        "appSessions": "{{count}}件のアプリログセッション",
+        "bottleSessions": "{{count}}件のBottleログセッション",
+        "runningDescription": "{{description}} - {{count}}件実行中"
+      },
+      "filters": {
+        "appExecutable": "アプリ実行ファイルフィルター",
+        "allApps": "すべてのアプリ",
+        "selected": "{{count}}件選択中",
+        "all": "すべて",
+        "allSources": "すべてのソース",
+        "searchSources": "ソースを検索",
+        "filterText": "ログ内容を絞り込み",
+        "levels": {
+          "all": "すべて",
+          "debug": "デバッグ",
+          "info": "情報",
+          "warn": "警告",
+          "error": "エラー"
+        }
+      },
+      "history": {
+        "title": "履歴",
+        "empty": "ログセッションがありません。"
+      },
+      "content": {
+        "noMatches": "現在のフィルターに一致するログはありません。",
+        "noSession": "ログセッションが選択されていません。",
+        "selectTarget": "ログ対象と履歴項目を選択してください。",
+        "selectedAria": "選択されたログ内容"
+      },
+      "actions": {
+        "logFolder": "ログフォルダー",
+        "openFile": "ファイルを開く",
+        "showInFolder": "フォルダーに表示",
+        "openLogFile": "ログファイルを開く",
+        "openContainingFolder": "保存先フォルダーを開く"
+      },
+      "units": {
+        "sessions": "セッション",
+        "lines": "行"
       }
     },
     "tray": {

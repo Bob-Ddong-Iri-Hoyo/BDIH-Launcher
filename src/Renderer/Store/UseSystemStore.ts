@@ -10,6 +10,22 @@ export interface SystemSummary {
   rendererMode: "electron" | "storybook" | "browser";
 }
 
+export type RuntimeInstallFailureReason =
+  | "diskSpace"
+  | "network"
+  | "archive"
+  | "permission"
+  | "missingFile"
+  | "cancelled"
+  | "unknown";
+
+export interface RuntimeInstallFailure {
+  resource: "Wine" | "DXMT" | "Jadeite";
+  versionId: string;
+  reason: RuntimeInstallFailureReason;
+  details: string;
+}
+
 export interface SystemStoreState {
   wineVersions: WineVersion[];
   dxmtVersions: DxmtVersion[];
@@ -24,6 +40,7 @@ export interface SystemStoreState {
   isLoadingDxmtVersions: boolean;
   isLoadingJadeiteVersions: boolean;
   lastStatusMessage: string;
+  runtimeInstallFailure: RuntimeInstallFailure | null;
   systemSummary: SystemSummary;
   loadWineVersions: () => Promise<void>;
   loadDxmtVersions: () => Promise<void>;
@@ -43,6 +60,7 @@ export interface SystemStoreState {
   clearWineRuntimeMetadata: () => void;
   clearDxmtRuntimeMetadata: () => void;
   clearJadeiteRuntimeMetadata: () => void;
+  clearRuntimeInstallFailure: () => void;
   subscribeWineStatus: () => () => void;
 }
 
@@ -59,6 +77,48 @@ function get_bith_api() {
   }
 
   return window.BTIH_API;
+}
+
+function describe_install_error(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function classify_install_failure(
+  resource: RuntimeInstallFailure["resource"],
+  versionId: string,
+  error: unknown,
+): RuntimeInstallFailure {
+  const details = describe_install_error(error);
+  const normalized = details.toLowerCase();
+  let reason: RuntimeInstallFailureReason = "unknown";
+
+  if (/enospc|no space left|disk (?:is )?full|quota exceeded|not enough (?:free )?space/.test(normalized)) {
+    reason = "diskSpace";
+  } else if (/eacces|eperm|permission denied|operation not permitted|read-only file system/.test(normalized)) {
+    reason = "permission";
+  } else if (/enotfound|eai_again|econnreset|econnrefused|etimedout|network|fetch failed|download failed|socket hang up|http (?:4|5)\d\d/.test(normalized)) {
+    reason = "network";
+  } else if (/unexpected end of file|unexpected eof|not in gzip format|invalid (?:archive|tar|zip)|checksum|corrupt|tar exited|gzip:|unzip exited/.test(normalized)) {
+    reason = "archive";
+  } else if (/enoent|no such file or directory|cannot find|could not find/.test(normalized)) {
+    reason = "missingFile";
+  } else if (/cancelled|canceled|aborterror|operation was aborted/.test(normalized)) {
+    reason = "cancelled";
+  }
+
+  return { resource, versionId, reason, details };
 }
 
 function create_system_summary(): SystemSummary {
@@ -137,6 +197,7 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
   isLoadingDxmtVersions: false,
   isLoadingJadeiteVersions: false,
   lastStatusMessage: i18n.t("store.catalogLocal"),
+  runtimeInstallFailure: null,
   systemSummary: create_system_summary(),
 
   loadWineVersions: async () => {
@@ -241,6 +302,7 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
           : version,
       ),
       lastStatusMessage: i18n.t("store.installRequested", { versionId }),
+      runtimeInstallFailure: null,
     }));
 
     try {
@@ -277,6 +339,7 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
           error instanceof Error
             ? error.message
             : i18n.t("store.installFailed"),
+        runtimeInstallFailure: classify_install_failure("Wine", versionId, error),
       }));
     }
   },
@@ -295,6 +358,7 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
           : version,
       ),
       lastStatusMessage: i18n.t("store.installRequested", { versionId }),
+      runtimeInstallFailure: null,
     }));
 
     try {
@@ -317,6 +381,7 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
           error instanceof Error
             ? error.message
             : i18n.t("store.installFailed"),
+        runtimeInstallFailure: classify_install_failure("DXMT", versionId, error),
       }));
     }
   },
@@ -335,6 +400,7 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
           : version,
       ),
       lastStatusMessage: i18n.t("store.installRequested", { versionId }),
+      runtimeInstallFailure: null,
     }));
 
     try {
@@ -357,6 +423,7 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
           error instanceof Error
             ? error.message
             : i18n.t("store.installFailed"),
+        runtimeInstallFailure: classify_install_failure("Jadeite", versionId, error),
       }));
     }
   },
@@ -541,6 +608,8 @@ export const useSystemStore = create<SystemStoreState>((set, get) => ({
       })),
     }));
   },
+
+  clearRuntimeInstallFailure: () => set({ runtimeInstallFailure: null }),
 
   subscribeWineStatus: () => {
     const api = get_bith_api();

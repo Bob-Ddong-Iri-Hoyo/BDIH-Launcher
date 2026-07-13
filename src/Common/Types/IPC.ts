@@ -207,6 +207,9 @@ export interface LauncherLogEntryPayload {
   category: LauncherLogEntryCategory;
   source: string;
   message: string;
+  logFilePath?: string;
+  logFileName?: string;
+  logDirectoryPath?: string;
   bottleId?: string;
   bottleName?: string;
 }
@@ -265,6 +268,7 @@ export interface RunBottleExecutablePayload {
 
 export interface StopBottleProcessPayload {
   processId: string;
+  appId?: string;
 }
 
 export interface DeleteBottlePayload {
@@ -284,6 +288,7 @@ export interface DeleteBottleAppPayload {
   bottleId: string;
   bottlePath: string;
   appId: string;
+  mode?: "list" | "files";
 }
 
 export interface DeleteBottleAppResultPayload {
@@ -403,7 +408,9 @@ export interface InstallBottleLauncherPayload extends SetupBottlePrefixPayload {
 }
 
 export type DownloadBottleLauncherInstallerPayload = InstallBottleLauncherPayload;
-export type ApplyBottleRecipePayload = SetupBottlePrefixPayload;
+export interface ApplyBottleRecipePayload extends SetupBottlePrefixPayload {
+  validateOnly?: boolean;
+}
 
 export interface BottleTaskStatusPayload {
   bottleId: string;
@@ -431,6 +438,8 @@ export interface InstalledBottleAppPayload {
   iconSrc?: string;
   source?: "launcher" | "steam" | "game" | "manual";
   steamAppId?: string;
+  steamManifestPath?: string;
+  steamManifestMissingChecks?: number;
   lastPlayed: string;
   lastPlayedKey?: string;
   status: "ready" | "needs-prefix" | "updating";
@@ -455,6 +464,7 @@ export interface BottleMetadataPayload {
   loggingLevelOverride?: LauncherLogLevel;
   wineDebugArgsOverride?: string;
   prefixes?: BottlePrefixMetadataPayload[];
+  hiddenAppIds?: string[];
   apps: InstalledBottleAppPayload[];
   createdAt?: string;
   updatedAt?: string;

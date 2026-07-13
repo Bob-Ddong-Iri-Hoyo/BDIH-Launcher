@@ -1,5 +1,22 @@
 import React from "react";
-import { Download, FolderOpen, Layers3, PackageOpen, Plus, Search, Settings, Sparkles, Trash2, Wine as WineIcon } from "lucide-react";
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Check, Download, FolderOpen, GripVertical, Layers3, LayoutGrid, PackageOpen, Plus, Search, Settings, Sparkles, Trash2, Wine as WineIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
@@ -58,6 +75,28 @@ const CHARACTER_BOTTLE_NAMES = [
   "Yuki",
 ];
 
+type BottleCardSize = "large" | "medium" | "small" | "compact";
+
+const BOTTLE_CARD_SIZE_STORAGE_KEY = "bdih:bottle-card-size";
+const BOTTLE_CARD_SIZES: BottleCardSize[] = ["compact", "small", "medium", "large"];
+const BOTTLE_GRID_CLASSES: Record<BottleCardSize, string> = {
+  large: "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4",
+  medium: "grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5",
+  small: "grid grid-cols-[repeat(auto-fill,minmax(8rem,9rem))] justify-start gap-3",
+  compact: "grid grid-cols-[repeat(auto-fill,minmax(6.5rem,7.5rem))] justify-start gap-2",
+};
+
+function initial_bottle_card_size(): BottleCardSize {
+  try {
+    const savedSize = window.localStorage.getItem(BOTTLE_CARD_SIZE_STORAGE_KEY);
+    return BOTTLE_CARD_SIZES.includes(savedSize as BottleCardSize)
+      ? savedSize as BottleCardSize
+      : "large";
+  } catch {
+    return "large";
+  }
+}
+
 /** Maps bottle lifecycle state to the shared status badge tone. */
 export function tone_from_bottle_status(
   status: Bottle["status"],
@@ -88,8 +127,28 @@ function pick_random_item(items: string[]) {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function generate_bottle_name() {
-  return pick_random_item(CHARACTER_BOTTLE_NAMES);
+function bottle_name_key(name: string): string {
+  return name.normalize("NFC").trim().toLocaleLowerCase();
+}
+
+function unique_bottle_name(baseName: string, existingNames: string[]): string {
+  const usedNames = new Set(existingNames.map(bottle_name_key));
+
+  if (!usedNames.has(bottle_name_key(baseName))) {
+    return baseName;
+  }
+
+  for (let suffix = 1; ; suffix += 1) {
+    const candidate = `${baseName}${suffix}`;
+
+    if (!usedNames.has(bottle_name_key(candidate))) {
+      return candidate;
+    }
+  }
+}
+
+function generate_bottle_name(existingNames: string[] = []) {
+  return unique_bottle_name(pick_random_item(CHARACTER_BOTTLE_NAMES), existingNames);
 }
 
 /**
@@ -161,6 +220,10 @@ export function BottleCard({
   bottle,
   onClick,
   onContextMenu,
+  isEditing = false,
+  isDragging = false,
+  size = "large",
+  dragHandleProps,
 }: {
   bottle: Bottle;
   onClick: () => void;
@@ -168,6 +231,10 @@ export function BottleCard({
     event: React.MouseEvent<HTMLButtonElement>,
     bottle: Bottle,
   ) => void;
+  isEditing?: boolean;
+  isDragging?: boolean;
+  size?: BottleCardSize;
+  dragHandleProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
 }) {
   const { t } = useTranslation();
   const isRunning = is_bottle_running(bottle);
@@ -175,41 +242,140 @@ export function BottleCard({
 
   return (
     <Button
+      {...dragHandleProps}
       type="button"
-      onClick={onClick}
-      onContextMenu={(event) => onContextMenu?.(event, bottle)}
-      className={`group flex min-h-40 w-full flex-col rounded-lg border p-4 text-left transition ${
+      onClick={isEditing ? undefined : onClick}
+      onContextMenu={(event) => {
+        if (isEditing) {
+          event.preventDefault();
+          return;
+        }
+
+        onContextMenu?.(event, bottle);
+      }}
+      className={`group flex w-full flex-col rounded-lg border text-left transition ${
         isRunning
           ? "border-emerald-300/45 bg-emerald-400/[0.07] shadow-[0_0_28px_rgba(16,185,129,0.16)] hover:border-emerald-200/60 hover:bg-emerald-400/[0.10]"
           : "border-white/10 bg-white/[0.04] hover:border-white/20 hover:bg-white/[0.07]"
+      } ${
+        isEditing
+          ? "cursor-grab border-[rgb(var(--accent-rgb)/0.55)] bg-[rgb(var(--accent-rgb)/0.08)] shadow-[0_10px_30px_rgba(0,0,0,0.2)] active:cursor-grabbing"
+          : ""
+      } ${isDragging ? "scale-[0.97] opacity-55" : ""} ${
+        size === "large"
+          ? "min-h-40 p-4"
+          : size === "medium"
+            ? "min-h-32 p-3"
+            : size === "small"
+              ? "aspect-square p-3"
+              : "aspect-square p-2.5"
       }`}
       aria-label={bottle.name}
+      aria-grabbed={isEditing ? isDragging : undefined}
     >
-      <Inline className="mb-4 items-start justify-between gap-3">
-        <IconSlot className={`flex h-12 w-12 items-center justify-center rounded-lg bg-[#0b1020] ring-1 ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
-          <Layers3 size={24} className="text-slate-200" />
-        </IconSlot>
-        <StatusBadge
-          label={isRunning ? t("main.bottleStatus.running") : t(`main.bottleStatus.${bottle.status}`)}
-          tone={isRunning ? "success" : tone_from_bottle_status(bottle.status)}
-          animated={isRunning}
-        />
-      </Inline>
-      <InlineText className="line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-slate-100">
-        {bottle.name}
-      </InlineText>
-      <InlineText className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
-        {bottle.description}
-      </InlineText>
-      <Inline className="mt-auto items-center justify-between gap-3 pt-4 text-xs text-slate-400">
-        <InlineText>
-          {isRunning
-            ? t("main.bottleRunningApps", { count: runningAppCount })
-            : t("main.bottleApps", { count: bottle.apps.length })}
-        </InlineText>
-        <InlineText className="truncate text-slate-500">{bottle.wineVersionId}</InlineText>
-      </Inline>
+      {size === "compact" ? (
+        <Stack className="min-w-0 flex-1 items-center justify-center gap-2 text-center">
+          <IconSlot className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#0b1020] ring-1 ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
+            <Layers3 size={18} className="text-slate-200" />
+          </IconSlot>
+          <Stack className="w-full min-w-0 items-center gap-0.5">
+            <InlineText className="w-full truncate text-center text-xs font-semibold text-slate-100">{bottle.name}</InlineText>
+            <InlineText className="w-full truncate text-center text-[11px] text-slate-500">
+              {isRunning
+                ? t("main.bottleRunningApps", { count: runningAppCount })
+                : t("main.bottleApps", { count: bottle.apps.length })}
+            </InlineText>
+          </Stack>
+          {isEditing ? <GripVertical size={14} className="shrink-0 text-slate-400" /> : null}
+        </Stack>
+      ) : (
+        <>
+          <Inline className={`${size === "large" ? "mb-4" : size === "medium" ? "mb-3" : "mb-2"} items-start justify-between gap-3`}>
+            <IconSlot className={`flex items-center justify-center rounded-lg bg-[#0b1020] ring-1 ${size === "large" ? "h-12 w-12" : size === "medium" ? "h-10 w-10" : "h-9 w-9"} ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
+              <Layers3 size={size === "large" ? 24 : size === "medium" ? 20 : 18} className="text-slate-200" />
+            </IconSlot>
+            {isEditing ? (
+              <IconSlot className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/25 text-slate-200 shadow-lg">
+                <GripVertical size={16} />
+              </IconSlot>
+            ) : (
+              <StatusBadge
+                label={isRunning ? t("main.bottleStatus.running") : t(`main.bottleStatus.${bottle.status}`)}
+                tone={isRunning ? "success" : tone_from_bottle_status(bottle.status)}
+                animated={isRunning}
+              />
+            )}
+          </Inline>
+          <InlineText className={`${size === "large" ? "line-clamp-2 min-h-10" : "line-clamp-1 min-h-5"} text-sm font-semibold leading-5 text-slate-100`}>
+            {bottle.name}
+          </InlineText>
+          {size !== "small" ? (
+            <InlineText className={`${size === "large" ? "line-clamp-2" : "line-clamp-1"} mt-1 text-xs leading-5 text-slate-500`}>
+              {bottle.description}
+            </InlineText>
+          ) : null}
+          <Inline className={`${size === "large" ? "pt-4" : size === "medium" ? "pt-2" : "pt-1.5"} mt-auto items-center justify-between gap-3 text-xs text-slate-400`}>
+            <InlineText>
+              {isRunning
+                ? t("main.bottleRunningApps", { count: runningAppCount })
+                : t("main.bottleApps", { count: bottle.apps.length })}
+            </InlineText>
+            {size !== "small" ? <InlineText className="truncate text-slate-500">{bottle.wineVersionId}</InlineText> : null}
+          </Inline>
+        </>
+      )}
     </Button>
+  );
+}
+
+function SortableBottleCard({
+  bottle,
+  isEditing,
+  size,
+  onClick,
+  onContextMenu,
+}: {
+  bottle: Bottle;
+  isEditing: boolean;
+  size: BottleCardSize;
+  onClick: () => void;
+  onContextMenu: (
+    event: React.MouseEvent<HTMLButtonElement>,
+    bottle: Bottle,
+  ) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: bottle.id,
+    disabled: !isEditing,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 20 : undefined,
+      }}
+      className={isDragging ? "relative" : undefined}
+    >
+      <BottleCard
+        bottle={bottle}
+        onClick={onClick}
+        onContextMenu={onContextMenu}
+        isEditing={isEditing}
+        isDragging={isDragging}
+        size={size}
+        dragHandleProps={isEditing ? { ...attributes, ...listeners } : undefined}
+      />
+    </div>
   );
 }
 
@@ -221,6 +387,7 @@ function BottleLibraryPanel({
   onSelectBottle,
   onBottleContextMenu,
   onToggleInstalledWine,
+  onReorderBottles,
   onCreateBottle,
 }: {
   bottles: Bottle[];
@@ -233,9 +400,175 @@ function BottleLibraryPanel({
     bottle: Bottle,
   ) => void;
   onToggleInstalledWine: () => void;
+  onReorderBottles?: (orderedBottleIds: string[]) => Promise<void> | void;
   onCreateBottle: () => void;
 }) {
   const { t } = useTranslation();
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [isApplyingOrder, setIsApplyingOrder] = React.useState(false);
+  const [isSizeMenuOpen, setIsSizeMenuOpen] = React.useState(false);
+  const [bottleCardSize, setBottleCardSize] = React.useState<BottleCardSize>(initial_bottle_card_size);
+  const sizeMenuRef = React.useRef<HTMLDivElement>(null);
+  const lastSelectedSizeRef = React.useRef<BottleCardSize | null>(null);
+  const [draftBottleOrder, setDraftBottleOrder] = React.useState<string[]>(() => bottles.map((bottle) => bottle.id));
+  const draftBottleOrderRef = React.useRef(draftBottleOrder);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  React.useEffect(() => {
+    const bottleIds = bottles.map((bottle) => bottle.id);
+    const bottleIdSet = new Set(bottleIds);
+    const nextOrder = [
+      ...draftBottleOrderRef.current.filter((bottleId) => bottleIdSet.has(bottleId)),
+      ...bottleIds.filter((bottleId) => !draftBottleOrderRef.current.includes(bottleId)),
+    ];
+
+    draftBottleOrderRef.current = nextOrder;
+    setDraftBottleOrder(nextOrder);
+  }, [bottles]);
+
+  React.useEffect(() => {
+    if (!isSizeMenuOpen) {
+      return;
+    }
+
+    const windowDragRegions = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-window-drag-region]"),
+    );
+
+    for (const region of windowDragRegions) {
+      region.style.setProperty("-webkit-app-region", "no-drag");
+    }
+
+    const close_size_menu_on_outside_pointer = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const isSizeToggle = Boolean(target?.closest('[data-bottle-size-toggle="true"]'));
+      const isInsideSizeMenu = Boolean(sizeMenuRef.current?.contains(event.target as Node));
+
+      if (!isInsideSizeMenu && !isSizeToggle) {
+        lastSelectedSizeRef.current = null;
+        setIsSizeMenuOpen(false);
+      }
+    };
+    const close_size_menu_on_window_blur = () => {
+      lastSelectedSizeRef.current = null;
+      setIsSizeMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", close_size_menu_on_outside_pointer, true);
+    window.addEventListener("blur", close_size_menu_on_window_blur);
+
+    return () => {
+      document.removeEventListener("pointerdown", close_size_menu_on_outside_pointer, true);
+      window.removeEventListener("blur", close_size_menu_on_window_blur);
+
+      for (const region of windowDragRegions) {
+        region.style.removeProperty("-webkit-app-region");
+      }
+    };
+  }, [isSizeMenuOpen]);
+
+  const orderedBottles = React.useMemo(() => {
+    if (!isEditing) {
+      return bottles;
+    }
+
+    const bottlesById = new Map(bottles.map((bottle) => [bottle.id, bottle]));
+    return draftBottleOrder
+      .map((bottleId) => bottlesById.get(bottleId))
+      .filter((bottle): bottle is Bottle => Boolean(bottle));
+  }, [bottles, draftBottleOrder, isEditing]);
+  const visibleBottles = React.useMemo(() => {
+    const search = searchQuery.normalize("NFC").trim().toLocaleLowerCase();
+
+    if (!search) {
+      return orderedBottles;
+    }
+
+    return orderedBottles.filter((bottle) => [
+      bottle.name,
+      bottle.description,
+      bottle.wineVersionId,
+      ...bottle.apps.flatMap((app) => [app.name, app.subtitle]),
+    ].some((value) => value?.normalize("NFC").toLocaleLowerCase().includes(search)));
+  }, [orderedBottles, searchQuery]);
+
+  const begin_edit_mode = () => {
+    const nextOrder = bottles.map((bottle) => bottle.id);
+    draftBottleOrderRef.current = nextOrder;
+    setDraftBottleOrder(nextOrder);
+    lastSelectedSizeRef.current = null;
+    setIsSizeMenuOpen(false);
+    setIsEditing(true);
+  };
+
+  const select_bottle_card_size = (size: BottleCardSize) => {
+    if (lastSelectedSizeRef.current === size) {
+      lastSelectedSizeRef.current = null;
+      setIsSizeMenuOpen(false);
+      return;
+    }
+
+    lastSelectedSizeRef.current = size;
+    setBottleCardSize(size);
+
+    try {
+      window.localStorage.setItem(BOTTLE_CARD_SIZE_STORAGE_KEY, size);
+    } catch {
+      // The selected size still applies for the current renderer session.
+    }
+  };
+
+  const cancel_edit_mode = () => {
+    const originalOrder = bottles.map((bottle) => bottle.id);
+    draftBottleOrderRef.current = originalOrder;
+    setDraftBottleOrder(originalOrder);
+    setIsEditing(false);
+  };
+
+  const apply_edit_order = async () => {
+    if (isApplyingOrder) {
+      return;
+    }
+
+    setIsApplyingOrder(true);
+
+    try {
+      await onReorderBottles?.(draftBottleOrderRef.current);
+      setIsEditing(false);
+    } catch (error) {
+      console.error("Failed to persist bottle order:", error);
+    } finally {
+      setIsApplyingOrder(false);
+    }
+  };
+
+  const finish_bottle_drag = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const currentOrder = draftBottleOrderRef.current;
+    const sourceIndex = currentOrder.indexOf(String(active.id));
+    const targetIndex = currentOrder.indexOf(String(over.id));
+
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return;
+    }
+
+    const nextOrder = arrayMove(currentOrder, sourceIndex, targetIndex);
+    draftBottleOrderRef.current = nextOrder;
+    setDraftBottleOrder(nextOrder);
+  };
 
   return (
     <Stack className="gap-4">
@@ -249,10 +582,105 @@ function BottleLibraryPanel({
           </Text>
         </Stack>
         <Inline className="flex-wrap items-center gap-2">
-          <Inline className="h-9 w-64 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-slate-500">
+          <Inline className="h-9 w-64 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-slate-500 focus-within:border-[rgb(var(--accent-rgb)/0.55)] focus-within:bg-white/[0.07]">
             <Search size={15} />
-            <InlineText className="text-xs">{t("main.searchReady")}</InlineText>
+            <Input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={t("main.searchReady")}
+              aria-label={t("main.searchReady")}
+              className="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-slate-100 shadow-none outline-none placeholder:text-slate-500 focus:border-0 focus:ring-0"
+            />
           </Inline>
+          <div ref={sizeMenuRef} className="relative">
+            <Button
+              type="button"
+              aria-expanded={isSizeMenuOpen}
+              aria-label={t("main.bottleSize.title")}
+              title={t("main.bottleSize.title")}
+              data-bottle-size-toggle="true"
+              onClick={() => setIsSizeMenuOpen((isOpen) => {
+                lastSelectedSizeRef.current = null;
+                return !isOpen;
+              })}
+              disabled={isEditing}
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                isSizeMenuOpen
+                  ? "accent-selection text-white"
+                  : "border-white/10 bg-white/[0.04] text-slate-300 hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+              }`}
+            >
+              <LayoutGrid size={16} />
+            </Button>
+            {isSizeMenuOpen ? (
+              <Box className="absolute left-0 top-11 z-40 grid w-64 grid-cols-4 gap-1 rounded-xl border border-white/10 bg-[#0b1020]/95 p-2 shadow-2xl shadow-black/45 backdrop-blur-xl">
+                {BOTTLE_CARD_SIZES.map((size) => (
+                  <Button
+                    key={size}
+                    type="button"
+                    aria-pressed={bottleCardSize === size}
+                    onClick={() => select_bottle_card_size(size)}
+                    className={`flex min-w-0 flex-col items-center gap-1 rounded-lg border px-1.5 py-2 text-[10px] font-semibold transition ${
+                      bottleCardSize === size
+                        ? "accent-selection text-white"
+                        : "border-white/8 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                    }`}
+                  >
+                    <InlineText className="flex h-5 w-full items-center justify-center">
+                      <LayoutGrid size={size === "large" ? 20 : size === "medium" ? 17 : size === "small" ? 14 : 11} />
+                    </InlineText>
+                    <InlineText className="h-4 w-full truncate text-center leading-4">
+                      {t(`main.bottleSize.${size}`)}
+                    </InlineText>
+                  </Button>
+                ))}
+              </Box>
+            ) : null}
+          </div>
+          {isEditing ? (
+            <Stack className="w-36 gap-1">
+              <Button
+                type="button"
+                aria-pressed="true"
+                disabled
+                className="accent-selection inline-flex h-8 w-full cursor-default items-center justify-center gap-2 rounded-lg border px-3 text-xs font-semibold text-white disabled:opacity-100"
+              >
+                <GripVertical size={14} />
+                {t("main.bottleEditing")}
+              </Button>
+              <Inline className="gap-1">
+                <Button
+                type="button"
+                onClick={cancel_edit_mode}
+                disabled={isApplyingOrder}
+                className="inline-flex h-7 flex-1 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-2 text-[11px] font-semibold text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                >
+                  {t("main.bottleEditCancel")}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void apply_edit_order()}
+                  disabled={isApplyingOrder}
+                  className="accent-primary inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-md px-2 text-[11px] font-semibold disabled:cursor-wait disabled:opacity-60"
+                >
+                  <Check size={12} />
+                  {t("main.bottleEditApply")}
+                </Button>
+              </Inline>
+            </Stack>
+          ) : (
+            <Button
+              type="button"
+              aria-pressed="false"
+              onClick={begin_edit_mode}
+              disabled={bottles.length === 0}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <GripVertical size={15} />
+              {t("main.bottleEdit")}
+            </Button>
+          )}
           <Button
             type="button"
             aria-expanded={isInstalledWineOpen}
@@ -272,26 +700,53 @@ function BottleLibraryPanel({
         </Inline>
       </Inline>
 
-      <Box className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {bottles.map((bottle) => (
-          <BottleCard
-            key={bottle.id}
-            bottle={bottle}
-            onClick={() => onSelectBottle?.(bottle.id)}
-            onContextMenu={onBottleContextMenu}
-          />
-        ))}
-      </Box>
+      {isEditing ? (
+        <Text className="rounded-lg border border-[rgb(var(--accent-rgb)/0.25)] bg-[rgb(var(--accent-rgb)/0.08)] px-3 py-2 text-xs text-[rgb(var(--accent-soft-text-rgb))]">
+          {t("main.bottleEditHint")}
+        </Text>
+      ) : null}
 
-      <Button
-        type="button"
-        className="accent-primary fixed bottom-8 right-8 z-30 inline-flex h-12 w-12 items-center justify-center rounded-full shadow-xl shadow-black/35 transition hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.45)]"
-        aria-label={t("main.createBottle.action")}
-        title={t("main.createBottle.action")}
-        onClick={onCreateBottle}
-      >
-        <Plus size={24} />
-      </Button>
+      {visibleBottles.length > 0 ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={finish_bottle_drag}
+        >
+          <SortableContext
+            items={visibleBottles.map((bottle) => bottle.id)}
+            strategy={rectSortingStrategy}
+          >
+            <Box className={BOTTLE_GRID_CLASSES[bottleCardSize]}>
+              {visibleBottles.map((bottle) => (
+                <SortableBottleCard
+                  key={bottle.id}
+                  bottle={bottle}
+                  isEditing={isEditing && !isApplyingOrder}
+                  size={bottleCardSize}
+                  onClick={() => onSelectBottle?.(bottle.id)}
+                  onContextMenu={onBottleContextMenu}
+                />
+              ))}
+            </Box>
+          </SortableContext>
+        </DndContext>
+      ) : (
+        <Text className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-4 py-10 text-center text-sm text-slate-500">
+          {t("main.bottleSearchEmpty")}
+        </Text>
+      )}
+
+      {!isEditing ? (
+        <Button
+          type="button"
+          className="accent-primary fixed bottom-8 right-8 z-30 inline-flex h-12 w-12 items-center justify-center rounded-full shadow-xl shadow-black/35 transition hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.45)]"
+          aria-label={t("main.createBottle.action")}
+          title={t("main.createBottle.action")}
+          onClick={onCreateBottle}
+        >
+          <Plus size={24} />
+        </Button>
+      ) : null}
     </Stack>
   );
 }
@@ -327,6 +782,7 @@ export function DashboardHomePanel({
   onDeleteJadeiteVersion,
   onSelectBottle,
   onBottleContextMenu,
+  onReorderBottles,
   onCreateBottle,
 }: {
   wineVersions: WineVersion[];
@@ -356,6 +812,7 @@ export function DashboardHomePanel({
     event: React.MouseEvent<HTMLButtonElement>,
     bottle: Bottle,
   ) => void;
+  onReorderBottles?: (orderedBottleIds: string[]) => Promise<void> | void;
   onCreateBottle: () => void;
 }) {
   const installedWineCount = wineVersions.filter(
@@ -379,6 +836,7 @@ export function DashboardHomePanel({
           onSelectBottle={onSelectBottle}
           onBottleContextMenu={onBottleContextMenu}
           onToggleInstalledWine={onToggleInstalledWine}
+          onReorderBottles={onReorderBottles}
           onCreateBottle={onCreateBottle}
         />
       </Box>
@@ -840,6 +1298,7 @@ export function CreateBottleDialog({
   selectedDxmtVersionId,
   selectedJadeiteVersionId,
   bottlePrefixPath,
+  existingBottleNames = [],
   onSelectBottlePrefixPath,
   onClose,
   onCreateBottle,
@@ -855,6 +1314,7 @@ export function CreateBottleDialog({
   selectedDxmtVersionId: string;
   selectedJadeiteVersionId?: string;
   bottlePrefixPath: string;
+  existingBottleNames?: string[];
   onSelectBottlePrefixPath?: (currentPath: string) => Promise<string | undefined>;
   onClose: () => void;
   onCreateBottle?: (input: CreateBottleInput) => void;
@@ -902,8 +1362,12 @@ export function CreateBottleDialog({
     () => jadeiteVersions,
     [jadeiteVersions],
   );
+  const hasDuplicateBottleName = form.name.trim().length > 0 && existingBottleNames.some(
+    (existingName) => bottle_name_key(existingName) === bottle_name_key(form.name),
+  );
   const canCreateBottle =
     form.name.trim().length > 0 &&
+    !hasDuplicateBottleName &&
     form.wineVersionId.trim().length > 0 &&
     form.dxmtVersionId.trim().length > 0 &&
     form.prefixPath.trim().length > 0 &&
@@ -922,7 +1386,7 @@ export function CreateBottleDialog({
     }
     wasCreateBottleOpenRef.current = true;
 
-    const nextName = generate_bottle_name();
+    const nextName = generate_bottle_name(existingBottleNames);
     setForm({
       name: nextName,
       wineVersionId:
@@ -934,7 +1398,7 @@ export function CreateBottleDialog({
       prefixPath: bottlePrefixPath,
       description: "",
     });
-  }, [bottlePrefixPath, open, selectedDxmtVersionId, selectedJadeiteVersionId, selectedWineVersionId, selectableDxmtVersions, selectableJadeiteVersions, selectableWineVersions]);
+  }, [bottlePrefixPath, existingBottleNames, open, selectedDxmtVersionId, selectedJadeiteVersionId, selectedWineVersionId, selectableDxmtVersions, selectableJadeiteVersions, selectableWineVersions]);
 
   function update_form<K extends keyof CreateBottleInput>(
     key: K,
@@ -954,7 +1418,7 @@ export function CreateBottleDialog({
   }
 
   function randomize_name() {
-    const nextName = generate_bottle_name();
+    const nextName = generate_bottle_name(existingBottleNames);
     setForm((currentForm) => ({
       ...currentForm,
       name: nextName,
@@ -1035,7 +1499,13 @@ export function CreateBottleDialog({
               value={form.name}
               onChange={(event) => update_name(event.target.value)}
               placeholder={t("main.createBottle.namePlaceholder")}
-              className="h-10 min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0b1020] px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+              aria-invalid={hasDuplicateBottleName}
+              aria-describedby={hasDuplicateBottleName ? "bottle-name-error" : undefined}
+              className={`h-10 min-w-0 flex-1 rounded-lg border bg-[#0b1020] px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 ${
+                hasDuplicateBottleName
+                  ? "border-rose-400/80 ring-2 ring-rose-400/15 focus:border-rose-300"
+                  : "border-white/10 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+              }`}
             />
             <Button
               type="button"
@@ -1046,6 +1516,11 @@ export function CreateBottleDialog({
               {t("main.createBottle.randomName")}
             </Button>
           </Inline>
+          {hasDuplicateBottleName ? (
+            <Text id="bottle-name-error" className="text-xs font-medium text-rose-300">
+              {t("main.createBottle.duplicateName")}
+            </Text>
+          ) : null}
         </Box>
 
         <Box className="grid gap-2">

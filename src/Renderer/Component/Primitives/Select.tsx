@@ -19,6 +19,43 @@ export interface SelectOption {
   label: string;
   description?: string;
   swatchColor?: string;
+  indicatorColor?: string;
+  indicatorPulse?: boolean;
+}
+
+function SelectOptionSwatch({ option }: { option: SelectOption }) {
+  if (!option.swatchColor) {
+    return null;
+  }
+
+  return (
+    <span
+      className="h-4 w-4 shrink-0 rounded-full ring-2 ring-white/10"
+      style={{ backgroundColor: option.swatchColor }}
+      aria-hidden="true"
+    />
+  );
+}
+
+function SelectOptionStatusIndicator({ option }: { option: SelectOption }) {
+  if (!option.indicatorColor) {
+    return null;
+  }
+
+  return (
+    <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
+      {option.indicatorPulse ? (
+        <span
+          className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-45"
+          style={{ backgroundColor: option.indicatorColor }}
+        />
+      ) : null}
+      <span
+        className="relative inline-flex h-2 w-2 rounded-full"
+        style={{ backgroundColor: option.indicatorColor }}
+      />
+    </span>
+  );
 }
 
 /**
@@ -38,6 +75,7 @@ export interface SelectProps {
   favoriteValues?: string[];
   onFavoriteValuesChange?: (values: string[]) => void;
   searchPlaceholder?: string;
+  compact?: boolean;
   className?: string;
 }
 
@@ -66,6 +104,7 @@ export function Select({
   favoriteValues,
   onFavoriteValuesChange,
   searchPlaceholder = "Search options",
+  compact = false,
   className = "",
 }: SelectProps) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -225,14 +264,12 @@ export function Select({
   const render_option_content = (option: SelectOption) => {
     return (
       <span className="flex min-w-0 items-center gap-2">
-        {option.swatchColor && (
-          <span
-            className="h-4 w-4 shrink-0 rounded-full ring-2 ring-white/10"
-            style={{ backgroundColor: option.swatchColor }}
-          />
-        )}
+        <SelectOptionSwatch option={option} />
         <span className="min-w-0">
-          <span className="block truncate text-sm font-semibold">{option.label}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="block truncate text-sm font-semibold">{option.label}</span>
+            <SelectOptionStatusIndicator option={option} />
+          </span>
           {option.description && <span className="block truncate text-xs text-slate-500">{option.description}</span>}
         </span>
       </span>
@@ -262,8 +299,10 @@ export function Select({
                   }`}
                 >
                   <span className="flex min-w-0 items-center gap-2">
+                    <SelectOptionSwatch option={option} />
                     <Star size={14} className="shrink-0 fill-current text-amber-300" />
                     <span className="truncate font-semibold">{option.label}</span>
+                    <SelectOptionStatusIndicator option={option} />
                   </span>
                 </button>
               ))}
@@ -278,17 +317,15 @@ export function Select({
         aria-expanded={isOpen}
         aria-label={label}
         onClick={() => setIsOpen((open) => !open)}
-        className="flex h-11 w-full items-center justify-between gap-3 rounded-lg border border-white/10 bg-[#0b1020] px-3 text-left text-sm text-slate-100 outline-none transition hover:border-white/20 hover:bg-white/[0.05] focus:border-white/20"
+        className={`flex w-full items-center justify-between gap-3 rounded-lg border border-white/10 bg-[#0b1020] px-3 text-left text-sm text-slate-100 outline-none transition hover:border-white/20 hover:bg-white/[0.05] focus:border-white/20 ${compact ? "h-9" : "h-11"}`}
       >
         <span className="flex min-w-0 items-center gap-2">
-          {selectedOption?.swatchColor && (
-            <span
-              className="h-4 w-4 shrink-0 rounded-full ring-2 ring-white/10"
-              style={{ backgroundColor: selectedOption.swatchColor }}
-            />
-          )}
+          {selectedOption ? <SelectOptionSwatch option={selectedOption} /> : null}
           <span className="min-w-0">
-            <span className="block truncate font-semibold">{selectedOption?.label}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="block truncate font-semibold">{selectedOption?.label}</span>
+              {selectedOption ? <SelectOptionStatusIndicator option={selectedOption} /> : null}
+            </span>
             {selectedOption?.description && <span className="block truncate text-xs text-slate-500">{selectedOption.description}</span>}
           </span>
         </span>

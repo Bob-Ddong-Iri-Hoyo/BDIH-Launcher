@@ -1,0 +1,800 @@
+{
+  "translation": {
+    "localeMeta": {
+      "code": "zh",
+      "nativeName": "简体中文",
+      "englishName": "Simplified Chinese"
+    },
+    "common": {
+      "appName": "BDIH 启动器",
+      "appSubtitle": "自定义 Wine 启动器",
+      "macosWine": "macOS Wine",
+      "local": "本地",
+      "ready": "就绪",
+      "syncing": "同步中",
+      "actions": {
+        "refresh": "刷新",
+        "quit": "退出",
+        "install": "安装",
+        "reset": "重置",
+        "browse": "浏览",
+        "save": "保存",
+        "apply": "应用",
+        "run": "运行",
+        "download": "下载",
+        "createPrefix": "创建 Prefix",
+        "close": "关闭",
+        "cancel": "取消",
+        "delete": "删除"
+      }
+    },
+    "discordPresence": {
+      "browsingLibrary": "浏览游戏库",
+      "playingGame": "正在运行游戏"
+    },
+    "navigation": {
+      "dashboard": {
+        "label": "Bottles",
+        "description": "Bottle 与 Wine 状态",
+        "subtitle": "管理 Bottle、应用和 Wine 运行时状态。"
+      },
+      "terminal": {
+        "label": "终端",
+        "description": "Wine 任务日志",
+        "subtitle": "查看安装、启动和调试日志。"
+      },
+      "logs": {
+        "label": "日志",
+        "description": "应用与 Bottle 日志",
+        "subtitle": "浏览应用会话、Bottle 启动和 Wine 进程日志。"
+      },
+      "preferences": {
+        "label": "设置",
+        "description": "路径与日志",
+        "subtitle": "调整 Wine 安装路径和诊断日志。"
+      }
+    },
+    "status": {
+      "title": "状态",
+      "idle": "空闲",
+      "available": "可用",
+      "downloading": "下载中",
+      "installing": "安装中",
+      "extracting": "解压中",
+      "installed": "已安装",
+      "completed": "已完成",
+      "error": "错误"
+    },
+    "store": {
+      "catalogLocal": "已从本地默认值加载 Wine 目录。",
+      "catalogMain": "已从主进程加载 Wine 目录。",
+      "catalogFailed": "无法加载 Wine 目录。",
+      "installRequested": "已请求安装 {{versionId}}。",
+      "previewInstallComplete": "预览模式：已标记为安装完成。",
+      "installFailed": "Wine 安装失败。",
+      "deleteCompleted": "已删除 {{versionId}}。",
+      "deleteFailed": "运行时删除失败。"
+    },
+    "main": {
+      "unsavedChanges": {
+        "title": "要保存更改吗？",
+        "description": "存在未保存的更改。您可以保存后返回，或放弃这些更改。",
+        "continueEditing": "继续编辑",
+        "discard": "放弃并返回",
+        "save": "保存并返回"
+      },
+      "runtimeInstallFailure": {
+        "title": "运行时安装失败",
+        "description": "无法安装 {{resource}} {{versionId}}。",
+        "technicalDetails": "技术错误详情",
+        "reasons": {
+          "diskSpace": {
+            "title": "存储空间不足",
+            "description": "请释放安装磁盘的空间后重试。解压 Wine 时，临时所需空间可能是下载文件大小的数倍。"
+          },
+          "network": {
+            "title": "下载连接失败",
+            "description": "请检查网络连接和下载服务器状态后重试。下次尝试时会重新下载不完整的文件。"
+          },
+          "archive": {
+            "title": "无法解压下载的文件",
+            "description": "文件可能不完整或已损坏。重新安装后，启动器会下载新的压缩包并重试。"
+          },
+          "permission": {
+            "title": "没有安装文件夹的写入权限",
+            "description": "请在设置中选择可写的数据位置，或检查该文件夹的访问权限。"
+          },
+          "missingFile": {
+            "title": "找不到安装所需的文件",
+            "description": "下载文件或安装路径可能已被移动或删除。请检查存储路径后重试。"
+          },
+          "cancelled": {
+            "title": "安装已取消",
+            "description": "安装过程中应用可能已关闭，或任务已被取消。准备好后请重新安装。"
+          },
+          "unknown": {
+            "title": "发生未知安装错误",
+            "description": "请查看下方的技术错误详情。如果问题再次发生，请将详情与日志一并提供。"
+          }
+        }
+      },
+      "heroTitle": "已准备好在 macOS 上运行 Windows 游戏",
+      "heroDescription": "管理 Bottle 和 Wine 状态，并在终端日志中查看安装任务。",
+      "metrics": {
+        "wineCatalog": "Wine 目录",
+        "installed": "已安装",
+        "apps": "应用",
+        "bottles": "Bottles"
+      },
+      "selectedWine": "已选择的 Wine",
+      "selectedDxmt": "已选择的 DXMT",
+      "noWineSelected": "请选择 Wine 版本。",
+      "setupProgress": "Bottle 设置",
+      "taskProgress": {
+        "estimated": "预计步骤进度",
+        "download": "下载进度"
+      },
+      "workProgress": "任务进度",
+      "installProgress": "安装进度",
+      "gameLibrary": "游戏库",
+      "breadcrumbLabel": "Bottle 导航",
+      "bottleLibrary": "Bottles",
+      "bottleHome": "Bottle 主页",
+      "backToBottleHome": "返回 Bottle 主页",
+      "bottleLibraryDescription": "Bottle 中共有 {{count}} 个应用。",
+      "bottleApps": "{{count}} 个应用",
+      "bottleRunningApps": "{{count}} 个运行中",
+      "bottleRunningDescription": "此 Bottle 中仍有 {{count}} 个应用正在运行。更改 Bottle 设置前请停止所有 Wine 进程。",
+      "bottleAppsEmpty": "已安装的启动器和游戏会以应用图标显示在这里。",
+      "bottleGames": "Bottle 中的应用",
+      "bottlePath": "Bottle 路径",
+      "bottleInfo": {
+        "title": "Bottle 信息",
+        "name": "名称",
+        "description": "说明",
+        "path": "路径",
+        "openInFinder": "在 Finder 中打开"
+      },
+      "recipeSettings": "Recipe 设置",
+      "recipeSettingsDescription": "调整所选 Bottle 的 Recipe、运行时选项和启动准备步骤。",
+      "recipeViewAction": "查看 Recipe",
+      "recipeInfo": {
+        "wineVersion": "Wine 版本",
+        "dxmtVersion": "DXMT 版本",
+        "prefixPath": "Prefix 路径",
+        "runtimeExists": "已安装",
+        "downloadRuntime": "下载",
+        "downloadUnavailable": "不可用",
+        "currentRecipe": "当前 Recipe",
+        "applyChanges": "应用更改",
+        "pendingChanges": "Recipe 更改正在等待应用。启动应用前请先应用更改。",
+        "applied": "Recipe 更改已应用。",
+        "applyModalTitle": "正在应用 Recipe",
+        "applyModalDescription": "正在更新 Bottle 运行时 Recipe。",
+        "doNotQuit": "设置完成前请勿退出启动器。",
+        "applyPreparing": "正在准备 Recipe 更改...",
+        "applySaving": "正在保存 Bottle Recipe...",
+        "applyRuntime": "正在应用运行时设置...",
+        "applyComplete": "Recipe 设置已完成。",
+        "validatingRecipe": "正在验证当前 Recipe 设置...",
+        "validationComplete": "Recipe 验证已完成。",
+        "validationSkipped": "当前 Recipe 设置有效。由于没有更改，已跳过应用操作。"
+      },
+      "openRecipeSettings": "打开 Recipe 设置",
+      "bottleStatus": {
+        "ready": "就绪",
+        "needs-setup": "需要设置",
+        "updating": "更新中",
+        "running": "运行中"
+      },
+      "contextMenu": {
+        "openBottle": "打开 Bottle",
+        "launchOptions": "启动选项",
+        "recipeSettings": "Recipe 设置",
+        "rename": "重命名",
+        "editDescription": "修改说明",
+        "copyPath": "复制路径",
+        "revealFolder": "在文件夹中显示",
+        "deleteBottle": "删除 Bottle",
+        "deleteBottleConfirm": "要删除 {{name}} 吗？"
+      },
+      "renameBottle": {
+        "title": "重命名 Bottle",
+        "description": "输入 {{name}} 的新名称。",
+        "nameLabel": "新的 Bottle 名称",
+        "duplicateTitle": "Bottle 名称已被使用",
+        "duplicateDescription": "另一个 Bottle 已在使用 {{name}}。请选择其他名称后重新应用。",
+        "runningTitle": "Bottle 正在运行",
+        "runningDescription": "请先停止 {{name}} 中的所有应用和启动器，再重命名 Bottle。",
+        "successTitle": "Bottle 已重命名",
+        "successDescription": "Bottle 名称已更改为 {{name}}。"
+      },
+      "editBottleDescription": {
+        "title": "修改 Bottle 说明",
+        "description": "修改 {{name}} 显示的说明。",
+        "descriptionLabel": "Bottle 说明",
+        "placeholder": "输入此 Bottle 的说明",
+        "successTitle": "说明已更新",
+        "successDescription": "已保存 {{name}} 的说明。"
+      },
+      "launchOptionsUnavailable": {
+        "title": "启动选项",
+        "description": "目前无法从 Bottle 列表打开启动选项。请在 Bottle 详情中操作启动器。"
+      },
+      "launchOptions": {
+        "title": "启动选项",
+        "description": "调整 {{name}} 的启动预设和 Wine 选项。",
+        "emptyDescription": "请选择此 Bottle 中的应用后再编辑启动选项。",
+        "empty": "此 Bottle 中还没有已注册的应用。",
+        "targetApp": "目标应用",
+        "searchApps": "搜索应用",
+        "preset": "预设",
+        "searchPresets": "搜索预设",
+        "sections": "目录",
+        "sectionDescriptions": {
+          "general": "Wine 和应用的基本行为",
+          "dxmt": "图形与 MetalFX 设置",
+          "timing": "启动和进程监控时间",
+          "network": "游戏专用网络启动调整"
+        },
+        "unsupportedByWine": "所选 Wine 运行时的元数据不支持此选项。",
+        "general": "常规",
+        "timing": "等待",
+        "network": "网络",
+        "enableMsync": "启用 msync",
+        "steamWebHelperArgs": "Steam WebHelper 参数",
+        "hoyoplayInProcessGpu": "HoYoPlay --in-process-gpu",
+        "enableTimeoutFix": "Wine 超时修复",
+        "leftCommandIsCtrl": "将左 Command 用作 Ctrl",
+        "retinaMode": "Retina 模式",
+        "metalHud": "Metal HUD",
+        "dxmt": "DXMT",
+        "dxmtPreferredMaxFrameRate": "DXMT 帧率限制",
+        "dxmtMetalFxSpatialUpscale": "DXMT MetalFX 空间放大",
+        "dxmtMetalFxSpatialUpscaleFactor": "MetalFX 放大系数",
+        "earlyExitWaitMs": "启动检查毫秒数",
+        "superviseWaitSeconds": "监控等待秒数",
+        "networkGate": "HoYo 网络门控",
+        "networkGateSeconds": "网络门控秒数",
+        "waitForManualNetworkCut": "等待手动断网",
+        "autoNetworkCut": "自动断开主机网络",
+        "autoNetworkReconnectSeconds": "自动重连秒数",
+        "allowDuplicateGame": "允许重复运行游戏",
+        "descriptions": {
+          "enableMsync": "当 Wine 构建支持 WINEMSYNC 时，使用其 Mach 同步路径。",
+          "steamWebHelperArgs": "为 Steam WebHelper 添加稳定的 Chromium/CEF 参数，使 Steam UI 更容易在 macOS Wine 下正确显示。",
+          "hoyoplayInProcessGpu": "使用 --in-process-gpu 启动 HoYoPlay，帮助部分 CEF 窗口在 Wine 下显示。",
+          "enableTimeoutFix": "为启动时卡住的启动器启用内置 Wine 超时规避方案。",
+          "leftCommandIsCtrl": "在 Wine 中将左 Command 键映射为 Ctrl，以支持 Windows 快捷键。",
+          "retinaMode": "切换 Wine Mac Driver 的 Retina 渲染，在高 DPI 下获得更清晰的界面。",
+          "metalHud": "显示 Apple Metal 性能 HUD 以进行图形调试。",
+          "dxmtPreferredMaxFrameRate": "将 d3d11.preferredMaxFrameRate 写入 DXMT_CONFIG。HoYoPlay 类固定帧率可设为 60；DXMT 支持时设为 0 可取消限制。",
+          "dxmtMetalFxSpatialUpscale": "为 DXMT 的 MetalFX 空间放大路径启用 DXMT_METALFX_SPATIAL_SWAPCHAIN。",
+          "dxmtMetalFxSpatialUpscaleFactor": "需要 DXMT 放大交换链时，将 d3d11.metalSpatialUpscaleFactor 写入 DXMT_CONFIG。",
+          "earlyExitWaitMs": "Wine 立即退出后，启动器等待多久才判定为启动失败。",
+          "superviseWaitSeconds": "启动器侧监控路由子进程的等待时长。",
+          "networkGate": "为需要受控重连窗口的 HoYo 游戏使用网络门控规避方案。",
+          "networkGateSeconds": "网络门控窗口持续时间。",
+          "waitForManualNetworkCut": "继续路由启动前，等待用户手动断开网络。",
+          "autoNetworkCut": "允许启动器辅助逻辑自动断开并重新连接主机网络。",
+          "autoNetworkReconnectSeconds": "自动断网后等待重新连接的秒数。",
+          "allowDuplicateGame": "即使已监控到相同游戏进程，也允许监控器启动新游戏。"
+        },
+        "presets": {
+          "auto": "自动",
+          "steam": "Steam",
+          "hoyoplay": "HoYoPlay",
+          "zzz": "绝区零",
+          "hsr": "崩坏：星穹铁道",
+          "genshin": "原神",
+          "custom": "自定义"
+        }
+      },
+      "appContext": {
+        "run": "运行应用",
+        "runWithArgs": "使用参数运行",
+        "launchOptions": "启动选项",
+        "stop": "停止应用",
+        "showLogs": "查看日志",
+        "delete": "删除应用",
+        "deleteFiles": "删除应用文件",
+        "removeFromList": "从应用列表移除",
+        "running": "运行中",
+        "launching": "准备中",
+        "launchFailed": "启动失败",
+        "appLogsTitle": "{{name}} 日志",
+        "appLogsDescription": "此应用的简要 Wine 启动日志。",
+        "loadingLogs": "正在加载日志...",
+        "noLogs": "此应用还没有日志。",
+        "argumentsPrompt": "要追加的参数",
+        "deleteConfirm": "要从此 Bottle 删除 {{name}} 吗？",
+        "deleteFilesTitle": "要删除 {{name}} 的文件吗？",
+        "deleteFilesConfirm": "从此 Bottle 删除 {{name}}，并在文件位于启动器安全管理目录时一并删除应用文件和 Prefix 数据。此操作无法撤销。",
+        "stopConfirmTitle": "要停止 {{name}} 吗？",
+        "stopConfirmDescription": "继续前停止 {{name}} 的 Wine 进程。",
+        "removeFromListTitle": "要从列表移除 {{name}} 吗？",
+        "removeFromListConfirm": "要从此 Bottle 的应用列表移除 {{name}} 吗？已安装文件不会被删除。"
+      },
+      "createBottle": {
+        "action": "创建 Bottle",
+        "title": "创建 Bottle",
+        "description": "使用 Wine 运行时创建新的 Bottle。选择 Prefix 根目录后，Bottle 文件夹会创建在其中。",
+        "nameLabel": "Bottle 名称",
+        "namePlaceholder": "Raiden",
+        "duplicateName": "已存在同名的 Bottle。",
+        "randomName": "随机",
+        "wineLabel": "Wine 运行时",
+        "dxmtLabel": "DXMT 版本",
+        "pathLabel": "Bottle Prefix 根目录",
+        "pathPlaceholder": "包含 Bottle Prefix 的文件夹",
+        "pathHint": "Bottle 将创建于：",
+        "defaultPath": "默认",
+        "descriptionLabel": "说明",
+        "descriptionPlaceholder": "此 Bottle 的用途",
+        "submit": "创建 Bottle"
+      },
+      "installers": {
+        "title": "启动器安装程序",
+        "description": "首次点击只下载官方 Windows 安装程序。运行安装程序时才会设置 Prefix 和 Wine。",
+        "modalTitle": "启动器安装程序",
+        "modalDescription": "先下载安装程序，下载完成后再次点击以使用 Wine 运行。",
+        "openAction": "打开启动器安装程序",
+        "install": "下载安装程序",
+        "runInstaller": "运行安装程序",
+        "installSteam": "下载 / 运行 Steam 安装程序",
+        "installHoyoplay": "下载 / 运行 HoYoPlay 安装程序",
+        "installing": "正在准备安装程序...",
+        "downloading": "下载中",
+        "running": "运行中",
+        "alreadyAdded": "已添加",
+        "installedCount": "{{count}} 个已就绪",
+        "notInstalled": "未安装",
+        "stage": {
+          "setup": "设置中",
+          "dxmt": "DXMT",
+          "download": "下载中",
+          "downloaded": "已下载",
+          "install": "正在 Wine 中启动",
+          "ready": "就绪",
+          "error": "错误"
+        },
+        "steam": {
+          "title": "Steam",
+          "description": "从 Steam CDN 下载 SteamSetup.exe 并使用 Wine 运行。"
+        },
+        "hoyoplay": {
+          "title": "HoYoPlay",
+          "description": "通过 HoYoverse 下载入口下载 HoYoPlay 安装程序并使用 Wine 运行。"
+        }
+      },
+      "runner": {
+        "title": "运行可执行文件",
+        "description": "使用此 Bottle Prefix 直接运行本地 Windows 可执行文件。",
+        "addManualApp": "手动添加应用",
+        "addManualAppDescription": "自动检测遗漏时，将可执行文件注册到此 Bottle。",
+        "pathPlaceholder": "C:\\Program Files\\App\\app.exe 或 /Users/me/Downloads/setup.exe",
+        "pathHint": "可使用 Prefix 内的 Windows 路径，或 macOS 上的本地安装程序路径。",
+        "pathAutocompleteHint": "按 Tab 打开建议，使用 Tab/方向键移动，按 Enter 选择；选择可执行文件后再按 Tab 可移动到参数。文件较多时可滚动列表。",
+        "manualTitle": "输入路径或查找文件",
+        "manualDescription": "直接输入 Windows 路径，或浏览 macOS 文件并通过 Wine 的 Z: 盘映射运行。",
+        "manualAddTitle": "选择应用可执行文件",
+        "manualAddFormDescription": "选择要显示在此 Bottle 应用网格中的可执行文件。",
+        "prefixLabel": "要使用的 Wine Prefix",
+        "prefixSearchPlaceholder": "搜索 Prefix",
+        "prefixDefault": "默认 Wine Prefix",
+        "prefixSteam": "Steam Prefix",
+        "prefixHoyoplay": "HoYoPlay Prefix",
+        "prefixZenless": "绝区零 Prefix",
+        "prefixStarRail": "崩坏：星穹铁道 Prefix",
+        "prefixGenshin": "原神 Prefix",
+        "prefixAdd": "添加",
+        "prefixDelete": "删除",
+        "prefixResetAction": "重置",
+        "prefixCustomNamePrompt": "输入新 Prefix 的名称。",
+        "prefixCustomNameDefault": "自定义 Prefix",
+        "prefixAdded": "已添加 {{name}} Prefix。",
+        "prefixAffectedApps": "使用此 Prefix 的 {{count}} 个应用将从列表中移除。",
+        "prefixAffectedAppsMore": "另有 {{count}} 个",
+        "prefixDeleteConfirm": "要删除 {{name}} Prefix 吗？其中的应用也会从 Bottle 中移除。",
+        "prefixResetConfirm": "要重置 {{name}} Prefix 吗？其中的应用也会从 Bottle 中移除。",
+        "prefixDeleted": "Prefix 已删除。",
+        "prefixReset": "Prefix 已重置。",
+        "prefixUpdateUnavailable": "此视图无法更改 Prefix 列表。",
+        "registerPathHint": "可使用 Prefix 内的 Windows 路径，或 macOS 上的本地可执行文件路径。",
+        "pathAutocompleteRegisterHint": "按 Tab 打开建议，使用 Tab/方向键移动，按 Enter 选择可执行文件。",
+        "browseFile": "查找文件",
+        "selectFileTitle": "选择 Windows 可执行文件",
+        "argumentsLabel": "参数",
+        "argumentsPlaceholder": "-windowed -language zh",
+        "argumentsHint": "可选。带空格的参数支持引号。",
+        "pathRequired": "请先输入可执行文件路径。",
+        "wineRuntimeMissing": "Wine 运行时未安装或未解压：{{versionId}}",
+        "starting": "正在启动可执行文件...",
+        "started": "可执行文件已在此 Bottle 中启动。",
+        "registered": "可执行文件已添加到此 Bottle。",
+        "failed": "无法启动可执行文件。",
+        "run": "在 Bottle 中运行",
+        "register": "添加到应用"
+      },
+      "searchReady": "搜索 Bottle",
+      "bottleEdit": "编辑",
+      "bottleEditDone": "完成",
+      "bottleEditing": "编辑中",
+      "bottleEditCancel": "取消",
+      "bottleEditApply": "应用",
+      "bottleEditHint": "拖动 Bottle，将常用项目放到所需位置。",
+      "bottleSearchEmpty": "没有符合搜索条件的 Bottle。",
+      "bottleSize": {
+        "title": "Bottle 卡片大小",
+        "large": "大",
+        "medium": "中",
+        "small": "小",
+        "compact": "最小"
+      },
+      "wineVersions": "Wine 版本",
+      "runtimeDownloads": {
+        "title": "运行时下载",
+        "description": "从 BDIH 发布源下载 Wine 运行时和 DXMT 软件包。",
+        "noWine": "没有可用的 Wine 发布资源。",
+        "noDxmt": "没有可用的 DXMT 发布资源。"
+      },
+      "installedWine": {
+        "title": "已安装的 Wine",
+        "description": "此处仅显示可用于创建 Bottle 或启动游戏的 Wine 构建。",
+        "viewAction": "查看已安装的 Wine",
+        "empty": "尚未安装 Wine 构建。创建 Bottle 时选择的构建会在安装后显示于此。"
+      },
+      "terminalWelcome": "BDIH 启动器终端",
+      "lastPlayed": {
+        "today": "今天",
+        "yesterday": "昨天",
+        "threeDaysAgo": "3 天前",
+        "never": "从未启动"
+      }
+    },
+    "preferences": {
+      "generalTitle": "常规",
+      "generalDescription": "调整界面语言、主题和应用日志。",
+      "categories": {
+        "general": "常规",
+        "generalDescription": "语言与显示",
+        "wine": "Wine",
+        "wineDescription": "数据存储与诊断",
+        "shortcut": "快捷键",
+        "shortcutDescription": "启动器控制键"
+      },
+      "installPathTitle": "Wine 安装路径",
+      "installPathDescription": "新 Wine 构建和运行时的默认位置。",
+      "installPathLabel": "安装路径",
+      "storagePaths": {
+        "title": "数据存储位置",
+        "description": "为启动器管理的 Wine 运行时、Bottle Prefix、DXMT 软件包、应用元数据和日志选择一个根文件夹。",
+        "dataRootTitle": "数据存储位置",
+        "dataRootDescription": "启动器会在此文件夹中存储 Wine、Bottles、DXMT、日志和 appmeta.json。",
+        "advancedBottleRoot": "使用单独的 Bottle 根目录",
+        "advancedBottleRootDescription": "将 Wine、DXMT 和日志保留在数据位置，但在自定义文件夹中创建 Bottle Prefix。",
+      "bottleRootTitle": "Bottle Prefix 根目录",
+      "bottleRootDescription": "包含启动器管理的 Bottle 文件夹。每个 Bottle 会创建为 root/bottle-name。",
+      "sharedGamesPathTitle": "共享 G: 游戏文件夹",
+      "sharedGamesPathDescription": "游戏启动器下载游戏并供多个 Bottle 引用的主机文件夹。",
+        "wineInstallTitle": "Wine 运行时存储",
+        "wineInstallDescription": "存放已下载 Wine 构建和运行时的文件夹。",
+        "bottlePrefixTitle": "Bottle Prefix 存储",
+        "bottlePrefixDescription": "创建和管理 Bottle Wine Prefix 的文件夹。",
+        "dxmtCacheTitle": "DXMT 软件包存储",
+        "dxmtCacheDescription": "存放预下载 DXMT 软件包和缓存安装程序的文件夹。",
+        "resetAll": "重置数据位置"
+      },
+      "dangerZone": {
+        "title": "危险区域",
+        "description": "删除启动器管理的 Wine 运行时、Bottle Prefix、DXMT 缓存、设置和日志。",
+        "deleteAction": "删除所有启动器数据",
+        "confirmTitle": "要删除所有启动器数据吗？",
+        "confirmDescription": "此操作无法撤销。继续前请检查下方文件夹，尤其是使用自定义路径时。",
+        "pathsTitle": "删除目标",
+        "confirmAction": "删除数据",
+        "targets": {
+          "wineRuntime": {
+            "title": "Wine 运行时",
+            "description": "删除已下载的 Wine 构建和运行时文件。"
+          },
+          "bottlePrefixes": {
+            "title": "Bottle Prefix",
+            "description": "删除 Bottle 的托管 Wine Prefix。"
+          },
+          "dxmtCache": {
+            "title": "DXMT 缓存",
+            "description": "删除已下载的 DXMT 软件包和安装程序缓存。"
+          },
+          "settings": {
+            "title": "设置",
+            "description": "删除启动器首选项和已保存设置。"
+          },
+          "logs": {
+            "title": "日志",
+            "description": "删除启动器和诊断日志文件。"
+          }
+        }
+      },
+      "logging": {
+        "title": "Wine 调试标志",
+        "description": "选择预设或为 Wine 启动直接传入 WINEDEBUG 参数。",
+        "modePresetTitle": "预设",
+        "modePresetDescription": "使用准备好的日志级别。",
+        "modeWineDebugTitle": "自定义参数",
+        "modeWineDebugDescription": "直接输入 WINEDEBUG 参数。",
+        "levelTitle": "预设",
+        "levelDescription": "以后可由 Bottle 专用启动设置覆盖此全局预设。",
+        "wineDebugTitle": "WINEDEBUG",
+        "wineDebugDescription": "除非 Bottle 覆盖，否则应用于 Wine 进程的原始 WINEDEBUG 参数。",
+        "wineDebugPlaceholder": "-all,+seh,+tid",
+        "levels": {
+          "off": {
+            "label": "不记录",
+            "description": "不写入应用日志。"
+          },
+          "error": {
+            "label": "ERROR",
+            "description": "仅写入 ERROR 日志。"
+          },
+          "warn": {
+            "label": "WARN",
+            "description": "写入 WARN 和 ERROR 日志。"
+          },
+          "info": {
+            "label": "INFO",
+            "description": "写入 INFO、WARN 和 ERROR 日志。"
+          },
+          "debug": {
+            "label": "DEBUG",
+            "description": "写入 DEBUG、INFO、WARN 和 ERROR 日志。"
+          },
+          "all": {
+            "label": "ALL",
+            "description": "写入所有支持的级别；目前与 DEBUG 相同。"
+          }
+        }
+      },
+      "languageTitle": "语言",
+      "languageDescription": "界面使用的语言。",
+      "themeModeTitle": "主题",
+      "themeModeDescription": "使用深色、浅色或跟随系统设置。",
+      "accentColorTitle": "强调色",
+      "accentColorDescription": "用于选中控件、操作和高亮的颜色。",
+      "appLoggingTitle": "应用日志",
+      "appLoggingDescription": "选择启动器级别日志的记录量。",
+      "developerYouTube": {
+        "open": "开发者 YouTube",
+        "onAir": "直播中",
+        "offAir": "离线"
+      },
+      "developerLinks": {
+        "site": "网站",
+        "github": "GitHub",
+        "discord": "Discord"
+      },
+      "appUpdate": {
+        "title": "应用更新",
+        "description": "检查新版本并管理自动更新检查。",
+        "autoCheck": "自动检查",
+        "check": "检查更新",
+        "downloading": "正在下载更新",
+        "restartHint": "更新已下载。请重启应用以完成更新。",
+        "version": "版本 {{version}}",
+        "dialog": {
+          "disabled": {
+            "title": "无法检查更新",
+            "description": "此构建已禁用更新检查。"
+          },
+          "checking": {
+            "title": "正在检查更新",
+            "description": "正在查找最新的 BDIH 启动器版本。"
+          },
+          "available": {
+            "title": "有可用更新",
+            "description": "有更新的 BDIH 启动器版本可用。"
+          },
+          "not-available": {
+            "title": "已是最新版本",
+            "description": "您正在使用当前可用的最新 BDIH 启动器版本。"
+          },
+          "downloading": {
+            "title": "有可用更新",
+            "description": "已发现新版本，正在下载。"
+          },
+          "downloaded": {
+            "title": "更新已就绪",
+            "description": "更新已下载完成。"
+          },
+          "error": {
+            "title": "更新检查失败",
+            "description": "BDIH 启动器无法检查更新。"
+          }
+        },
+        "status": {
+          "disabled": "空闲",
+          "checking": "检查中",
+          "available": "可用",
+          "not-available": "最新",
+          "downloading": "下载中",
+          "downloaded": "就绪",
+          "error": "错误"
+        }
+      },
+      "unsavedTitle": "未保存的更改",
+      "unsavedDescription": "保存后这些设置将在下次运行时应用。",
+      "shortcuts": {
+        "title": "快捷键",
+        "description": "用于导航和常用启动器操作的组合键。",
+        "launchTitle": "启动所选游戏",
+        "launchDescription": "运行当前选中的游戏或应用。",
+        "terminalTitle": "打开终端",
+        "terminalDescription": "切换到 Wine 任务终端。",
+        "logsTitle": "打开日志",
+        "logsDescription": "切换到当前会话日志查看器。",
+        "preferencesTitle": "打开设置",
+        "preferencesDescription": "切换到设置视图。",
+        "recording": "请按 Ctrl、Command 或 Option + 按键",
+        "unassigned": "未分配",
+        "modifierRequired": "请将 Ctrl、Command 或 Option 与其他按键组合使用。",
+        "duplicate": "此快捷键已被分配。",
+        "duplicateResolveConfirm": "{{shortcut}} 已分配给 {{action}}。要清除原快捷键并在此使用吗？",
+        "saveBlocked": "请先修复无效快捷键再保存。"
+      },
+      "options": {
+        "dxmtTitle": "优先使用 DXMT",
+        "dxmtDescription": "为 DirectX 12 游戏优先使用 Metal 转译层。",
+        "keepLogTitle": "保留终端日志",
+        "keepLogDescription": "切换视图后保留安装和启动日志。",
+        "prefixTitle": "启动前检查 Prefix",
+        "prefixDescription": "自动检测缺失的 Wine Prefix。",
+        "catalogTitle": "自动刷新目录",
+        "catalogDescription": "应用启动时重新加载 Wine 目录。"
+      },
+      "closeBehavior": {
+        "title": "关闭按钮行为",
+        "description": "选择按下启动器关闭按钮时的行为。",
+        "quitTitle": "退出应用",
+        "quitDescription": "关闭启动器并执行正常的关机清理。",
+        "trayTitle": "移到托盘",
+        "trayDescription": "将启动器隐藏到 macOS 菜单栏。点击托盘图标可再次显示。"
+      }
+    },
+    "splash": {
+      "defaultMessage": "正在准备界面",
+      "checkingCatalog": "正在检查 Wine 目录",
+      "catalogReady": "Wine 目录已就绪",
+      "description": "适用于 Steam、HoYoverse 和 Windows 游戏的 macOS Wine 启动器",
+      "startup": {
+        "loadingSettings": "正在加载启动器设置",
+        "checkingBottles": "正在检查 Bottle 元数据",
+        "warmingCatalogs": "正在预热运行时目录",
+        "openingLauncher": "正在打开启动器"
+      },
+      "shutdown": {
+        "message": "正在清理由 BDIH 启动器运行的 Wine 进程...",
+        "sideLabel": "正在关闭..."
+      },
+      "rosetta": {
+        "title": "需要 Rosetta 2",
+        "description": "此启动器需要 Rosetta 2 才能在 Apple Silicon Mac 上运行 x86_64 Wine。请复制下方命令，在终端中运行后重新检查。",
+        "instruction": "终端中的安装完成后，点击“重新检查”。",
+        "copyCommand": "复制命令",
+        "openTerminal": "打开终端",
+        "checkAgain": "重新检查",
+        "checking": "检查中...",
+        "copied": "命令已复制。请打开终端，粘贴并按 Return。",
+        "terminalOpened": "终端已打开。请粘贴复制的命令并按 Return。",
+        "terminalOpenFailed": "无法打开终端。",
+        "stillMissing": "Rosetta 仍不可用。请完成终端安装后重新检查。",
+        "checkFailed": "无法检查 Rosetta 状态。",
+        "verified": "Rosetta 已验证。正在打开启动器..."
+      }
+    },
+    "terminal": {
+      "defaultWelcome": "欢迎使用 Eternal Vinegar Hoyo 终端",
+      "bridgeReady": "Wine 命令桥接已就绪。",
+      "initialized": "界面终端已初始化。"
+    },
+    "windowControls": {
+      "label": "窗口控制"
+    },
+    "titleBar": {
+      "label": "macOS 标题栏",
+      "quit": "退出应用",
+      "minimize": "最小化应用",
+      "maximize": "最大化应用"
+    },
+    "wine": {
+      "official": "官方 Wine",
+      "custom": "自定义构建",
+      "noInstallPath": "未设置安装路径"
+    },
+    "locale": {
+      "ko": "韩语",
+      "en": "英语",
+      "ja": "日语",
+      "zh": "简体中文"
+    },
+    "theme": {
+      "mode": {
+        "dark": "深色",
+        "light": "浅色",
+        "system": "跟随系统"
+      },
+      "accent": {
+        "rose": "玫瑰色",
+        "sky": "天蓝色",
+        "emerald": "翡翠色",
+        "violet": "紫罗兰色",
+        "amber": "琥珀色"
+      }
+    },
+    "logViewer": {
+      "app": "应用",
+      "unknownApp": "未知应用",
+      "modes": {
+        "appLogs": "应用日志",
+        "bottleLogs": "Bottle 日志"
+      },
+      "summary": {
+        "title": "启动器应用日志",
+        "description": "查看启动器设置、更新、渲染器和应用生命周期事件。"
+      },
+      "targets": {
+        "title": "日志目标",
+        "count": "{{count}} 个目标",
+        "label": "日志目标",
+        "search": "搜索日志目标",
+        "logs": "日志",
+        "appLogs": "应用日志",
+        "applicationLogs": "应用程序日志",
+        "bottleLogs": "Bottle 日志",
+        "appSessions": "{{count}} 个应用日志会话",
+        "bottleSessions": "{{count}} 个 Bottle 日志会话",
+        "runningDescription": "{{description}} - {{count}} 个正在运行"
+      },
+      "filters": {
+        "appExecutable": "应用可执行文件筛选",
+        "allApps": "所有应用",
+        "selected": "已选择 {{count}} 个",
+        "all": "全部",
+        "allSources": "所有来源",
+        "searchSources": "搜索来源",
+        "filterText": "筛选日志内容",
+        "levels": {
+          "all": "全部",
+          "debug": "调试",
+          "info": "信息",
+          "warn": "警告",
+          "error": "错误"
+        }
+      },
+      "history": {
+        "title": "历史记录",
+        "empty": "没有日志会话。"
+      },
+      "content": {
+        "noMatches": "没有符合当前筛选条件的日志。",
+        "noSession": "未选择日志会话。",
+        "selectTarget": "请选择日志目标和历史记录。",
+        "selectedAria": "已选择的日志内容"
+      },
+      "actions": {
+        "logFolder": "日志文件夹",
+        "openFile": "打开文件",
+        "showInFolder": "在文件夹中显示",
+        "openLogFile": "打开日志文件",
+        "openContainingFolder": "打开所在文件夹"
+      },
+      "units": {
+        "sessions": "会话",
+        "lines": "行"
+      }
+    },
+    "tray": {
+      "show": "显示启动器",
+      "quit": "退出启动器"
+    }
+  }
+}

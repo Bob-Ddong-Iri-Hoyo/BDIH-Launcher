@@ -254,7 +254,9 @@ export class WindowManager {
         height: 18,
       });
 
-      trayIcon.setTemplateImage(true);
+      // Keep the launcher's original colors instead of letting macOS convert
+      // the app icon into a monochrome menu-bar template image.
+      trayIcon.setTemplateImage(false);
       this.tray = new Tray(trayIcon);
       this.tray.setToolTip("BDIH Launcher");
       this.tray.on("click", () => this.showMainWindowFromTray());

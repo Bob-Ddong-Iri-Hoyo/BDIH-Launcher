@@ -80,8 +80,9 @@ function renderer_log_level_to_log_level(level: RendererLogPayload["level"]): Lo
  * Central log writer and log-history indexer.
  *
  * Logs are stored by app session directory. `app.log` is launcher-wide, while
- * `wine.log` and `wine-*.log` are Wine/bottle scoped. Renderer log views consume
- * snapshots through IPC instead of reading files directly.
+ * `wine.log` contains launcher-wide runtime services, while dedicated
+ * `wine-*.log` and `bottles/<bottle>/<source>.log` files are Bottle scoped. Renderer log
+ * views consume snapshots through IPC instead of reading files directly.
  *
  * @see ./IPCManager.ts handles APP.GET_LOG_SNAPSHOT and APP.LOG_UPDATE.
  */
@@ -221,9 +222,26 @@ export class LogManager {
     // UI can show log history after app restart.
     const options = this.requireOptions();
     const sessions = this.discoverLogSessions(options);
-    const entries = sessions.flatMap((session) =>
-      this.readLogEntries(session.category, session.logDirectoryPath, session.id, session.logFileName, session),
-    );
+    const entries = sessions.flatMap((session) => {
+      const sessionEntries = this.readLogEntries(
+        session.category,
+        session.logDirectoryPath,
+        session.id,
+        session.logFileName,
+        session,
+      );
+
+      // app.log and the shared wine.log describe the same launcher process.
+      // Keep them in one logical session instead of showing a second running
+      // "Runtime services" session in the renderer.
+      if (session.kind !== "app" || session.logFileName !== "app.log") {
+        return sessionEntries;
+      }
+
+      return sessionEntries.concat(
+        this.readLogEntries("wine", session.logDirectoryPath, session.id, "wine.log", session),
+      );
+    });
 
     entries.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
 
@@ -446,7 +464,8 @@ export class LogManager {
     const options = this.requireOptions();
     const timestamp = new Date().toISOString();
     const message = args.map((arg) => this.formatValue(arg)).join(" ");
-    const sessionId = loggerOptions.sessionId ?? options.sessionName;
+    const sessionId = this.getLoggerSessionId(loggerOptions);
+    const logFilePath = this.getLoggerLogFilePath(loggerOptions);
     const bottleName = loggerOptions.bottleId
       ? this.bottleNameAliases.get(loggerOptions.bottleId) ?? loggerOptions.bottleName
       : loggerOptions.bottleName;
@@ -459,9 +478,31 @@ export class LogManager {
       category: loggerOptions.file,
       source: loggerOptions.source,
       message,
+      logFilePath,
+      logFileName: path.relative(options.logDir, logFilePath),
+      logDirectoryPath: options.logDir,
       bottleId: loggerOptions.bottleId,
       bottleName,
     };
+  }
+
+  private getLoggerSessionId(loggerOptions: LoggerOptions): string {
+    const options = this.requireOptions();
+    const requestedFileName = loggerOptions.fileName ?? `${loggerOptions.file}.log`;
+    const resolvedFileName = this.resolveLogFileNameAlias(requestedFileName);
+
+    // A bottle rename can redirect an already-created logger to a new file.
+    // Derive the live session id from that final file name so live entries and
+    // sessions discovered from disk always refer to the same logical session.
+    if (resolvedFileName !== "wine.log" && is_bottle_log_file_name(resolvedFileName)) {
+      const fileSessionId = resolvedFileName
+        .replace(/\.log$/i, "")
+        .replace(/[\\/]+/g, ":");
+
+      return `${options.sessionName}:${fileSessionId}`;
+    }
+
+    return options.sessionName;
   }
 
   private formatEntryLine(entry: LauncherLogEntryPayload): string {
@@ -477,8 +518,8 @@ export class LogManager {
   private discoverLogSessions(
     options: Required<LogManagerOptions>,
   ): DiscoveredLogSession[] {
-    // Discover both current and historical session directories. Each log file is
-    // projected as its own selectable session in the renderer log viewer.
+    // Discover both current and historical session directories. Launcher app
+    // and runtime logs share one session; bottle app logs remain selectable.
     const logRootDir = path.dirname(options.logDir);
     const sessionDirs = new Set<string>([options.logDir]);
 
@@ -507,22 +548,28 @@ export class LogManager {
         const logFileNames = get_log_file_names(sessionDir);
         const sessions: DiscoveredLogSession[] = [];
 
-        if (logFileNames.includes("app.log")) {
+        const appLogFileName = logFileNames.includes("app.log")
+          ? "app.log"
+          : logFileNames.includes("wine.log")
+            ? "wine.log"
+            : undefined;
+
+        if (appLogFileName) {
           sessions.push({
             id: sessionId,
             label: sessionId,
             startedAt: session_started_at(sessionId),
-            logFileName: "app.log",
-            logFilePath: path.join(sessionDir, "app.log"),
+            logFileName: appLogFileName,
+            logFilePath: path.join(sessionDir, appLogFileName),
             logDirectoryPath: sessionDir,
             kind: "app" as const,
-            category: "app",
+            category: appLogFileName === "app.log" ? "app" : "wine",
             count: 0,
             isRunning: sessionDir === options.logDir,
           });
         }
 
-        for (const logFileName of logFileNames.filter(is_bottle_log_file_name)) {
+        for (const logFileName of logFileNames.filter((fileName) => fileName !== "wine.log" && is_bottle_log_file_name(fileName))) {
           const metadata = wine_log_session_metadata(logFileName);
 
           sessions.push({
@@ -868,8 +915,7 @@ function wine_log_session_metadata(logFileName: string): {
 
   if (normalizedLogFileName === "wine.log") {
     return {
-      label: "Wine",
-      bottleName: "Wine",
+      label: "Runtime services",
     };
   }
 

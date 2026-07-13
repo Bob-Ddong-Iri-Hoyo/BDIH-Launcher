@@ -13,6 +13,7 @@ import {
   launcher_from_bottle_app,
 } from "../../../Common/Util/BottlePath";
 import { Dialog } from "../../Component/Dialog";
+import { RuntimeInstallFailureDialog } from "../../Component/RuntimeInstallFailureDialog";
 import type { LogEntry, LogSession, LogSourceOption } from "../../Component/LogViewer";
 import { RendererViewKey } from "../../Component/MainFrame";
 import { ProgressBar } from "../../Component/ProgressBar";
@@ -28,6 +29,7 @@ const DEFAULT_DATA_ROOT_PATH = "~/Library/Application Support/BDIH Launcher";
 const DEFAULT_WINE_INSTALL_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "Wine");
 const DEFAULT_BOTTLE_PREFIX_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "Bottles");
 const DEFAULT_DXMT_CACHE_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "DXMT");
+const DEFAULT_GAME_INSTALL_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "Games");
 const DEFAULT_JADEITE_INSTALL_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "dependencies/jadeite");
 const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   launch: "Command + Return",
@@ -51,6 +53,7 @@ interface PreferenceDraftSnapshot {
   installPath: string;
   bottlePrefixPath: string;
   dxmtCachePath: string;
+  gameInstallPath: string;
 }
 
 type RendererConsoleMethod = "debug" | "info" | "log" | "warn" | "error";
@@ -249,12 +252,14 @@ function derive_storage_paths_from_data_root(dataRootPath: string): {
   installPath: string;
   bottlePrefixPath: string;
   dxmtCachePath: string;
+  gameInstallPath: string;
   jadeiteInstallPath: string;
 } {
   return {
     installPath: create_data_root_child_path(dataRootPath, "Wine"),
     bottlePrefixPath: create_data_root_child_path(dataRootPath, "Bottles"),
     dxmtCachePath: create_data_root_child_path(dataRootPath, "DXMT"),
+    gameInstallPath: create_data_root_child_path(dataRootPath, "Games"),
     jadeiteInstallPath: create_data_root_child_path(dataRootPath, "dependencies/jadeite"),
   };
 }
@@ -303,6 +308,13 @@ function apply_renderer_theme_mode(themeMode: RendererThemeMode) {
 function create_bottle_id(name: string): string {
   const slug = bottle_name_to_slug(name);
   return `${slug}-${Date.now().toString(36)}`;
+}
+
+function bottle_name_exists(name: string, bottles: Bottle[]): boolean {
+  const nameKey = name.normalize("NFC").trim().toLocaleLowerCase();
+  return bottles.some((bottle) =>
+    bottle.name.normalize("NFC").trim().toLocaleLowerCase() === nameKey,
+  );
 }
 
 function create_default_bottle_path(rootPath: string, name: string): string {
@@ -395,20 +407,111 @@ function append_log_entry(entries: LogEntry[], entry: LauncherLogEntryPayload): 
   return [...entries, log_entry_from_payload(entry)].slice(-3000);
 }
 
+function normalized_log_target(value?: string): string {
+  return (value ?? "")
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/^(?:wine|bottle)[\s:/_-]+/i, "")
+    .replace(/\.log$/i, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function log_session_app_target(session: LogSession): string {
+  const fileName = session.logFileName?.replace(/\\/g, "/").split("/").pop();
+  return normalized_log_target(fileName ?? session.label.split("/").pop());
+}
+
+function is_same_bottle_log_session(session: LogSession, entry: LauncherLogEntryPayload): boolean {
+  if (session.kind !== "bottle" || !(entry.bottleId || entry.bottleName)) {
+    return false;
+  }
+
+  if (session.bottleId && entry.bottleId) {
+    return session.bottleId === entry.bottleId;
+  }
+
+  return Boolean(
+    session.bottleName
+      && entry.bottleName
+      && normalized_log_target(session.bottleName) === normalized_log_target(entry.bottleName),
+  );
+}
+
+function find_backed_log_session(
+  sessions: LogSession[],
+  entry: LauncherLogEntryPayload,
+): LogSession | undefined {
+  const exactBackedSession = sessions.find((session) =>
+    session.id === entry.sessionId && Boolean(session.logFilePath),
+  );
+
+  if (exactBackedSession) {
+    return exactBackedSession;
+  }
+
+  if (!(entry.bottleId || entry.bottleName)) {
+    const appSessions = sessions.filter((session) =>
+      session.kind === "app" && session.isRunning && Boolean(session.logFilePath),
+    );
+    return appSessions.length === 1 ? appSessions[0] : undefined;
+  }
+
+  const bottleSessions = sessions.filter((session) =>
+    session.isRunning
+      && Boolean(session.logFilePath)
+      && is_same_bottle_log_session(session, entry),
+  );
+  const entryTarget = normalized_log_target(entry.source);
+  const appMatches = bottleSessions.filter((session) =>
+    log_session_app_target(session) === entryTarget,
+  );
+
+  if (appMatches.length === 1) {
+    return appMatches[0];
+  }
+
+  return undefined;
+}
+
+function reconcile_live_log_entry(
+  sessions: LogSession[],
+  entry: LauncherLogEntryPayload,
+): LauncherLogEntryPayload {
+  const backedSession = find_backed_log_session(sessions, entry);
+
+  if (!backedSession || backedSession.id === entry.sessionId) {
+    return entry;
+  }
+
+  return {
+    ...entry,
+    sessionId: backedSession.id,
+  };
+}
+
 function update_log_sessions(sessions: LogSession[], entry: LauncherLogEntryPayload): LogSession[] {
-  if (!sessions.some((session) => session.id === entry.sessionId)) {
-    const isWineSession = entry.category === "wine" || Boolean(entry.bottleId);
-    const label = isWineSession && entry.bottleName
+  const backedSession = find_backed_log_session(sessions, entry);
+  const targetSessionId = backedSession?.id ?? entry.sessionId;
+
+  if (!sessions.some((session) => session.id === targetSessionId)) {
+    const isBottleSession = Boolean(entry.bottleId || entry.bottleName);
+    const isRuntimeServicesSession = entry.category === "wine" && !isBottleSession;
+    const label = isBottleSession && entry.bottleName
       ? `${entry.bottleName} / ${entry.source}`
-      : entry.sessionId;
+      : isRuntimeServicesSession
+        ? "Runtime services"
+        : entry.sessionId;
 
     return [
       ...sessions,
       {
-        id: entry.sessionId,
+        id: targetSessionId,
         label,
         startedAt: entry.timestamp,
-        kind: isWineSession ? "bottle" : "app",
+        logFilePath: entry.logFilePath,
+        logFileName: entry.logFileName,
+        logDirectoryPath: entry.logDirectoryPath,
+        kind: isBottleSession ? "bottle" : "app",
         bottleId: entry.bottleId,
         bottleName: entry.bottleName,
         count: 1,
@@ -417,8 +520,15 @@ function update_log_sessions(sessions: LogSession[], entry: LauncherLogEntryPayl
     ];
   }
 
-  return sessions.map((session) =>
-    session.id === entry.sessionId
+  return sessions
+    .filter((session) =>
+      session.id === targetSessionId
+        || Boolean(session.logFilePath)
+        || session.kind !== backedSession?.kind
+        || (backedSession?.kind === "bottle" && !is_same_bottle_log_session(session, entry)),
+    )
+    .map((session) =>
+    session.id === targetSessionId
       ? {
           ...session,
           count: (session.count ?? 0) + 1,
@@ -591,7 +701,24 @@ function apply_prefix_session_update_to_bottles(
     );
   }
 
-  return apply_prefix_sessions_to_bottles(bottles, [session]);
+  const bottlesWithoutStaleSessionApps = bottles.map((bottle) =>
+    bottle.id === session.bottleId
+      ? {
+          ...bottle,
+          apps: bottle.apps.map((app) =>
+            app.processId === session.processId && !app_matches_prefix_session(app, session)
+              ? {
+                  ...app,
+                  processId: undefined,
+                  isLaunching: false,
+                }
+              : app,
+          ),
+        }
+      : bottle,
+  );
+
+  return apply_prefix_sessions_to_bottles(bottlesWithoutStaleSessionApps, [session]);
 }
 
 function preference_snapshots_equal(left: PreferenceDraftSnapshot, right: PreferenceDraftSnapshot): boolean {
@@ -639,6 +766,7 @@ const App: React.FC = () => {
   const [installPath, setInstallPath] = useState(DEFAULT_WINE_INSTALL_PATH);
   const [bottlePrefixPath, setBottlePrefixPath] = useState(DEFAULT_BOTTLE_PREFIX_PATH);
   const [dxmtCachePath, setDxmtCachePath] = useState(DEFAULT_DXMT_CACHE_PATH);
+  const [gameInstallPath, setGameInstallPath] = useState(DEFAULT_GAME_INSTALL_PATH);
   const [wineDebugArgs, setWineDebugArgs] = useState("");
   const [shortcuts, setShortcuts] = useState<LauncherShortcutMap>(DEFAULT_SHORTCUTS);
   const [appliedShortcuts, setAppliedShortcuts] = useState<LauncherShortcutMap>(DEFAULT_SHORTCUTS);
@@ -671,6 +799,7 @@ const App: React.FC = () => {
     installPath: DEFAULT_WINE_INSTALL_PATH,
     bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
     dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
+    gameInstallPath: DEFAULT_GAME_INSTALL_PATH,
   }));
   const [bottles, setBottles] = useState<Bottle[]>([]);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
@@ -693,6 +822,7 @@ const App: React.FC = () => {
     isLoadingWineVersions,
     isLoadingDxmtVersions,
     isLoadingJadeiteVersions,
+    runtimeInstallFailure,
     loadWineVersions,
     loadDxmtVersions,
     loadJadeiteVersions,
@@ -711,6 +841,7 @@ const App: React.FC = () => {
     clearWineRuntimeMetadata,
     clearDxmtRuntimeMetadata,
     clearJadeiteRuntimeMetadata,
+    clearRuntimeInstallFailure,
     subscribeWineStatus,
   } = useSystemStore();
   const currentPreferenceSnapshot = useMemo<PreferenceDraftSnapshot>(() => ({
@@ -728,6 +859,7 @@ const App: React.FC = () => {
     installPath,
     bottlePrefixPath,
     dxmtCachePath,
+    gameInstallPath,
   }), [
     accentColor,
     appLoggingLevel,
@@ -737,6 +869,7 @@ const App: React.FC = () => {
     dataRootPath,
     debugFlagMode,
     dxmtCachePath,
+    gameInstallPath,
     installPath,
     locale,
     loggingLevel,
@@ -746,16 +879,33 @@ const App: React.FC = () => {
   ]);
   const hasUnsavedPreferenceChanges = isPreferenceLoaded && !preference_snapshots_equal(currentPreferenceSnapshot, savedPreferenceSnapshot);
 
-  function persist_bottles(nextBottles: Bottle[]) {
-    void window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.SAVE_LIST.channelName, {
+  const bottlePersistQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  function persist_bottles(nextBottles: Bottle[]): Promise<BottleListPayload | undefined> {
+    const payload = {
       bottles: nextBottles.map(strip_transient_launcher_tasks),
-    });
+    };
+    const saveRequest = bottlePersistQueueRef.current
+      .catch(() => undefined)
+      .then(() => window.BTIH_API?.invoke(
+        IPC_CHANNELS.BOTTLE.SAVE_LIST.channelName,
+        payload,
+      ) as Promise<BottleListPayload | undefined>);
+
+    bottlePersistQueueRef.current = saveRequest.then(
+      () => undefined,
+      (error) => {
+        console.error("Failed to persist bottle metadata:", error);
+      },
+    );
+
+    return saveRequest;
   }
 
   function update_bottles(updater: (currentBottles: Bottle[]) => Bottle[]) {
     setBottles((currentBottles) => {
       const nextBottles = updater(currentBottles);
-      persist_bottles(nextBottles);
+      void persist_bottles(nextBottles);
       return nextBottles;
     });
   }
@@ -763,12 +913,15 @@ const App: React.FC = () => {
   function update_data_root_draft(nextDataRootPath: string) {
     const nextStoragePaths = derive_storage_paths_from_data_root(nextDataRootPath);
     const currentDefaultBottlePrefixPath = derive_storage_paths_from_data_root(dataRootPath).bottlePrefixPath;
+    const currentDefaultGameInstallPath = derive_storage_paths_from_data_root(dataRootPath).gameInstallPath;
     const usesCustomBottlePrefixPath = normalize_preference_path(bottlePrefixPath) !== normalize_preference_path(currentDefaultBottlePrefixPath);
+    const usesCustomGameInstallPath = normalize_preference_path(gameInstallPath) !== normalize_preference_path(currentDefaultGameInstallPath);
 
     setDataRootPath(nextDataRootPath);
     setInstallPath(nextStoragePaths.installPath);
     setBottlePrefixPath(usesCustomBottlePrefixPath ? bottlePrefixPath : nextStoragePaths.bottlePrefixPath);
     setDxmtCachePath(nextStoragePaths.dxmtCachePath);
+    setGameInstallPath(usesCustomGameInstallPath ? gameInstallPath : nextStoragePaths.gameInstallPath);
   }
 
   function restore_preference_draft(snapshot: PreferenceDraftSnapshot) {
@@ -787,6 +940,7 @@ const App: React.FC = () => {
     setStoreInstallPath(snapshot.installPath);
     setBottlePrefixPath(snapshot.bottlePrefixPath);
     setDxmtCachePath(snapshot.dxmtCachePath);
+    setGameInstallPath(snapshot.gameInstallPath);
     setStoreDxmtCachePath(snapshot.dxmtCachePath);
     setStoreJadeiteInstallPath(derive_storage_paths_from_data_root(snapshot.dataRootPath).jadeiteInstallPath);
   }
@@ -801,6 +955,12 @@ const App: React.FC = () => {
       unsubscribe();
     };
   }, [loadDxmtVersions, loadJadeiteVersions, loadWineVersions, subscribeWineStatus]);
+
+  const logSessionsRef = useRef(logSessions);
+
+  useEffect(() => {
+    logSessionsRef.current = logSessions;
+  }, [logSessions]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1025,12 +1185,12 @@ const App: React.FC = () => {
           return;
         }
 
+        const nextLogSessions = snapshot.sessions.length > 0
+          ? log_session_from_payload(snapshot)
+          : [create_fallback_log_session()];
+        logSessionsRef.current = nextLogSessions;
         setLogEntries(snapshot.entries.map(log_entry_from_payload));
-        setLogSessions(
-          snapshot.sessions.length > 0
-            ? log_session_from_payload(snapshot)
-            : [create_fallback_log_session()],
-        );
+        setLogSessions(nextLogSessions);
         setLogSources(log_sources_from_payload(snapshot));
       } catch {
         if (isMounted) {
@@ -1044,9 +1204,14 @@ const App: React.FC = () => {
     const unsubscribe = window.BTIH_API?.on(
       IPC_CHANNELS.APP.LOG_UPDATE.channelName,
       (_event, entry: LauncherLogEntryPayload) => {
-        setLogEntries((currentEntries) => append_log_entry(currentEntries, entry));
-        setLogSessions((currentSessions) => update_log_sessions(currentSessions, entry));
-        setLogSources((currentSources) => update_log_sources(currentSources, entry));
+        const reconciledEntry = reconcile_live_log_entry(logSessionsRef.current, entry);
+        setLogEntries((currentEntries) => append_log_entry(currentEntries, reconciledEntry));
+        setLogSessions((currentSessions) => {
+          const nextLogSessions = update_log_sessions(currentSessions, reconciledEntry);
+          logSessionsRef.current = nextLogSessions;
+          return nextLogSessions;
+        });
+        setLogSources((currentSources) => update_log_sources(currentSources, reconciledEntry));
       },
     );
 
@@ -1133,11 +1298,15 @@ const App: React.FC = () => {
         const nextInstallPath = nextStoragePaths.installPath;
         const nextBottlePrefixPath = nextStoragePaths.bottlePrefixPath;
         const nextDxmtCachePath = nextStoragePaths.dxmtCachePath;
+        const nextGameInstallPath = typeof preference.gameInstallPath === "string" && preference.gameInstallPath.trim().length > 0
+          ? preference.gameInstallPath
+          : nextStoragePaths.gameInstallPath;
         setDataRootPath(nextDataRootPath);
         setInstallPath(nextInstallPath);
         setStoreInstallPath(nextInstallPath);
         setBottlePrefixPath(nextBottlePrefixPath);
         setDxmtCachePath(nextDxmtCachePath);
+        setGameInstallPath(nextGameInstallPath);
         setStoreDxmtCachePath(nextDxmtCachePath);
         setStoreJadeiteInstallPath(nextStoragePaths.jadeiteInstallPath);
         const nextThemeMode = is_renderer_theme_mode(preference.themeMode) ? preference.themeMode : "system";
@@ -1161,6 +1330,7 @@ const App: React.FC = () => {
           installPath: nextInstallPath,
           bottlePrefixPath: nextBottlePrefixPath,
           dxmtCachePath: nextDxmtCachePath,
+          gameInstallPath: nextGameInstallPath,
           themeMode: nextThemeMode,
           appLoggingLevel: is_launcher_log_level(preference.appLoggingLevel) ? preference.appLoggingLevel : "info",
           debugFlagMode: is_debug_flag_mode(preference.debugFlagMode) ? preference.debugFlagMode : "preset",
@@ -1178,6 +1348,7 @@ const App: React.FC = () => {
           setStoreInstallPath(DEFAULT_WINE_INSTALL_PATH);
           setBottlePrefixPath(DEFAULT_BOTTLE_PREFIX_PATH);
           setDxmtCachePath(DEFAULT_DXMT_CACHE_PATH);
+          setGameInstallPath(DEFAULT_GAME_INSTALL_PATH);
           setStoreDxmtCachePath(DEFAULT_DXMT_CACHE_PATH);
           setStoreJadeiteInstallPath(DEFAULT_JADEITE_INSTALL_PATH);
           setThemeMode("system");
@@ -1203,6 +1374,7 @@ const App: React.FC = () => {
             installPath: DEFAULT_WINE_INSTALL_PATH,
             bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
             dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
+            gameInstallPath: DEFAULT_GAME_INSTALL_PATH,
           });
           setIsPreferenceLoaded(true);
         }
@@ -1256,6 +1428,7 @@ const App: React.FC = () => {
       wineInstallPath: installPath,
       bottlePrefixPath,
       dxmtCachePath,
+      gameInstallPath,
       themeMode,
       appLoggingLevel,
       debugFlagMode,
@@ -1291,6 +1464,7 @@ const App: React.FC = () => {
     const currentPath = {
       dataRootPath,
       bottlePrefixPath,
+      gameInstallPath,
     }[pathKey];
 
     const result = (await window.BTIH_API?.invoke(IPC_CHANNELS.APP.SELECT_DIRECTORY.channelName, {
@@ -1304,6 +1478,11 @@ const App: React.FC = () => {
 
     if (pathKey === "bottlePrefixPath") {
       setBottlePrefixPath(result.path);
+      return;
+    }
+
+    if (pathKey === "gameInstallPath") {
+      setGameInstallPath(result.path);
       return;
     }
 
@@ -1331,6 +1510,11 @@ const App: React.FC = () => {
 
     if (pathKey === "bottlePrefixPath") {
       setBottlePrefixPath(derive_storage_paths_from_data_root(dataRootPath).bottlePrefixPath);
+      return;
+    }
+
+    if (pathKey === "gameInstallPath") {
+      setGameInstallPath(derive_storage_paths_from_data_root(dataRootPath).gameInstallPath);
     }
   };
 
@@ -1406,6 +1590,7 @@ const App: React.FC = () => {
           installPath: DEFAULT_WINE_INSTALL_PATH,
           bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
           dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
+          gameInstallPath: DEFAULT_GAME_INSTALL_PATH,
         };
 
         setLocale(nextSnapshot.locale);
@@ -1426,6 +1611,7 @@ const App: React.FC = () => {
         setStoreInstallPath(DEFAULT_WINE_INSTALL_PATH);
         setBottlePrefixPath(DEFAULT_BOTTLE_PREFIX_PATH);
         setDxmtCachePath(DEFAULT_DXMT_CACHE_PATH);
+        setGameInstallPath(DEFAULT_GAME_INSTALL_PATH);
         setStoreDxmtCachePath(DEFAULT_DXMT_CACHE_PATH);
         setStoreJadeiteInstallPath(DEFAULT_JADEITE_INSTALL_PATH);
         setSavedPreferenceSnapshot(nextSnapshot);
@@ -1457,28 +1643,62 @@ const App: React.FC = () => {
   };
 
   const handle_create_bottle = (input: CreateBottleInput) => {
-    const now = new Date().toISOString();
-    const prefixPath = normalize_bottle_prefix_root(input.prefixPath || bottlePrefixPath, input.name);
-    const bottle: Bottle = {
-      id: create_bottle_id(input.name),
-      name: input.name,
-      description: input.description || input.name,
-      wineVersionId: input.wineVersionId,
-      wineRuntimePath: wineVersions.find((version) => version.id === input.wineVersionId)?.path,
-      dxmtVersionId: input.dxmtVersionId,
-      dxmtPackagePath: input.dxmtVersionId
-        ? dxmtVersions.find((version) => version.id === input.dxmtVersionId)?.path
-        : undefined,
-      jadeiteVersionId: input.jadeiteVersionId,
-      path: create_bottle_path_from_prefix(prefixPath, input.name),
-      prefixPath,
-      status: "ready",
-      apps: [],
-      createdAt: now,
-      updatedAt: now,
-    };
+    update_bottles((currentBottles) => {
+      const name = input.name.normalize("NFC").trim();
 
-    update_bottles((currentBottles) => [bottle, ...currentBottles]);
+      if (bottle_name_exists(name, currentBottles)) {
+        return currentBottles;
+      }
+
+      const now = new Date().toISOString();
+      const prefixPath = normalize_bottle_prefix_root(input.prefixPath || bottlePrefixPath, name);
+      const bottle: Bottle = {
+        id: create_bottle_id(name),
+        name,
+        description: input.description || name,
+        wineVersionId: input.wineVersionId,
+        wineRuntimePath: wineVersions.find((version) => version.id === input.wineVersionId)?.path,
+        dxmtVersionId: input.dxmtVersionId,
+        dxmtPackagePath: input.dxmtVersionId
+          ? dxmtVersions.find((version) => version.id === input.dxmtVersionId)?.path
+          : undefined,
+        jadeiteVersionId: input.jadeiteVersionId,
+        path: create_bottle_path_from_prefix(prefixPath, name),
+        prefixPath,
+        status: "ready",
+        apps: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      return [...currentBottles, bottle];
+    });
+  };
+
+  const handle_reorder_bottles = async (orderedBottleIds: string[]) => {
+    const reorder = (currentBottles: Bottle[]) => {
+      const bottlesById = new Map(currentBottles.map((bottle) => [bottle.id, bottle]));
+      const orderedIdSet = new Set(orderedBottleIds);
+      const orderedBottles = orderedBottleIds
+        .map((bottleId) => bottlesById.get(bottleId))
+        .filter((bottle): bottle is Bottle => Boolean(bottle));
+
+      return [
+        ...orderedBottles,
+        ...currentBottles.filter((bottle) => !orderedIdSet.has(bottle.id)),
+      ];
+    };
+    const nextBottles = reorder(bottlesRef.current);
+
+    bottlesRef.current = nextBottles;
+    setBottles(nextBottles);
+    await persist_bottles(nextBottles);
+
+    setBottles((currentBottles) => {
+      const reorderedBottles = reorder(currentBottles);
+      bottlesRef.current = reorderedBottles;
+      return reorderedBottles;
+    });
   };
 
   const handle_download_bottle_launcher_installer = async (bottleId: string, launcher: BottleLauncherKind) => {
@@ -1775,6 +1995,7 @@ const App: React.FC = () => {
 
     await window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.STOP_PROCESS.channelName, {
       processId: app.processId,
+      appId,
     });
 
     update_bottles((currentBottles) =>
@@ -1796,17 +2017,36 @@ const App: React.FC = () => {
     );
   };
 
-  const handle_delete_bottle_app = (bottleId: string, appId: string) => {
+  const remove_bottle_app_locally = (bottleId: string, appId: string, hideFromDiscovery = false) => {
     update_bottles((currentBottles) =>
       currentBottles.map((currentBottle) =>
         currentBottle.id === bottleId
           ? {
               ...currentBottle,
+              hiddenAppIds: hideFromDiscovery
+                ? [...new Set([...(currentBottle.hiddenAppIds ?? []), appId])]
+                : currentBottle.hiddenAppIds,
               apps: currentBottle.apps.filter((currentApp) => currentApp.id !== appId),
             }
           : currentBottle,
       ),
     );
+  };
+
+  const handle_delete_bottle_app = (bottleId: string, appId: string) => {
+    const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
+
+    if (!bottle) {
+      return;
+    }
+
+    void window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.DELETE_APP.channelName, {
+      bottleId: bottle.id,
+      bottlePath: bottle.path,
+      appId,
+      mode: "list",
+    });
+    remove_bottle_app_locally(bottleId, appId, true);
   };
 
   const handle_delete_bottle_app_files = async (bottleId: string, appId: string) => {
@@ -1817,9 +2057,12 @@ const App: React.FC = () => {
       return;
     }
 
+    remove_bottle_app_locally(bottleId, appId);
+
     if (app.processId) {
       await window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.STOP_PROCESS.channelName, {
         processId: app.processId,
+        appId,
       });
     }
 
@@ -1827,22 +2070,8 @@ const App: React.FC = () => {
       bottleId: bottle.id,
       bottlePath: bottle.path,
       appId: app.id,
+      mode: "files",
     });
-
-    const payload = (await window.BTIH_API?.invoke(
-      IPC_CHANNELS.BOTTLE.GET_LIST.channelName,
-      undefined as never,
-    )) as BottleListPayload | undefined;
-
-    if (payload?.bottles) {
-      setBottles(apply_prefix_sessions_to_bottles(
-        payload.bottles.map(strip_transient_launcher_tasks),
-        activePrefixSessionsRef.current.values(),
-      ));
-      return;
-    }
-
-    handle_delete_bottle_app(bottleId, appId);
   };
 
   const handle_change_bottle_app_launch_options = (
@@ -1982,6 +2211,18 @@ const App: React.FC = () => {
     );
   };
 
+  const handle_change_bottle_description = (bottleId: string, description: string) => {
+    update_bottles((currentBottles) =>
+      currentBottles.map((bottle) => bottle.id === bottleId
+        ? {
+            ...bottle,
+            description,
+            updatedAt: new Date().toISOString(),
+          }
+        : bottle),
+    );
+  };
+
   const handle_change_bottle_recipe = (
     bottleId: string,
     patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>,
@@ -2015,7 +2256,7 @@ const App: React.FC = () => {
 
   const handle_apply_bottle_recipe = async (
     bottleId: string,
-    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>,
+    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">> & { validateOnly?: boolean },
     reportProgress: (update: { progress: number; message: string }) => void,
   ) => {
     const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
@@ -2024,9 +2265,10 @@ const App: React.FC = () => {
       throw new Error("Bottle을 찾을 수 없습니다.");
     }
 
-    const nextWineVersionId = patch.wineVersionId ?? bottle.wineVersionId;
-    const nextDxmtVersionId = patch.dxmtVersionId ?? bottle.dxmtVersionId;
-    const nextJadeiteVersionId = patch.jadeiteVersionId ?? bottle.jadeiteVersionId;
+    const { validateOnly = false, ...recipePatch } = patch;
+    const nextWineVersionId = recipePatch.wineVersionId ?? bottle.wineVersionId;
+    const nextDxmtVersionId = recipePatch.dxmtVersionId ?? bottle.dxmtVersionId;
+    const nextJadeiteVersionId = recipePatch.jadeiteVersionId ?? bottle.jadeiteVersionId;
     const nextWineRuntimePath = wineVersions.find((version) => version.id === nextWineVersionId)?.path ?? bottle.wineRuntimePath;
     const nextDxmtPackagePath = nextDxmtVersionId
       ? dxmtVersions.find((version) => version.id === nextDxmtVersionId)?.path ?? bottle.dxmtPackagePath
@@ -2048,7 +2290,7 @@ const App: React.FC = () => {
       }
     }
 
-    if (processIds.size > 0) {
+    if (!validateOnly && processIds.size > 0) {
       reportProgress({
         progress: 18,
         message: `앱들 종료중... (${processIds.size})`,
@@ -2078,8 +2320,8 @@ const App: React.FC = () => {
     }
 
     reportProgress({
-      progress: processIds.size > 0 ? 58 : 32,
-      message: "레시피 변경중...",
+      progress: validateOnly ? 45 : processIds.size > 0 ? 58 : 32,
+      message: validateOnly ? "Recipe 설정 검증중..." : "레시피 변경중...",
     });
 
     const result = await window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.APPLY_RECIPE.channelName, {
@@ -2093,24 +2335,27 @@ const App: React.FC = () => {
       jadeiteVersionId: nextJadeiteVersionId,
       jadeiteRuntimePath: nextJadeiteRuntimePath,
       launcherOptionsManifest: wineVersions.find((version) => version.id === nextWineVersionId)?.launcherOptionsManifest,
+      validateOnly,
     });
 
     if (result && typeof result === "object" && "ok" in result && !result.ok) {
       throw new Error(typeof result.error === "string" ? result.error : "Recipe 변경에 실패했습니다.");
     }
 
-    reportProgress({
-      progress: 86,
-      message: "레시피 저장중...",
-    });
+    if (!validateOnly) {
+      reportProgress({
+        progress: 86,
+        message: "레시피 저장중...",
+      });
 
-    handle_change_bottle_recipe(bottleId, patch);
+      handle_change_bottle_recipe(bottleId, recipePatch);
+    }
 
     await new Promise((resolve) => window.setTimeout(resolve, 240));
 
     reportProgress({
       progress: 100,
-      message: "레시피 변경 완료",
+      message: validateOnly ? "Recipe 검증 완료 - 변경 사항 없음" : "레시피 변경 완료",
     });
   };
 
@@ -2220,6 +2465,7 @@ const App: React.FC = () => {
       shortcuts={shortcuts}
       bottlePrefixPath={bottlePrefixPath}
       dxmtCachePath={dxmtCachePath}
+      gameInstallPath={gameInstallPath}
       autoUpdateEnabled={autoUpdateEnabled}
       closeToTray={closeToTray}
       appUpdateStatus={appUpdateStatus}
@@ -2250,7 +2496,9 @@ const App: React.FC = () => {
       onDeleteDxmtVersion={(versionId) => void deleteDxmtVersion(versionId)}
       onDeleteJadeiteVersion={(versionId) => void deleteJadeiteVersion(versionId)}
       onCreateBottle={handle_create_bottle}
+      onReorderBottles={handle_reorder_bottles}
       onRenameBottle={handle_rename_bottle}
+      onChangeBottleDescription={handle_change_bottle_description}
       onRevealBottle={handle_reveal_bottle}
       onDeleteBottle={handle_delete_bottle}
       onSelectBottlePrefixPath={handle_select_bottle_prefix_path}
@@ -2285,6 +2533,7 @@ const App: React.FC = () => {
       onCheckForUpdates={handle_check_for_updates}
       onBottlePrefixPathChange={setBottlePrefixPath}
       onDxmtCachePathChange={setDxmtCachePath}
+      onGameInstallPathChange={setGameInstallPath}
       onBrowsePath={handle_browse_path}
       onResetPath={handle_reset_path}
       onDeleteLauncherData={handle_delete_launcher_data}
@@ -2298,6 +2547,8 @@ const App: React.FC = () => {
       placement="center"
       widthClassName="max-w-md"
       onClose={() => undefined}
+      closeOnBackdrop={false}
+      showCloseButton={false}
       actions={[]}
     >
       <Stack className="gap-3">
@@ -2342,6 +2593,10 @@ const App: React.FC = () => {
         </Text>
       </Stack>
     </Dialog>
+    <RuntimeInstallFailureDialog
+      failure={runtimeInstallFailure}
+      onClose={clearRuntimeInstallFailure}
+    />
     </>
   );
 };

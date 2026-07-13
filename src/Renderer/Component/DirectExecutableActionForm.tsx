@@ -145,24 +145,14 @@ function RunnerHeader({
   const isRegisterMode = mode === "register";
 
   return (
-    <Inline className="flex-wrap items-start justify-between gap-3">
-      <Stack className="gap-1">
-        <Text className="text-sm font-semibold text-slate-100">
-          {t(isRegisterMode ? "main.runner.manualAddTitle" : "main.runner.manualTitle")}
-        </Text>
-        <Text className="text-xs text-slate-500">
-          {t(isRegisterMode ? "main.runner.manualAddFormDescription" : "main.runner.manualDescription")}
-        </Text>
-      </Stack>
-      <Button
-        variant="glass"
-        size="sm"
-        onClick={() => void runner.browseExecutable()}
-      >
-        <FolderOpen size={14} />
-        {t("main.runner.browseFile")}
-      </Button>
-    </Inline>
+    <Stack className="gap-1">
+      <Text className="text-sm font-semibold text-slate-100">
+        {t(isRegisterMode ? "main.runner.manualAddTitle" : "main.runner.manualTitle")}
+      </Text>
+      <Text className="text-xs text-slate-500">
+        {t(isRegisterMode ? "main.runner.manualAddFormDescription" : "main.runner.manualDescription")}
+      </Text>
+    </Stack>
   );
 }
 
@@ -180,17 +170,28 @@ function ExecutablePathField({
 
   return (
     <Stack className="gap-2">
-      <RelativeBox ref={fieldRef}>
-        <Input
-          ref={runner.pathInputRef}
-          value={runner.executablePath}
-          onChange={(event) => runner.setExecutablePathFromInput(event.target.value)}
-          onKeyDown={(event) => void runner.handlePathKeyDown(event)}
-          placeholder={t("main.runner.pathPlaceholder")}
-          spellCheck={false}
-          className="h-10 w-full rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
-        />
-      </RelativeBox>
+      <Inline className="min-w-0 items-stretch gap-2">
+        <RelativeBox ref={fieldRef} className="min-w-0 flex-1">
+          <Input
+            ref={runner.pathInputRef}
+            value={runner.executablePath}
+            onChange={(event) => runner.setExecutablePathFromInput(event.target.value)}
+            onKeyDown={(event) => void runner.handlePathKeyDown(event)}
+            placeholder={t("main.runner.pathPlaceholder")}
+            spellCheck={false}
+            className="h-10 w-full rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+          />
+        </RelativeBox>
+        <Button
+          variant="glass"
+          size="md"
+          className="h-10 shrink-0"
+          onClick={() => void runner.browseExecutable()}
+        >
+          <FolderOpen size={14} />
+          {t("main.runner.browseFile")}
+        </Button>
+      </Inline>
       {runner.isPathSuggestionOpen && suggestionPosition && typeof document !== "undefined"
         ? createPortal(
             <PathSuggestionList runner={runner} position={suggestionPosition} />,

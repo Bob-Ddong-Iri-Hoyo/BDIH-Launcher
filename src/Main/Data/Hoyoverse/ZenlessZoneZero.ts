@@ -20,6 +20,17 @@ export const ZZZ_HOYO_GAME_PROFILE = {
     defaultExecutableArgs: [],
     dxmtConfig: "d3d11.preferredMaxFrameRate=60;",
   },
+  allowedLaunchOptionKeys: [
+    "enableMsync",
+    "enableTimeoutFix",
+    "leftCommandIsCtrl",
+    "retinaMode",
+    "metalHud",
+    "dxmtPreferredMaxFrameRate",
+    "dxmtMetalFxSpatialUpscale",
+    "dxmtMetalFxSpatialUpscaleFactor",
+    "earlyExitWaitMs",
+  ],
   configurableOptions: [
     {
       key: "dxmtPreferredMaxFrameRate",

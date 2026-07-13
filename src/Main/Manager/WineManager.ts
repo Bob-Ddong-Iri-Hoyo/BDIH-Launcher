@@ -33,6 +33,7 @@ export class WineManager {
   private readonly logger = logManager.createLogger({ file: "wine", source: "wine" });
   private cachedVersions: WineVersion[] = [...PREDEFINED_WINE_VERSIONS];
   private loadingVersions: Promise<WineVersion[]> | null = null;
+  private readonly installingVersions = new Map<string, Promise<void>>();
 
   async getVersionList(): Promise<WineVersion[]> {
     if (this.loadingVersions) {
@@ -90,6 +91,45 @@ export class WineManager {
     request: InstallRequest,
     sender?: WebContents,
   ): Promise<void> {
+    const installPath = path.resolve(expand_user_home_path(request.installPath));
+    const installKey = `${request.versionId}:${installPath}`;
+    const runningInstall = this.installingVersions.get(installKey);
+
+    if (runningInstall) {
+      this.logger.info("install already running", { versionId: request.versionId, installPath });
+      this.sendStatus(sender, {
+        versionId: request.versionId,
+        status: "installing",
+        progress: 5,
+        message: `${request.versionId} installation is already running.`,
+      });
+      await runningInstall;
+      return;
+    }
+
+    const installPromise = this.installWineUnlocked(
+      {
+        ...request,
+        installPath,
+      },
+      sender,
+    );
+
+    this.installingVersions.set(installKey, installPromise);
+
+    try {
+      await installPromise;
+    } finally {
+      if (this.installingVersions.get(installKey) === installPromise) {
+        this.installingVersions.delete(installKey);
+      }
+    }
+  }
+
+  private async installWineUnlocked(
+    request: InstallRequest,
+    sender?: WebContents,
+  ): Promise<void> {
     // Installer progress is pushed to the renderer via WINE.STATUS_UPDATE. The
     // final runtime path is the extracted directory that actually contains Wine.
     const wine = this.cachedVersions.find((version) => version.id === request.versionId);
@@ -130,7 +170,7 @@ export class WineManager {
       return;
     }
 
-      this.logger.info("install started", request);
+    this.logger.info("install started", request);
     this.sendStatus(sender, {
       versionId: request.versionId,
       status: "downloading",
@@ -194,6 +234,10 @@ export class WineManager {
         progress: 92,
         message: `${request.versionId} extracting Wine runtime.`,
       });
+
+      if (existsSync(extractPath) && is_safe_runtime_delete_path(extractPath, request.installPath)) {
+        rmSync(extractPath, { recursive: true, force: true });
+      }
 
       try {
         await extract_wine_archive(archivePath, extractPath);
@@ -430,11 +474,18 @@ function extract_wine_archive(archivePath: string, outputDir: string): Promise<v
 
 function run_archive_command(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
+    let commandOutput = "";
+    const appendOutput = (chunk: Buffer) => {
+      commandOutput = `${commandOutput}${chunk.toString("utf8")}`.slice(-8000);
+    };
     const child = spawn(command, args, {
       shell: false,
       windowsHide: true,
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
     });
+
+    child.stdout?.on("data", appendOutput);
+    child.stderr?.on("data", appendOutput);
 
     child.on("close", (code) => {
       if (code === 0) {
@@ -442,7 +493,9 @@ function run_archive_command(command: string, args: string[]): Promise<void> {
         return;
       }
 
-      reject(new Error(`${command} exited with code ${code ?? -1}.`));
+      const output = commandOutput.trim();
+
+      reject(new Error(`${command} exited with code ${code ?? -1}.${output ? ` ${output}` : ""}`));
     });
     child.on("error", reject);
   });

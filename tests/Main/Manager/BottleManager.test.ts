@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { mkdir } from "fs/promises";
+import { mkdir, rm } from "fs/promises";
 import path from "path";
 import {
   capture_manager_environment,
@@ -126,6 +126,84 @@ describe("BottleManager", () => {
         }),
       ]),
     );
+  });
+
+  it("removes a Steam game shortcut after its manifest is missing for two verified scans", async () => {
+    await write_legacy_preference(environment);
+    const bottlePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "steam-uninstall", {
+      wineVersionId: "wine-fixture-10",
+    });
+    const appId = "779";
+    const manifestPath = path.join(
+      bottlePath,
+      "drive_c",
+      "Program Files (x86)",
+      "Steam",
+      "steamapps",
+      `appmanifest_${appId}.acf`,
+    );
+
+    await create_steam_fixture(bottlePath, appId, "Removed Fixture Quest");
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+
+    await manager.getBottleList(true);
+    await rm(manifestPath);
+
+    const firstMissingResult = await manager.getBottleList(true);
+    const firstMissingApp = firstMissingResult.bottles
+      .find((candidate) => candidate.id === "fixture:steam-uninstall")
+      ?.apps.find((app) => app.id === `steam:${appId}`);
+
+    expect(firstMissingApp).toEqual(expect.objectContaining({
+      steamManifestMissingChecks: 1,
+    }));
+
+    const secondMissingResult = await manager.getBottleList(true);
+    const appsAfterConfirmedRemoval = secondMissingResult.bottles
+      .find((candidate) => candidate.id === "fixture:steam-uninstall")
+      ?.apps ?? [];
+
+    expect(appsAfterConfirmedRemoval.map((app) => app.id)).toContain("steam");
+    expect(appsAfterConfirmedRemoval.map((app) => app.id)).not.toContain(`steam:${appId}`);
+  });
+
+  it("keeps a Steam game shortcut while its manifest library is disconnected", async () => {
+    await write_legacy_preference(environment);
+    const bottlePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "steam-disconnected", {
+      wineVersionId: "wine-fixture-10",
+    });
+    const appId = "780";
+    const steamAppsPath = path.join(
+      bottlePath,
+      "drive_c",
+      "Program Files (x86)",
+      "Steam",
+      "steamapps",
+    );
+
+    await create_steam_fixture(bottlePath, appId, "Disconnected Fixture Quest");
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+
+    await manager.getBottleList(true);
+    await rm(steamAppsPath, { recursive: true });
+
+    const firstDisconnectedResult = await manager.getBottleList(true);
+    const secondDisconnectedResult = await manager.getBottleList(true);
+    const disconnectedApp = secondDisconnectedResult.bottles
+      .find((candidate) => candidate.id === "fixture:steam-disconnected")
+      ?.apps.find((app) => app.id === `steam:${appId}`);
+
+    expect(firstDisconnectedResult.bottles
+      .find((candidate) => candidate.id === "fixture:steam-disconnected")
+      ?.apps.map((app) => app.id)).toContain(`steam:${appId}`);
+    expect(disconnectedApp).toEqual(expect.objectContaining({
+      steamAppId: appId,
+    }));
+    expect(disconnectedApp?.steamManifestMissingChecks).toBeUndefined();
   });
 
   it("detects Steam inside a launcher-specific prefix without surfacing the prefix as another bottle", async () => {
