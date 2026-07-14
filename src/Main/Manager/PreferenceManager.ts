@@ -1,5 +1,5 @@
 import { readConfigFile, readUserSettings, writeUserSettings } from "../FileIO/IO";
-import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LauncherLogLevel, LAUNCHER_SHORTCUT_ACTIONS, LauncherPreferencePayload, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
+import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LAUNCHER_UPDATE_CHANNELS, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutMap, LauncherUpdateChannel, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
 import path from "path";
 import {
   get_default_data_root_path,
@@ -33,6 +33,7 @@ export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
   gameInstallPath: path.join(DEFAULT_DATA_ROOT_PATH, "Games"),
   autoCheckUpdates: true,
+  updateChannel: "stable",
   closeToTray: false,
   themeMode: "system",
   appLoggingLevel: "info",
@@ -134,6 +135,7 @@ export class PreferenceManager {
       dxmtCachePath: get_default_dxmt_cache_path(dataRootPath),
       gameInstallPath: this.stringOrDefault(record.gameInstallPath, path.join(dataRootPath, "Games")),
       autoCheckUpdates: this.booleanOrDefault(record.autoCheckUpdates, true),
+      updateChannel: this.updateChannelOrDefault(record.updateChannel, "stable"),
       closeToTray: this.booleanOrDefault(record.closeToTray, false),
       themeMode: this.themeModeOrDefault(record.themeMode, "system"),
       appLoggingLevel: this.loggingLevelOrDefault(record.appLoggingLevel, "info"),
@@ -171,6 +173,12 @@ export class PreferenceManager {
   private themeModeOrDefault(value: unknown, fallback: RendererThemeMode): RendererThemeMode {
     return typeof value === "string" && RENDERER_THEME_MODES.includes(value as RendererThemeMode)
       ? (value as RendererThemeMode)
+      : fallback;
+  }
+
+  private updateChannelOrDefault(value: unknown, fallback: LauncherUpdateChannel): LauncherUpdateChannel {
+    return typeof value === "string" && LAUNCHER_UPDATE_CHANNELS.includes(value as LauncherUpdateChannel)
+      ? (value as LauncherUpdateChannel)
       : fallback;
   }
 

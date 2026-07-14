@@ -1,7 +1,8 @@
 import React from "react";
-import { Settings2 } from "lucide-react";
+import { Plus, Settings2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
+  BottleEnvironmentVariablePayload,
   BottleLaunchOptionPresetId,
   BottleLaunchOptionsPayload,
   InstalledBottleAppPayload,
@@ -23,12 +24,13 @@ import {
 } from "../../Main/Data/GameProfile";
 import type { Bottle } from "../Types/Bottle";
 import { Dialog } from "./Dialog";
-import { Box, Input, InlineText, Select, SelectMenuOption, Stack, Text } from "./Primitives";
+import { Box, Button, Input, Inline, InlineText, Select, SelectMenuOption, Stack, Text } from "./Primitives";
 import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
-type LaunchOptionSectionId = "general" | "dxmt" | "timing" | "network";
+type LaunchOptionSectionId = "general" | "dxmt" | "timing" | "network" | "directInput";
+type LaunchOptionSectionKey = RuntimeLaunchOptionKey | "environmentVariables";
 
-const SECTION_OPTION_KEYS: Record<LaunchOptionSectionId, readonly RuntimeLaunchOptionKey[]> = {
+const SECTION_OPTION_KEYS: Record<LaunchOptionSectionId, readonly LaunchOptionSectionKey[]> = {
   general: [
     "enableMsync",
     "steamWebHelperArgs",
@@ -52,6 +54,7 @@ const SECTION_OPTION_KEYS: Record<LaunchOptionSectionId, readonly RuntimeLaunchO
     "autoNetworkReconnectSeconds",
     "allowDuplicateGame",
   ],
+  directInput: ["environmentVariables"],
 };
 
 export interface LaunchOptionsDialogProps {
@@ -98,11 +101,12 @@ export function LaunchOptionsDialog({
     { id: "dxmt", label: t("main.launchOptions.dxmt") },
     { id: "timing", label: t("main.launchOptions.timing") },
     { id: "network", label: t("main.launchOptions.network") },
+    { id: "directInput", label: t("main.launchOptions.directInput") },
   ];
   const visibleSections = launchOptionSections.filter((section) =>
-    SECTION_OPTION_KEYS[section.id].some(
+    section.id === "directInput" || section.id === "dxmt" || SECTION_OPTION_KEYS[section.id].some(
       (key) =>
-        allowedOptionKeys.has(key) &&
+        allowedOptionKeys.has(key as RuntimeLaunchOptionKey) &&
         is_launch_option_supported_by_manifest(key, launcherOptionsManifest),
     ),
   );
@@ -195,6 +199,45 @@ export function LaunchOptionsDialog({
       presetId: "custom",
       [key]: trimmedValue.length > 0 && Number.isFinite(numberValue) ? numberValue : undefined,
     }));
+  }
+
+  function add_environment_variable() {
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      presetId: "custom",
+      environmentVariables: [
+        ...(currentDraft.environmentVariables ?? []),
+        { name: "", value: "" },
+      ],
+    }));
+  }
+
+  function update_environment_variable(
+    index: number,
+    field: keyof BottleEnvironmentVariablePayload,
+    value: string,
+  ) {
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      presetId: "custom",
+      environmentVariables: (currentDraft.environmentVariables ?? []).map((variable, variableIndex) =>
+        variableIndex === index ? { ...variable, [field]: value } : variable,
+      ),
+    }));
+  }
+
+  function remove_environment_variable(index: number) {
+    setDraft((currentDraft) => {
+      const environmentVariables = (currentDraft.environmentVariables ?? []).filter(
+        (_variable, variableIndex) => variableIndex !== index,
+      );
+
+      return {
+        ...currentDraft,
+        presetId: "custom",
+        environmentVariables: environmentVariables.length > 0 ? environmentVariables : undefined,
+      };
+    });
   }
 
   function reset_to_auto() {
@@ -335,7 +378,7 @@ export function LaunchOptionsDialog({
         {
           label: t("common.actions.save"),
           variant: "primary",
-          disabled: !selectedApp,
+          disabled: !selectedApp || !environment_variables_are_valid(draft.environmentVariables),
           autoFocus: true,
           onClick: save,
         },
@@ -375,7 +418,7 @@ export function LaunchOptionsDialog({
               <InlineText className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 {t("main.launchOptions.sections")}
               </InlineText>
-              <Box className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Box className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
                 {visibleSections.map((section) => {
                   const isActive = activeSection === section.id;
 
@@ -417,7 +460,7 @@ export function LaunchOptionsDialog({
 
               {activeSection === "dxmt" ? (
               <OptionSection title={t("main.launchOptions.dxmt")}>
-                {is_option_allowed("dxmtPreferredMaxFrameRate") ? (
+                {allowedOptionKeys.has("dxmtPreferredMaxFrameRate") ? (
                 <NumberField
                   label={t("main.launchOptions.dxmtPreferredMaxFrameRate")}
                   description={t("main.launchOptions.descriptions.dxmtPreferredMaxFrameRate")}
@@ -429,7 +472,7 @@ export function LaunchOptionsDialog({
                   {...option_support_attrs("dxmtPreferredMaxFrameRate")}
                 />
                 ) : null}
-                {is_option_allowed("dxmtMetalFxSpatialUpscale") ? (
+                {allowedOptionKeys.has("dxmtMetalFxSpatialUpscale") ? (
                 <OptionCheckbox
                   label={t("main.launchOptions.dxmtMetalFxSpatialUpscale")}
                   description={t("main.launchOptions.descriptions.dxmtMetalFxSpatialUpscale")}
@@ -438,7 +481,7 @@ export function LaunchOptionsDialog({
                   {...option_support_attrs("dxmtMetalFxSpatialUpscale")}
                 />
                 ) : null}
-                {is_option_allowed("dxmtMetalFxSpatialUpscaleFactor") ? (
+                {allowedOptionKeys.has("dxmtMetalFxSpatialUpscaleFactor") ? (
                 <NumberField
                   label={t("main.launchOptions.dxmtMetalFxSpatialUpscaleFactor")}
                   description={t("main.launchOptions.descriptions.dxmtMetalFxSpatialUpscaleFactor")}
@@ -514,6 +557,17 @@ export function LaunchOptionsDialog({
                 {is_option_allowed("allowDuplicateGame") ? <OptionCheckbox label={t("main.launchOptions.allowDuplicateGame")} description={t("main.launchOptions.descriptions.allowDuplicateGame")} checked={draft.allowDuplicateGame} onChange={(checked) => update_boolean("allowDuplicateGame", checked)} {...option_support_attrs("allowDuplicateGame")} /> : null}
               </OptionSection>
               ) : null}
+
+              {activeSection === "directInput" ? (
+              <OptionSection title={t("main.launchOptions.directInput")}>
+                <EnvironmentVariableEditor
+                  variables={draft.environmentVariables ?? []}
+                  onAdd={add_environment_variable}
+                  onChange={update_environment_variable}
+                  onRemove={remove_environment_variable}
+                />
+              </OptionSection>
+              ) : null}
             </Stack>
           </Box>
         </Box>
@@ -566,12 +620,99 @@ function filter_launch_options_by_allowed_keys(
   const filtered = { ...options };
 
   for (const key of Object.keys(filtered) as Array<keyof BottleLaunchOptionsPayload>) {
-    if (key !== "presetId" && !allowedKeys.has(key as RuntimeLaunchOptionKey)) {
+    if (key !== "presetId" && key !== "environmentVariables" && !allowedKeys.has(key as RuntimeLaunchOptionKey)) {
       delete filtered[key];
     }
   }
 
   return filtered;
+}
+
+function EnvironmentVariableEditor({
+  variables,
+  onAdd,
+  onChange,
+  onRemove,
+}: {
+  variables: BottleEnvironmentVariablePayload[];
+  onAdd: () => void;
+  onChange: (index: number, field: keyof BottleEnvironmentVariablePayload, value: string) => void;
+  onRemove: (index: number) => void;
+}) {
+  const { t } = useTranslation();
+  const isValid = environment_variables_are_valid(variables);
+
+  return (
+    <Stack className="gap-2">
+      <Text className="text-xs leading-5 text-slate-500">
+        {t("main.launchOptions.environmentVariablesDescription")}
+      </Text>
+      {variables.length === 0 ? (
+        <Text className="rounded-lg border border-dashed border-white/10 px-3 py-5 text-center text-xs text-slate-500">
+          {t("main.launchOptions.environmentVariablesEmpty")}
+        </Text>
+      ) : null}
+      {variables.map((variable, index) => (
+        <Box
+          key={index}
+          className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-2 sm:grid-cols-[minmax(10rem,0.8fr)_minmax(12rem,1.2fr)_2.5rem]"
+        >
+          <Input
+            value={variable.name}
+            placeholder={t("main.launchOptions.environmentVariableName")}
+            aria-label={t("main.launchOptions.environmentVariableName")}
+            spellCheck={false}
+            className="h-10 w-full rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+            onChange={(event) => onChange(index, "name", event.target.value)}
+          />
+          <Input
+            value={variable.value}
+            placeholder={t("main.launchOptions.environmentVariableValue")}
+            aria-label={t("main.launchOptions.environmentVariableValue")}
+            spellCheck={false}
+            className="h-10 w-full rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+            onChange={(event) => onChange(index, "value", event.target.value)}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="md"
+            className="h-10 w-10 justify-center text-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+            title={t("main.launchOptions.removeEnvironmentVariable")}
+            onClick={() => onRemove(index)}
+          >
+            <Trash2 size={15} />
+          </Button>
+        </Box>
+      ))}
+      {!isValid ? (
+        <Text className="text-xs leading-5 text-rose-300">
+          {t("main.launchOptions.environmentVariableInvalid")}
+        </Text>
+      ) : null}
+      <Inline>
+        <Button type="button" variant="glass" size="sm" icon={<Plus size={14} />} onClick={onAdd}>
+          {t("main.launchOptions.addEnvironmentVariable")}
+        </Button>
+      </Inline>
+    </Stack>
+  );
+}
+
+function environment_variables_are_valid(variables?: BottleEnvironmentVariablePayload[]): boolean {
+  if (!variables || variables.length === 0) {
+    return true;
+  }
+
+  const names = new Set<string>();
+
+  return variables.every((variable) => {
+    const name = variable.name.trim();
+    const isValid = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !names.has(name);
+
+    names.add(name);
+    return isValid;
+  });
 }
 
 function OptionField({

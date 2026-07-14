@@ -158,6 +158,23 @@
       "recipeSettings": "Recipe 设置",
       "recipeSettingsDescription": "调整所选 Bottle 的 Recipe、运行时选项和启动准备步骤。",
       "recipeViewAction": "查看 Recipe",
+      "advancedSettings": {
+        "action": "高级设置",
+        "title": "Bottle 高级设置",
+        "description": "按 Prefix 选择并管理此 Bottle 的 DXMT 着色器缓存。",
+        "shaderCacheTitle": "按 Prefix 划分的 DXMT 着色器缓存",
+        "shaderCacheDescription": "可以同时选择多个 Prefix。删除的缓存将在下次启动时重新生成。",
+        "selectAll": "全选",
+        "clearSelection": "取消选择",
+        "clearSelected": "清空",
+        "clearing": "正在清空...",
+        "noPrefixes": "此 Bottle 没有受管理的 Prefix。",
+        "runningWarning": "Bottle 运行时无法删除缓存。请停止所有正在运行的应用后重试。",
+        "clearComplete": "已清空所选 DXMT 着色器缓存。",
+        "clearFailed": "部分 DXMT 着色器缓存无法删除。",
+        "clearAllAction": "删除所有 DXMT 缓存",
+        "clearAllConfirm": "要删除 {{name}} Bottle 中所有 Prefix 的 DXMT 着色器缓存吗？"
+      },
       "recipeInfo": {
         "wineVersion": "Wine 版本",
         "dxmtVersion": "DXMT 版本",
@@ -178,7 +195,17 @@
         "applyComplete": "Recipe 设置已完成。",
         "validatingRecipe": "正在验证当前 Recipe 设置...",
         "validationComplete": "Recipe 验证已完成。",
-        "validationSkipped": "当前 Recipe 设置有效。由于没有更改，已跳过应用操作。"
+        "validationSkipped": "当前 Recipe 设置有效。由于没有更改，已跳过应用操作。",
+        "applyWarningTitle": "要应用 Recipe 更改吗？",
+        "applyWarningDescription": "确认后，将先停止正在运行的应用和 Prefix 会话，再把所选运行时更改应用到 Bottle。",
+        "applyWarningBody": "请先完成尚未保存的游戏或启动器操作。应用过程中无法启动此 Bottle。",
+        "applyWarningChangesTitle": "即将应用的更改",
+        "applyWarningVersionChange": "{{runtime}}: {{from}} -> {{to}}",
+        "applyWarningPrefixUpdate": "将向此 Bottle 的现有 Prefix 重新应用 Wine 和 DXMT 运行时文件。",
+        "applyWarningShaderCacheReset": "Wine 或 DXMT Recipe 键将发生变化，因此每个 Prefix 都会从新的空 DXMT 着色器缓存开始。下次启动时可能暂时出现编译延迟或卡顿。",
+        "applyWarningOldCachePreserved": "旧 Recipe 的着色器缓存不会自动删除，可在高级设置中手动清空。",
+        "applyWarningCancelRollback": "取消后，上述所有选择都会恢复为当前 Recipe 值。",
+        "applyWarningAccept": "确认并应用"
       },
       "openRecipeSettings": "打开 Recipe 设置",
       "bottleStatus": {
@@ -235,12 +262,21 @@
           "general": "Wine 和应用的基本行为",
           "dxmt": "图形与 MetalFX 设置",
           "timing": "启动和进程监控时间",
-          "network": "游戏专用网络启动调整"
+          "network": "游戏专用网络启动调整",
+          "directInput": "自定义环境变量"
         },
         "unsupportedByWine": "所选 Wine 运行时的元数据不支持此选项。",
         "general": "常规",
         "timing": "等待",
         "network": "网络",
+        "directInput": "直接输入",
+        "environmentVariablesDescription": "输入要添加到 Wine 进程的环境变量。默认列表为空。",
+        "environmentVariablesEmpty": "没有自定义环境变量。",
+        "environmentVariableName": "变量名",
+        "environmentVariableValue": "值",
+        "environmentVariableInvalid": "变量名必须以字母或下划线开头，只能包含字母、数字和下划线，并且不能重复。",
+        "addEnvironmentVariable": "添加环境变量",
+        "removeEnvironmentVariable": "删除环境变量",
         "enableMsync": "启用 msync",
         "steamWebHelperArgs": "Steam WebHelper 参数",
         "hoyoplayInProcessGpu": "HoYoPlay --in-process-gpu",
@@ -374,7 +410,7 @@
         "addManualAppDescription": "自动检测遗漏时，将可执行文件注册到此 Bottle。",
         "pathPlaceholder": "C:\\Program Files\\App\\app.exe 或 /Users/me/Downloads/setup.exe",
         "pathHint": "可使用 Prefix 内的 Windows 路径，或 macOS 上的本地安装程序路径。",
-        "pathAutocompleteHint": "按 Tab 打开建议，使用 Tab/方向键移动，按 Enter 选择；选择可执行文件后再按 Tab 可移动到参数。文件较多时可滚动列表。",
+        "pathAutocompleteHint": "按 Tab 打开建议，使用 Tab/方向键移动并按 Enter 选择。文件较多时可滚动列表。",
         "manualTitle": "输入路径或查找文件",
         "manualDescription": "直接输入 Windows 路径，或浏览 macOS 文件并通过 Wine 的 Z: 盘映射运行。",
         "manualAddTitle": "选择应用可执行文件",
@@ -392,6 +428,12 @@
         "prefixResetAction": "重置",
         "prefixCustomNamePrompt": "输入新 Prefix 的名称。",
         "prefixCustomNameDefault": "自定义 Prefix",
+        "prefixNameDialogTitle": "创建 Prefix",
+        "prefixNameLabel": "Prefix 名称",
+        "prefixNameEmptyHint": "留空时将使用名称 {{name}} 创建。",
+        "prefixNameDuplicate": "名为 {{name}} 的 Prefix 已存在。",
+        "prefixNameCreate": "创建",
+        "prefixNameCancel": "取消",
         "prefixAdded": "已添加 {{name}} Prefix。",
         "prefixAffectedApps": "使用此 Prefix 的 {{count}} 个应用将从列表中移除。",
         "prefixAffectedAppsMore": "另有 {{count}} 个",
@@ -404,9 +446,12 @@
         "pathAutocompleteRegisterHint": "按 Tab 打开建议，使用 Tab/方向键移动，按 Enter 选择可执行文件。",
         "browseFile": "查找文件",
         "selectFileTitle": "选择 Windows 可执行文件",
-        "argumentsLabel": "参数",
-        "argumentsPlaceholder": "-windowed -language zh",
-        "argumentsHint": "可选。带空格的参数支持引号。",
+        "launchOptions": "启动选项",
+        "installerMode": "作为安装程序运行",
+        "installerModeActive": "安装程序模式已启用",
+        "installerModeDescription": "当所选文件用于安装其他应用时使用此模式。",
+        "installerModeActiveDescription": "不会注册安装程序本身；安装结束后将从所选 Prefix 中查找已安装的应用。",
+        "installerStarted": "安装程序已启动，正在等待安装结束。",
         "pathRequired": "请先输入可执行文件路径。",
         "wineRuntimeMissing": "Wine 运行时未安装或未解压：{{versionId}}",
         "starting": "正在启动可执行文件...",
@@ -460,6 +505,8 @@
         "generalDescription": "语言与显示",
         "wine": "Wine",
         "wineDescription": "数据存储与诊断",
+        "appInfo": "应用信息",
+        "appInfoDescription": "版本与更新频道",
         "shortcut": "快捷键",
         "shortcutDescription": "启动器控制键"
       },
@@ -479,15 +526,15 @@
       "sharedGamesPathDescription": "游戏启动器下载游戏并供多个 Bottle 引用的主机文件夹。",
         "wineInstallTitle": "Wine 运行时存储",
         "wineInstallDescription": "存放已下载 Wine 构建和运行时的文件夹。",
-        "bottlePrefixTitle": "Bottle Prefix 存储",
-        "bottlePrefixDescription": "创建和管理 Bottle Wine Prefix 的文件夹。",
-        "dxmtCacheTitle": "DXMT 软件包存储",
-        "dxmtCacheDescription": "存放预下载 DXMT 软件包和缓存安装程序的文件夹。",
+        "bottlePrefixTitle": "Bottle 存储",
+        "bottlePrefixDescription": "用于创建和管理 Bottle 文件夹及其 Wine Prefix 的存储位置。",
+        "dxmtCacheTitle": "DXMT 运行时存储",
+        "dxmtCacheDescription": "存放已下载 DXMT 运行时软件包和安装源的文件夹。",
         "resetAll": "重置数据位置"
       },
       "dangerZone": {
         "title": "危险区域",
-        "description": "删除启动器管理的 Wine 运行时、Bottle Prefix、DXMT 缓存、设置和日志。",
+      "description": "删除启动器管理的 Wine 运行时、Bottle Prefix、DXMT 与 Metal 缓存、设置及日志。",
         "deleteAction": "删除所有启动器数据",
         "confirmTitle": "要删除所有启动器数据吗？",
         "confirmDescription": "此操作无法撤销。继续前请检查下方文件夹，尤其是使用自定义路径时。",
@@ -499,13 +546,25 @@
             "description": "删除已下载的 Wine 构建和运行时文件。"
           },
           "bottlePrefixes": {
-            "title": "Bottle Prefix",
-            "description": "删除 Bottle 的托管 Wine Prefix。"
+            "title": "Bottle 存储",
+            "description": "删除托管的 Bottle 文件夹及其中的所有 Wine Prefix。"
           },
           "dxmtCache": {
-            "title": "DXMT 缓存",
-            "description": "删除已下载的 DXMT 软件包和安装程序缓存。"
-          },
+            "title": "DXMT 运行时",
+            "description": "删除已下载的 DXMT 运行时软件包和安装源。"
+        },
+        "shaderCache": {
+          "title": "着色器缓存",
+          "description": "删除每个 Prefix 按 Wine 和 DXMT 配方重复使用的 DXMT 着色器缓存。"
+        },
+        "metalPipelineCache": {
+          "title": "Metal 管线缓存",
+          "description": "删除所有由启动器管理的 Wine 应用共享的 macOS Metal PSO 和 frontend 缓存。",
+          "confirmDescription": "停止所有正在运行且由启动器管理的 Wine 应用，并删除共享的 Metal 管线缓存。下次启动游戏时需要重新编译管线，可能出现暂时的加载延迟或卡顿。",
+          "workingTitle": "正在删除 Metal 缓存",
+          "workingDescription": "正在停止 Wine 应用并删除共享的 Metal 管线缓存。",
+          "workingBody": "完成前请保持此窗口打开。缓存将在下次启动游戏时重新生成。"
+        },
           "settings": {
             "title": "设置",
             "description": "删除启动器首选项和已保存设置。"
@@ -573,6 +632,24 @@
         "github": "GitHub",
         "discord": "Discord"
       },
+      "appInfo": {
+        "title": "应用信息",
+        "description": "管理当前启动器版本和更新发布频道。",
+        "currentVersionTitle": "当前版本",
+        "currentVersionDescription": "当前正在运行的 BDIH Launcher 安装版本。",
+        "versionUnknown": "无法获取",
+        "channelTitle": "更新频道",
+        "channelDescription": "选择启动器更新的稳定级别。",
+        "channels": {
+          "stable": { "label": "Stable", "description": "仅接收经过验证的稳定版本。" },
+          "beta": { "label": "Beta", "description": "提前接收即将发布的功能和修复。" },
+          "nightly": { "label": "Nightly", "description": "接收最新的实验性构建。" }
+        },
+        "channelWarningTitle": "切换到 {{channel}} 频道？",
+        "channelWarningDescription": "预览版本可能不稳定，并且可能无法立即退回 Stable。",
+        "channelWarningBody": "新版本可能会更改设置或数据格式。切换前建议备份重要的 Bottle 数据。",
+        "channelWarningConfirm": "切换频道"
+      },
       "appUpdate": {
         "title": "应用更新",
         "description": "检查新版本并管理自动更新检查。",
@@ -612,6 +689,7 @@
           }
         },
         "status": {
+          "idle": "就绪",
           "disabled": "空闲",
           "checking": "检查中",
           "available": "可用",

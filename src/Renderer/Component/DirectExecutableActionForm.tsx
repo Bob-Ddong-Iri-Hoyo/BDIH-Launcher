@@ -1,9 +1,13 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { FolderOpen, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { FolderOpen, PackageOpen, Plus, RotateCcw, Settings2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { DirectExecutablePrefixOption } from "../Hooks/UseDirectExecutableRunner";
 import type { DirectExecutableRunnerController } from "../Hooks/UseDirectExecutableRunner";
+import type { InstalledBottleAppPayload } from "../../Common/Types/IPC";
+import type { Bottle } from "../Types/Bottle";
+import { Dialog } from "./Dialog";
+import { LaunchOptionsDialog } from "./LaunchOptionsDialog";
 import {
   Box,
   Button,
@@ -38,8 +42,6 @@ export function DirectExecutableActionForm({
   runner: DirectExecutableRunnerController;
   mode?: "run" | "register";
 }) {
-  const shouldShowArguments = mode === "run";
-
   return (
     <Stack className="gap-3">
       <Surface tone="deep" padding="md">
@@ -47,7 +49,7 @@ export function DirectExecutableActionForm({
           <RunnerHeader runner={runner} mode={mode} />
           <PrefixSelectField runner={runner} />
           <ExecutablePathField runner={runner} mode={mode} />
-          {shouldShowArguments ? <ExecutableArgumentsField runner={runner} /> : null}
+          <DirectExecutableLaunchOptionsField runner={runner} mode={mode} />
         </Stack>
       </Surface>
 
@@ -60,49 +62,122 @@ export function DirectExecutableActionForm({
 
 function PrefixSelectField({ runner }: { runner: DirectExecutableRunnerController }) {
   const { t } = useTranslation();
+  const [isNameDialogOpen, setIsNameDialogOpen] = React.useState(false);
+  const [prefixName, setPrefixName] = React.useState("");
   const selectOptions = runner.prefixOptions.map((prefix) => ({
     value: prefix.id,
     label: prefix.name,
     description: prefix.path,
   }));
   const selectedPrefix = runner.prefixOptions.find((prefix) => prefix.id === runner.selectedPrefixId);
+  const trimmedPrefixName = prefixName.trim();
+  const isDuplicateName = trimmedPrefixName.length > 0
+    && !runner.isCustomPrefixNameAvailable(trimmedPrefixName);
+
+  function close_name_dialog() {
+    setIsNameDialogOpen(false);
+    setPrefixName("");
+  }
+
+  function create_prefix() {
+    if (isDuplicateName) {
+      return;
+    }
+
+    if (runner.addCustomPrefix(prefixName)) {
+      close_name_dialog();
+    }
+  }
 
   return (
-    <Stack className="gap-2">
-      <FieldLabel>{t("main.runner.prefixLabel")}</FieldLabel>
-      <Inline className="items-start gap-2">
-        <Box className="min-w-0 flex-1">
-          <Select
-            value={runner.selectedPrefixId}
-            options={selectOptions}
-            onChange={runner.setSelectedPrefixId}
-            searchPlaceholder={t("main.runner.prefixSearchPlaceholder")}
-            renderOptionAccessory={(option) => {
-              const prefix = runner.prefixOptions.find((candidate) => candidate.id === option.value);
+    <>
+      <Stack className="gap-2">
+        <FieldLabel>{t("main.runner.prefixLabel")}</FieldLabel>
+        <Inline className="items-start gap-2">
+          <Box className="min-w-0 flex-1">
+            <Select
+              value={runner.selectedPrefixId}
+              options={selectOptions}
+              onChange={runner.setSelectedPrefixId}
+              searchPlaceholder={t("main.runner.prefixSearchPlaceholder")}
+              renderOptionAccessory={(option) => {
+                const prefix = runner.prefixOptions.find((candidate) => candidate.id === option.value);
 
-              if (!prefix) {
-                return null;
+                if (!prefix) {
+                  return null;
+                }
+
+                return <PrefixOptionAction prefix={prefix} runner={runner} />;
+              }}
+            />
+          </Box>
+          <Button
+            type="button"
+            variant="glass"
+            size="md"
+            className="shrink-0"
+            icon={<Plus size={14} />}
+            onClick={() => {
+              setPrefixName("");
+              setIsNameDialogOpen(true);
+            }}
+          >
+            {t("main.runner.prefixAdd")}
+          </Button>
+        </Inline>
+        <Text className="break-all text-xs text-slate-500">
+          {selectedPrefix?.path ?? runner.selectedPrefixPath}
+        </Text>
+      </Stack>
+
+      <Dialog
+        open={isNameDialogOpen}
+        title={t("main.runner.prefixNameDialogTitle")}
+        description={t("main.runner.prefixCustomNamePrompt")}
+        icon={Plus}
+        placement="center"
+        onClose={close_name_dialog}
+        actions={[
+          {
+            label: t("main.runner.prefixNameCancel"),
+            onClick: close_name_dialog,
+          },
+          {
+            label: t("main.runner.prefixNameCreate"),
+            variant: "primary",
+            disabled: isDuplicateName,
+            onClick: create_prefix,
+          },
+        ]}
+      >
+        <Stack className="gap-2">
+          <FieldLabel>{t("main.runner.prefixNameLabel")}</FieldLabel>
+          <Input
+            autoFocus
+            value={prefixName}
+            placeholder={runner.suggestedCustomPrefixName}
+            aria-invalid={isDuplicateName}
+            className={isDuplicateName ? "border-red-400/70 focus:border-red-400" : ""}
+            onChange={(event) => setPrefixName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                create_prefix();
               }
-
-              return <PrefixOptionAction prefix={prefix} runner={runner} />;
             }}
           />
-        </Box>
-        <Button
-          type="button"
-          variant="glass"
-          size="md"
-          className="shrink-0"
-          icon={<Plus size={14} />}
-          onClick={runner.addCustomPrefix}
-        >
-          {t("main.runner.prefixAdd")}
-        </Button>
-      </Inline>
-      <Text className="break-all text-xs text-slate-500">
-        {selectedPrefix?.path ?? runner.selectedPrefixPath}
-      </Text>
-    </Stack>
+          {isDuplicateName ? (
+            <Text className="text-xs text-red-300">
+              {t("main.runner.prefixNameDuplicate", { name: trimmedPrefixName })}
+            </Text>
+          ) : (
+            <Text className="text-xs text-slate-500">
+              {t("main.runner.prefixNameEmptyHint", { name: runner.suggestedCustomPrefixName })}
+            </Text>
+          )}
+        </Stack>
+      </Dialog>
+    </>
   );
 }
 
@@ -308,24 +383,78 @@ function useAnchoredFloatingPosition(
   return position;
 }
 
-function ExecutableArgumentsField({ runner }: { runner: DirectExecutableRunnerController }) {
+function DirectExecutableLaunchOptionsField({
+  runner,
+  mode,
+}: {
+  runner: DirectExecutableRunnerController;
+  mode: "run" | "register";
+}) {
   const { t } = useTranslation();
+  const [isOpen, setIsOpen] = React.useState(false);
+  const optionAppId = "direct-executable-options";
+  const optionApp: InstalledBottleAppPayload = {
+    id: optionAppId,
+    name: t("main.runner.manualTitle"),
+    subtitle: runner.executablePath || t("main.runner.pathPlaceholder"),
+    wineVersionId: runner.bottle?.wineVersionId ?? "",
+    executablePath: runner.executablePath || undefined,
+    prefixPath: runner.selectedPrefixPath,
+    launchOptions: runner.launchOptions,
+    source: "manual",
+    lastPlayed: "",
+    status: "ready",
+  };
+  const optionBottle: Bottle | undefined = runner.bottle
+    ? { ...runner.bottle, apps: [optionApp] }
+    : undefined;
 
   return (
-    <Stack className="gap-2">
-      <FieldLabel>{t("main.runner.argumentsLabel")}</FieldLabel>
-      <Input
-        ref={runner.argsInputRef}
-        value={runner.executableArgs}
-        onChange={(event) => runner.setExecutableArgs(event.target.value)}
-        onKeyDown={(event) => void runner.handleArgsKeyDown(event)}
-        placeholder={t("main.runner.argumentsPlaceholder")}
-        spellCheck={false}
-        className="h-10 w-full rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+    <>
+      <Button
+        type="button"
+        variant="glass"
+        size="md"
+        className="w-full justify-center"
+        icon={<Settings2 size={15} />}
+        disabled={!optionBottle || !runner.setLaunchOptions || runner.isInstallerMode}
+        onClick={() => setIsOpen(true)}
+      >
+        {t("main.runner.launchOptions")}
+      </Button>
+      {mode === "run" ? (
+        <Stack className="gap-1.5">
+          <Button
+            type="button"
+            variant="glass"
+            size="md"
+            className={`w-full justify-center ${runner.isInstallerMode ? "border-amber-400/35 bg-amber-400/10 text-amber-100" : ""}`}
+            icon={<PackageOpen size={15} />}
+            aria-pressed={runner.isInstallerMode}
+            onClick={() => runner.setInstallerMode(!runner.isInstallerMode)}
+          >
+            {t(runner.isInstallerMode
+              ? "main.runner.installerModeActive"
+              : "main.runner.installerMode")}
+          </Button>
+          <Text className="text-xs text-slate-500">
+            {t(runner.isInstallerMode
+              ? "main.runner.installerModeActiveDescription"
+              : "main.runner.installerModeDescription")}
+          </Text>
+        </Stack>
+      ) : null}
+      <LaunchOptionsDialog
+        open={isOpen}
+        bottle={optionBottle}
+        initialAppId={optionAppId}
+        launcherOptionsManifest={runner.launcherOptionsManifest}
+        onClose={() => setIsOpen(false)}
+        onSave={(_bottleId, _appId, launchOptions) => {
+          runner.setLaunchOptions?.(launchOptions);
+          setIsOpen(false);
+        }}
       />
-      <Text className="text-xs text-slate-500">
-        {t("main.runner.argumentsHint")}
-      </Text>
-    </Stack>
+    </>
   );
 }

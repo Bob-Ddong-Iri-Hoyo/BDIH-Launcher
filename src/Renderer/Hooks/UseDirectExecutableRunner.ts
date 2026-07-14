@@ -14,7 +14,8 @@ import {
   executable_path_for_wine_prefix,
 } from "../../Common/Util/BottlePath";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
-import type { BottlePrefixMetadataPayload, PathSuggestionItemPayload } from "../../Common/Types/IPC";
+import type { BottleLaunchOptionsPayload, BottlePrefixMetadataPayload, PathSuggestionItemPayload } from "../../Common/Types/IPC";
+import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
 import type { Bottle } from "../Types/Bottle";
 import {
   is_executable_path_target,
@@ -22,6 +23,10 @@ import {
 } from "../Logic/DirectExecutableAutocomplete";
 
 export interface DirectExecutableRunnerController {
+  bottle?: Bottle;
+  launcherOptionsManifest?: WineLauncherOptionsManifest;
+  launchOptions?: BottleLaunchOptionsPayload;
+  isInstallerMode: boolean;
   executablePath: string;
   executableArgs: string;
   statusMessage: string;
@@ -37,8 +42,12 @@ export interface DirectExecutableRunnerController {
   argsInputRef: React.RefObject<HTMLInputElement | null>;
   setExecutablePathFromInput: (value: string) => void;
   setExecutableArgs: (value: string) => void;
+  setLaunchOptions?: (value: BottleLaunchOptionsPayload) => void;
+  setInstallerMode: (value: boolean) => void;
   setSelectedPrefixId: (value: string) => void;
-  addCustomPrefix: () => void;
+  suggestedCustomPrefixName: string;
+  isCustomPrefixNameAvailable: (name: string) => boolean;
+  addCustomPrefix: (name?: string) => boolean;
   deletePrefix: (prefix: DirectExecutablePrefixOption) => Promise<void>;
   selectPathSuggestion?: (index: number) => void;
   closePathSuggestions: () => void;
@@ -59,6 +68,7 @@ export function useDirectExecutableRunner({
   bottle,
   wineRuntimePath,
   dxmtPackagePath,
+  launcherOptionsManifest,
   onRegisterBottleExecutable,
   onUpdateBottlePrefixes,
   onDeleteBottlePrefix,
@@ -67,7 +77,8 @@ export function useDirectExecutableRunner({
   bottle: Bottle;
   wineRuntimePath?: string;
   dxmtPackagePath?: string;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  launcherOptionsManifest?: WineLauncherOptionsManifest;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
   onStarted?: () => void;
@@ -75,6 +86,8 @@ export function useDirectExecutableRunner({
   const { t } = useTranslation();
   const [executablePath, setExecutablePath] = React.useState("");
   const [executableArgs, setExecutableArgs] = React.useState("");
+  const [launchOptions, setLaunchOptions] = React.useState<BottleLaunchOptionsPayload>({ presetId: "auto" });
+  const [isInstallerMode, setInstallerMode] = React.useState(false);
   const [statusMessage, setStatusMessage] = React.useState("");
   const [pathSuggestions, setPathSuggestions] = React.useState<PathSuggestionItemPayload[]>([]);
   const [isPathSuggestionOpen, setIsPathSuggestionOpen] = React.useState(false);
@@ -98,6 +111,10 @@ export function useDirectExecutableRunner({
   };
   const selectedPrefix = prefixOptions.find((option) => option.id === selectedPrefixId) ?? fallbackPrefix;
   const manualPrefixPath = selectedPrefix.path;
+  const suggestedCustomPrefixName = React.useMemo(
+    () => create_next_custom_prefix_name(prefixOptions, "new-prefix"),
+    [prefixOptions],
+  );
 
   React.useEffect(() => {
     if (!selectedPrefixId.startsWith("custom:") && !prefixOptions.some((option) => option.id === selectedPrefixId)) {
@@ -129,6 +146,7 @@ export function useDirectExecutableRunner({
         {
           value,
           defaultPath: manualPrefixPath,
+          winePrefixPath: manualPrefixPath,
         },
       )) as { suggestions?: PathSuggestionItemPayload[] } | undefined;
       const suggestions = result?.suggestions ?? [];
@@ -212,9 +230,11 @@ export function useDirectExecutableRunner({
           wineRuntimePath,
           dxmtVersionId: bottle.dxmtVersionId,
           dxmtPackagePath,
+          launcherOptionsManifest,
           appName: app_name_from_executable_path(runExecutablePath),
           executablePath: runExecutablePath,
-          executableArgs: split_executable_args(executableArgs),
+          launchOptions,
+          executionMode: isInstallerMode ? "installer" : "app",
         },
       ) ?? Promise.resolve(undefined)
     ).catch((error) => ({
@@ -223,8 +243,10 @@ export function useDirectExecutableRunner({
     }));
 
     if (result?.ok) {
-      setStatusMessage(t("main.runner.started"));
-      onRegisterBottleExecutable?.(bottle.id, executablePath.trim(), manualPrefixPath);
+      setStatusMessage(t(isInstallerMode ? "main.runner.installerStarted" : "main.runner.started"));
+      if (!isInstallerMode) {
+        onRegisterBottleExecutable?.(bottle.id, executablePath.trim(), manualPrefixPath, launchOptions);
+      }
       onStarted?.();
       return;
     }
@@ -247,19 +269,33 @@ export function useDirectExecutableRunner({
       bottle.id,
       executable_path_for_wine_prefix(executablePath.trim(), manualPrefixPath),
       manualPrefixPath,
+      launchOptions,
     );
     setStatusMessage(t("main.runner.registered"));
     return true;
   }
 
-  function addCustomPrefix() {
+  function isCustomPrefixNameAvailable(name: string): boolean {
+    const normalizedName = name.trim().toLowerCase();
+
+    return normalizedName.length > 0
+      && !prefixOptions.some((prefix) => prefix.name.trim().toLowerCase() === normalizedName);
+  }
+
+  function addCustomPrefix(requestedName?: string): boolean {
     if (!onUpdateBottlePrefixes) {
       setStatusMessage(t("main.runner.prefixUpdateUnavailable"));
-      return;
+      return false;
     }
 
     const existingPrefixes = bottle.prefixes ?? [];
-    const name = create_next_custom_prefix_name(existingPrefixes, t("main.runner.prefixCustomNameDefault"));
+    const name = requestedName?.trim() || suggestedCustomPrefixName;
+
+    if (!isCustomPrefixNameAvailable(name)) {
+      setStatusMessage(t("main.runner.prefixNameDuplicate", { name }));
+      return false;
+    }
+
     const slug = create_unique_custom_prefix_slug(name, existingPrefixes);
     const now = new Date().toISOString();
     const existingIds = new Set(existingPrefixes.map((prefix) => prefix.id));
@@ -276,6 +312,7 @@ export function useDirectExecutableRunner({
     onUpdateBottlePrefixes(bottle.id, [...existingPrefixes, prefix]);
     setSelectedPrefixId(prefix.id);
     setStatusMessage(t("main.runner.prefixAdded", { name: prefix.name }));
+    return true;
   }
 
   async function deletePrefix(prefix: DirectExecutablePrefixOption) {
@@ -330,14 +367,13 @@ export function useDirectExecutableRunner({
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
-
     if (action.kind === "focus-arguments") {
       hidePathSuggestionsButKeepSession();
-      argsInputRef.current?.focus();
       return;
     }
+
+    event.preventDefault();
+    event.stopPropagation();
 
     if (action.kind === "apply-suggestion") {
       applyPathSuggestion(action.suggestion);
@@ -400,6 +436,10 @@ export function useDirectExecutableRunner({
   }
 
   return {
+    bottle,
+    launcherOptionsManifest,
+    launchOptions,
+    isInstallerMode,
     executablePath,
     executableArgs,
     statusMessage,
@@ -415,7 +455,11 @@ export function useDirectExecutableRunner({
     argsInputRef,
     setExecutablePathFromInput,
     setExecutableArgs,
+    setLaunchOptions,
+    setInstallerMode,
     setSelectedPrefixId,
+    suggestedCustomPrefixName,
+    isCustomPrefixNameAvailable,
     addCustomPrefix,
     deletePrefix,
     selectPathSuggestion,
@@ -433,22 +477,18 @@ function create_next_custom_prefix_name(
   prefixes: BottlePrefixMetadataPayload[],
   baseName: string,
 ): string {
-  const trimmedBaseName = baseName.trim() || "Custom prefix";
+  const trimmedBaseName = baseName.trim() || "new-prefix";
   const usedNames = new Set(prefixes.map((prefix) => prefix.name.trim().toLowerCase()));
 
-  if (!usedNames.has(trimmedBaseName.toLowerCase())) {
-    return trimmedBaseName;
-  }
-
-  for (let index = 2; index < 1000; index += 1) {
-    const candidateName = `${trimmedBaseName} ${index}`;
+  for (let index = 1; index < 1000; index += 1) {
+    const candidateName = `${trimmedBaseName}${index}`;
 
     if (!usedNames.has(candidateName.toLowerCase())) {
       return candidateName;
     }
   }
 
-  return `${trimmedBaseName} ${Date.now().toString(36)}`;
+  return `${trimmedBaseName}${Date.now().toString(36)}`;
 }
 
 function create_unique_custom_prefix_slug(

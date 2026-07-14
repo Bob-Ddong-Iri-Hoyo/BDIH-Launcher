@@ -1,7 +1,6 @@
 import React from "react";
-import { FileText, Play, Plus, Settings, Square, Terminal, Trash2 } from "lucide-react";
+import { FileText, Play, Plus, Settings, Square, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { split_executable_args } from "../../Common/Util/ExecutablePath";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
 import type { BottleLaunchOptionsPayload, BottlePrefixMetadataPayload, LauncherLogEntryPayload, LauncherLogSnapshotPayload } from "../../Common/Types/IPC";
 import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
@@ -28,7 +27,6 @@ export function AppLibraryPanel({
   launcherOptionsManifest,
   appLogoSrc,
   onLaunchBottleApp,
-  onLaunchBottleAppWithArgs,
   onStopBottleApp,
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
@@ -42,11 +40,10 @@ export function AppLibraryPanel({
   launcherOptionsManifest?: WineLauncherOptionsManifest;
   appLogoSrc: string;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
-  onLaunchBottleAppWithArgs?: (bottleId: string, appId: string, executableArgs: string[]) => void;
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
   onChangeBottleAppLaunchOptions?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
@@ -67,6 +64,7 @@ export function AppLibraryPanel({
   const [isAppLogLoading, setIsAppLogLoading] = React.useState(false);
   const manualAddRunner = useDirectExecutableRunner({
     bottle,
+    launcherOptionsManifest,
     onRegisterBottleExecutable,
     onUpdateBottlePrefixes,
     onDeleteBottlePrefix,
@@ -122,21 +120,6 @@ export function AppLibraryPanel({
         iconFill: true,
         onSelect: () => onLaunchBottleApp?.(bottle.id, contextApp.id),
       },
-      {
-        id: "run-with-args",
-        label: t("main.appContext.runWithArgs"),
-        icon: Terminal,
-        iconTone: "info",
-        onSelect: () => {
-          const rawArgs = window.prompt(t("main.appContext.argumentsPrompt"), contextApp.executableArgs?.join(" ") ?? "");
-
-          if (rawArgs === null) {
-            return;
-          }
-
-          onLaunchBottleAppWithArgs?.(bottle.id, contextApp.id, split_executable_args(rawArgs));
-        },
-      },
     ];
 
     menuItems.push(
@@ -175,7 +158,7 @@ export function AppLibraryPanel({
     );
 
     return menuItems;
-  }, [bottle.id, contextApp, onLaunchBottleApp, onLaunchBottleAppWithArgs, t]);
+  }, [bottle.id, contextApp, onLaunchBottleApp, t]);
 
   function confirm_pending_action() {
     if (!confirmAction || !confirmApp) {

@@ -158,6 +158,23 @@
       "recipeSettings": "Recipe 설정",
       "recipeSettingsDescription": "선택한 Bottle의 Recipe, 런타임 옵션, 실행 준비 단계를 조정합니다.",
       "recipeViewAction": "Recipe 보기",
+      "advancedSettings": {
+        "action": "고급 설정",
+        "title": "Bottle 고급 설정",
+        "description": "이 Bottle의 Prefix별 DXMT 셰이더 캐시를 선택해서 관리합니다.",
+        "shaderCacheTitle": "Prefix별 DXMT 셰이더 캐시",
+        "shaderCacheDescription": "동시에 여러 Prefix를 선택할 수 있습니다. 삭제한 캐시는 다음 실행에서 다시 생성됩니다.",
+        "selectAll": "전체 선택",
+        "clearSelection": "선택 해제",
+        "clearSelected": "비우기",
+        "clearing": "비우는 중...",
+        "noPrefixes": "이 Bottle에서 관리 중인 Prefix가 없습니다.",
+        "runningWarning": "Bottle이 실행 중일 때는 캐시를 삭제할 수 없습니다. 실행 중인 앱을 모두 종료한 후 다시 시도하세요.",
+        "clearComplete": "선택한 DXMT 셰이더 캐시를 비웠습니다.",
+        "clearFailed": "일부 DXMT 셰이더 캐시를 삭제하지 못했습니다.",
+        "clearAllAction": "전체 DXMT 캐시 삭제",
+        "clearAllConfirm": "{{name}} Bottle의 모든 Prefix DXMT 셰이더 캐시를 삭제할까요?"
+      },
       "recipeInfo": {
         "wineVersion": "Wine 버전",
         "dxmtVersion": "DXMT 버전",
@@ -178,7 +195,17 @@
         "applyComplete": "Recipe 설정이 완료되었습니다.",
         "validatingRecipe": "현재 Recipe 설정을 검증하는 중...",
         "validationComplete": "Recipe 검증이 완료되었습니다.",
-        "validationSkipped": "현재 Recipe 설정이 유효합니다. 변경할 항목이 없어 적용 작업은 건너뛰었습니다."
+        "validationSkipped": "현재 Recipe 설정이 유효합니다. 변경할 항목이 없어 적용 작업은 건너뛰었습니다.",
+        "applyWarningTitle": "Recipe 변경을 적용할까요?",
+        "applyWarningDescription": "확인을 누르면 실행 중인 앱과 Prefix session을 종료한 뒤 선택한 런타임 변경을 실제 Bottle에 적용합니다.",
+        "applyWarningBody": "저장하지 않은 게임이나 런처 작업이 있다면 먼저 정리하세요. 적용 중에는 Bottle을 실행할 수 없습니다.",
+        "applyWarningChangesTitle": "적용 예정 변경사항",
+        "applyWarningVersionChange": "{{runtime}}: {{from}} -> {{to}}",
+        "applyWarningPrefixUpdate": "이 Bottle의 기존 Prefix에 Wine 및 DXMT 런타임 파일을 다시 적용합니다.",
+        "applyWarningShaderCacheReset": "Wine 또는 DXMT 레시피 키가 변경되어 각 Prefix가 새로운 빈 DXMT 셰이더 캐시로 시작합니다. 다음 실행에서 일시적인 컴파일 지연이나 끊김이 발생할 수 있습니다.",
+        "applyWarningOldCachePreserved": "이전 레시피의 셰이더 캐시는 자동 삭제되지 않으며 고급 설정에서 직접 비울 수 있습니다.",
+        "applyWarningCancelRollback": "취소하면 위 선택사항을 모두 현재 Recipe 값으로 되돌립니다.",
+        "applyWarningAccept": "확인하고 적용"
       },
       "openRecipeSettings": "Recipe 설정 열기",
       "bottleStatus": {
@@ -235,12 +262,21 @@
           "general": "Wine 및 앱 기본 동작",
           "dxmt": "그래픽과 MetalFX 설정",
           "timing": "시작 및 프로세스 감시 시간",
-          "network": "게임별 네트워크 실행 보정"
+          "network": "게임별 네트워크 실행 보정",
+          "directInput": "사용자 환경변수 입력"
         },
         "unsupportedByWine": "선택한 Wine 런타임 메타데이터에서 지원하지 않는 옵션입니다.",
         "general": "일반",
         "timing": "대기",
         "network": "네트워크",
+        "directInput": "직접 입력",
+        "environmentVariablesDescription": "Wine 프로세스에 추가할 환경변수를 입력합니다. 기본 목록은 비어 있습니다.",
+        "environmentVariablesEmpty": "직접 입력한 환경변수가 없습니다.",
+        "environmentVariableName": "변수 이름",
+        "environmentVariableValue": "값",
+        "environmentVariableInvalid": "변수 이름은 영문자 또는 밑줄로 시작하고 영문자, 숫자, 밑줄만 사용해야 하며 중복될 수 없습니다.",
+        "addEnvironmentVariable": "환경변수 추가",
+        "removeEnvironmentVariable": "환경변수 제거",
         "enableMsync": "msync 켜기",
         "steamWebHelperArgs": "Steam WebHelper 인자",
         "hoyoplayInProcessGpu": "HoYoPlay --in-process-gpu",
@@ -374,7 +410,7 @@
         "addManualAppDescription": "자동 탐지되지 않은 실행 파일을 이 Bottle의 앱 목록에 직접 등록합니다.",
         "pathPlaceholder": "C:\\Program Files\\App\\app.exe 또는 /Users/me/Downloads/setup.exe",
         "pathHint": "직접 입력하거나 파일을 찾아 선택하면 Wine의 Z: 드라이브 경로로 실행합니다.",
-        "pathAutocompleteHint": "Tab으로 후보를 열고, Tab/화살표로 이동한 뒤 Enter로 선택합니다. 실행 파일 선택 후 Tab을 누르면 실행 인자로 이동합니다. 항목이 많으면 목록을 스크롤하세요.",
+        "pathAutocompleteHint": "Tab으로 후보를 열고, Tab/화살표로 이동한 뒤 Enter로 선택합니다. 항목이 많으면 목록을 스크롤하세요.",
         "manualTitle": "경로 입력 또는 파일 찾기",
         "manualDescription": "Windows 경로를 직접 입력하거나 macOS 파일을 찾아 Wine의 Z: 드라이브 매핑으로 실행합니다.",
         "manualAddTitle": "앱 실행 파일 선택",
@@ -392,6 +428,12 @@
         "prefixResetAction": "초기화",
         "prefixCustomNamePrompt": "새 prefix 이름을 입력하세요.",
         "prefixCustomNameDefault": "Custom prefix",
+        "prefixNameDialogTitle": "Prefix 만들기",
+        "prefixNameLabel": "Prefix 이름",
+        "prefixNameEmptyHint": "비워 두면 {{name}} 이름으로 만들어집니다.",
+        "prefixNameDuplicate": "{{name}} 이름의 prefix가 이미 있습니다.",
+        "prefixNameCreate": "만들기",
+        "prefixNameCancel": "취소",
         "prefixAdded": "{{name}} prefix를 추가했습니다.",
         "prefixAffectedApps": "이 prefix를 쓰는 앱 {{count}}개가 목록에서 제거됩니다.",
         "prefixAffectedAppsMore": "외 {{count}}개 더",
@@ -404,9 +446,12 @@
         "pathAutocompleteRegisterHint": "Tab으로 후보를 열고, Tab/화살표로 이동한 뒤 Enter로 실행 파일을 선택합니다.",
         "browseFile": "파일 찾기",
         "selectFileTitle": "Windows 실행 파일 선택",
-        "argumentsLabel": "실행 인자",
-        "argumentsPlaceholder": "-windowed -language ko",
-        "argumentsHint": "선택 사항입니다. 공백이 있는 인자는 따옴표로 감쌀 수 있습니다.",
+        "launchOptions": "Launch 옵션",
+        "installerMode": "인스톨러로 판정",
+        "installerModeActive": "인스톨러 모드 사용 중",
+        "installerModeDescription": "선택한 파일이 다른 앱을 설치하는 프로그램이라면 사용하세요.",
+        "installerModeActiveDescription": "인스톨러 자체는 등록하지 않고, 설치 종료 후 선택한 prefix에서 설치된 앱을 찾습니다.",
+        "installerStarted": "인스톨러를 시작했습니다. 설치 종료를 기다리는 중입니다.",
         "pathRequired": "먼저 실행 파일 경로를 입력하세요.",
         "wineRuntimeMissing": "Wine runtime이 설치되었거나 압축 해제된 상태가 아닙니다: {{versionId}}",
         "starting": "실행을 시작하는 중...",
@@ -460,6 +505,8 @@
         "generalDescription": "언어와 화면 표시",
         "wine": "Wine",
         "wineDescription": "데이터 저장과 진단 로그",
+        "appInfo": "앱 정보",
+        "appInfoDescription": "버전과 업데이트 채널",
         "shortcut": "단축키",
         "shortcutDescription": "런처 조작 키"
       },
@@ -479,15 +526,15 @@
       "sharedGamesPathDescription": "게임 런처가 공통으로 다운로드하고 여러 Bottle이 참조할 호스트 폴더입니다.",
         "wineInstallTitle": "Wine 런타임 저장 위치",
         "wineInstallDescription": "다운로드한 Wine 빌드와 런타임을 저장할 폴더입니다.",
-        "bottlePrefixTitle": "Bottle prefix 저장 위치",
-        "bottlePrefixDescription": "Bottle별 Wine prefix를 생성하고 관리할 폴더입니다.",
-        "dxmtCacheTitle": "DXMT 패키지 저장 위치",
-        "dxmtCacheDescription": "미리 다운로드한 DXMT 패키지와 캐시 파일을 저장할 폴더입니다.",
+        "bottlePrefixTitle": "Bottle 저장소",
+        "bottlePrefixDescription": "Bottle 폴더와 Bottle별 Wine Prefix를 생성하고 관리할 저장소입니다.",
+        "dxmtCacheTitle": "DXMT 런타임 저장소",
+        "dxmtCacheDescription": "다운로드한 DXMT 런타임 패키지와 설치 원본을 저장할 폴더입니다.",
         "resetAll": "데이터 위치 초기화"
       },
       "dangerZone": {
         "title": "위험 영역",
-        "description": "런처가 관리하는 Wine 런타임, Bottle prefix, DXMT 캐시, 설정, 로그를 모두 삭제합니다.",
+      "description": "런처가 관리하는 Wine 런타임, Bottle prefix, DXMT 및 Metal 캐시, 설정, 로그를 모두 삭제합니다.",
         "deleteAction": "런처 데이터 모두 삭제",
         "confirmTitle": "런처 데이터를 모두 삭제할까요?",
         "confirmDescription": "이 작업은 되돌릴 수 없습니다. 사용자 지정 경로를 사용 중이라면 아래 삭제 대상을 꼭 확인하세요.",
@@ -499,13 +546,25 @@
             "description": "다운로드한 Wine 빌드와 런타임 파일을 삭제합니다."
           },
           "bottlePrefixes": {
-            "title": "Bottle prefix",
-            "description": "런처가 관리하는 Bottle별 Wine prefix를 삭제합니다."
+            "title": "Bottle 저장소",
+            "description": "런처가 관리하는 Bottle 폴더와 그 안의 모든 Wine Prefix를 삭제합니다."
           },
           "dxmtCache": {
-            "title": "DXMT 캐시",
-            "description": "다운로드한 DXMT 패키지와 설치 캐시를 삭제합니다."
-          },
+            "title": "DXMT 런타임",
+            "description": "다운로드한 DXMT 런타임 패키지와 설치 원본을 삭제합니다."
+        },
+        "shaderCache": {
+          "title": "셰이더 캐시",
+          "description": "각 Prefix가 Wine 및 DXMT 레시피별로 재사용하는 DXMT 셰이더 캐시를 삭제합니다."
+        },
+        "metalPipelineCache": {
+          "title": "Metal 파이프라인 캐시",
+          "description": "모든 런처 Wine 앱이 공유하는 macOS Metal PSO 및 frontend 캐시를 삭제합니다.",
+          "confirmDescription": "실행 중인 런처 Wine 앱을 모두 종료하고 공유 Metal 파이프라인 캐시를 삭제합니다. 다음 게임 실행에서는 파이프라인을 다시 컴파일하므로 일시적인 로딩 지연과 끊김이 발생할 수 있습니다.",
+          "workingTitle": "Metal 캐시 삭제 중",
+          "workingDescription": "Wine 앱을 종료하고 공유 Metal 파이프라인 캐시를 삭제하고 있습니다.",
+          "workingBody": "완료될 때까지 이 창을 열어 두세요. 다음 게임 실행에서는 캐시가 다시 생성됩니다."
+        },
           "settings": {
             "title": "설정",
             "description": "런처 환경설정과 저장된 설정 파일을 삭제합니다."
@@ -573,6 +632,24 @@
         "github": "GitHub",
         "discord": "Discord"
       },
+      "appInfo": {
+        "title": "앱 정보",
+        "description": "현재 설치된 런처 버전과 업데이트 배포 채널을 관리합니다.",
+        "currentVersionTitle": "현재 버전",
+        "currentVersionDescription": "현재 실행 중인 BDIH Launcher의 설치 버전입니다.",
+        "versionUnknown": "확인할 수 없음",
+        "channelTitle": "업데이트 채널",
+        "channelDescription": "업데이트를 받을 안정성 수준을 선택합니다.",
+        "channels": {
+          "stable": { "label": "Stable", "description": "검증된 안정 버전만 받습니다." },
+          "beta": { "label": "Beta", "description": "출시 전 기능과 수정 사항을 먼저 받습니다." },
+          "nightly": { "label": "Nightly", "description": "가장 최신의 실험적 빌드를 받습니다." }
+        },
+        "channelWarningTitle": "{{channel}} 채널로 변경할까요?",
+        "channelWarningDescription": "시험 배포판은 불안정할 수 있으며 Stable 버전으로 바로 돌아오지 못할 수도 있습니다.",
+        "channelWarningBody": "설정과 데이터 형식이 새 빌드에서 변경될 수 있습니다. 중요한 Bottle 데이터는 채널 변경 전에 백업하는 것을 권장합니다.",
+        "channelWarningConfirm": "채널 변경"
+      },
       "appUpdate": {
         "title": "앱 업데이트",
         "description": "새 버전을 확인하고 자동 업데이트 확인을 관리합니다.",
@@ -612,6 +689,7 @@
           }
         },
         "status": {
+          "idle": "준비됨",
           "disabled": "대기",
           "checking": "확인 중",
           "available": "업데이트 있음",

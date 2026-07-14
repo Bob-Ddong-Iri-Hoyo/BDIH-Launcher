@@ -44,15 +44,15 @@ export interface DashboardViewProps {
   onChangeBottleDescription?: (bottleId: string, description: string) => void;
   onRevealBottle?: (path: string) => void;
   onDeleteBottle?: (bottleId: string) => void;
+  onClearBottleDxmtShaderCaches?: (bottleId: string, prefixPaths?: string[]) => Promise<DeleteLauncherDataResultPayload | undefined>;
   onSelectBottlePrefixPath?: (currentPath: string) => Promise<string | undefined>;
   onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
-  onLaunchBottleAppWithArgs?: (bottleId: string, appId: string, executableArgs: string[]) => void;
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
   onChangeBottleAppLaunchOptions?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
@@ -155,11 +155,11 @@ export function DashboardView({
   onChangeBottleDescription,
   onRevealBottle,
   onDeleteBottle,
+  onClearBottleDxmtShaderCaches,
   onSelectBottlePrefixPath,
   onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
-  onLaunchBottleAppWithArgs,
   onStopBottleApp,
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
@@ -283,8 +283,28 @@ export function DashboardView({
           }
         },
       },
+      {
+        id: "clear-dxmt-shader-cache",
+        label: t("main.advancedSettings.clearAllAction"),
+        icon: Trash2,
+        danger: true,
+        onSelect: () => {
+          if (is_bottle_running(contextBottle)) {
+            window.alert(t("main.advancedSettings.runningWarning"));
+            return;
+          }
+          if (!window.confirm(t("main.advancedSettings.clearAllConfirm", { name: contextBottle.name }))) return;
+
+          const clearRequest = onClearBottleDxmtShaderCaches?.(contextBottle.id);
+          if (clearRequest) {
+            void clearRequest.then((result) => {
+              window.alert(t(result && result.failedPaths.length === 0 ? "main.advancedSettings.clearComplete" : "main.advancedSettings.clearFailed"));
+            });
+          }
+        },
+      },
     ];
-  }, [contextBottle, onDeleteBottle, onRevealBottle, onSelectBottle, t]);
+  }, [contextBottle, onClearBottleDxmtShaderCaches, onDeleteBottle, onRevealBottle, onSelectBottle, t]);
 
   const renameBottle = React.useMemo(
     () => bottles.find((bottle) => bottle.id === renameDraft?.bottleId),
@@ -410,13 +430,13 @@ export function DashboardView({
         onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
         onInstallBottleLauncher={onInstallBottleLauncher}
         onLaunchBottleApp={onLaunchBottleApp}
-        onLaunchBottleAppWithArgs={onLaunchBottleAppWithArgs}
         onStopBottleApp={onStopBottleApp}
         onDeleteBottleApp={onDeleteBottleApp}
         onDeleteBottleAppFiles={onDeleteBottleAppFiles}
         onRegisterBottleExecutable={onRegisterBottleExecutable}
         onUpdateBottlePrefixes={onUpdateBottlePrefixes}
         onDeleteBottlePrefix={onDeleteBottlePrefix}
+        onClearBottleDxmtShaderCaches={onClearBottleDxmtShaderCaches}
         onChangeBottleAppLaunchOptions={onChangeBottleAppLaunchOptions}
         onChangeBottleRecipe={onChangeBottleRecipe}
         onApplyBottleRecipe={onApplyBottleRecipe}
@@ -635,11 +655,11 @@ export function LauncherView({
   onChangeBottleDescription,
   onRevealBottle,
   onDeleteBottle,
+  onClearBottleDxmtShaderCaches,
   onSelectBottlePrefixPath,
   onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
-  onLaunchBottleAppWithArgs,
   onStopBottleApp,
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
@@ -750,11 +770,11 @@ export function LauncherView({
 
             onDeleteBottle?.(bottleId);
           }}
+          onClearBottleDxmtShaderCaches={onClearBottleDxmtShaderCaches}
           onSelectBottlePrefixPath={onSelectBottlePrefixPath}
           onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
           onInstallBottleLauncher={onInstallBottleLauncher}
           onLaunchBottleApp={onLaunchBottleApp}
-          onLaunchBottleAppWithArgs={onLaunchBottleAppWithArgs}
           onStopBottleApp={onStopBottleApp}
           onDeleteBottleApp={onDeleteBottleApp}
           onDeleteBottleAppFiles={onDeleteBottleAppFiles}

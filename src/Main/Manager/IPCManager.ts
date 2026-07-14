@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, OpenDialogOptions, shell } from "electron";
+import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { readdir, rm } from "fs/promises";
 import os from "os";
@@ -28,6 +29,7 @@ import { windowManager, WindowManager } from "./WindowManager";
 import { wineManager, WineManager } from "./WineManager";
 import { youtubeManager, YouTubeManager } from "./YouTubeManager";
 import { rosettaManager, RosettaManager } from "./RosettaManager";
+import { processManager } from "./ProcessManager";
 import { send_to_web_contents } from "../Util/SafeWebContents";
 
 /**
@@ -275,6 +277,13 @@ export class IPCManager {
       await this.updates.checkForUpdatesAndNotify(window ?? undefined);
     });
 
+    ipcMain.removeHandler(IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName);
+    ipcMain.handle(IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName, async (event) => {
+      const window =
+        BrowserWindow.fromWebContents(event.sender) ?? this.windows.getMainWindow();
+      return this.updates.getStatus(window ?? undefined);
+    });
+
     ipcMain.removeHandler(IPC_CHANNELS.APP.GET_ROSETTA_STATUS.channelName);
     ipcMain.handle(IPC_CHANNELS.APP.GET_ROSETTA_STATUS.channelName, async (): Promise<RosettaStatusPayload> => {
       return this.rosettas.getStatus();
@@ -449,6 +458,11 @@ export class IPCManager {
           failedPaths: [],
         };
 
+        if (targets.includes("metalPipelineCache")) {
+          await processManager.stopAll();
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+
         for (const candidatePath of uniquePaths) {
           const resolvedPath = path.resolve(this.expandUserHomePath(candidatePath));
 
@@ -526,7 +540,7 @@ export class IPCManager {
 
   private resolveDeleteTargets(targets?: LauncherDataDeleteTarget[]): LauncherDataDeleteTarget[] {
     if (!targets || targets.length === 0 || targets.includes("all")) {
-      return ["wineRuntime", "bottlePrefixes", "dxmtCache", "settings", "logs"];
+      return ["wineRuntime", "bottlePrefixes", "dxmtCache", "shaderCache", "metalPipelineCache", "settings", "logs"];
     }
 
     return [...new Set(targets)];
@@ -571,6 +585,22 @@ export class IPCManager {
       );
     }
 
+    if (targets.includes("shaderCache")) {
+      const explicitBottlePath = request.bottlePrefixPath?.trim();
+      paths.push(...this.findDxmtShaderCachePaths(explicitBottlePath
+        ? [explicitBottlePath]
+        : [
+            preference.bottlePrefixPath,
+            get_default_bottle_prefix_path(dataRootPath),
+            get_default_bottle_prefix_path(),
+            ...get_legacy_bottle_prefix_paths(),
+          ]));
+    }
+
+    if (targets.includes("metalPipelineCache")) {
+      paths.push(...this.getWineMetalPipelineCachePaths());
+    }
+
     if (targets.includes("settings")) {
       paths.push(
         get_settings_path(),
@@ -588,6 +618,82 @@ export class IPCManager {
     }
 
     return paths;
+  }
+
+  private findDxmtShaderCachePaths(bottleRootPaths: string[]): string[] {
+    const cachePaths = new Set<string>();
+    const visitedPaths = new Set<string>();
+
+    const inspectPrefixCandidates = (candidatePath: string, depth: number): void => {
+      const resolvedPath = path.resolve(this.expandUserHomePath(candidatePath));
+
+      if (visitedPaths.has(resolvedPath) || !existsSync(resolvedPath)) {
+        return;
+      }
+
+      visitedPaths.add(resolvedPath);
+
+      try {
+        if (!statSync(resolvedPath).isDirectory()) {
+          return;
+        }
+
+        const shaderCachePath = path.join(resolvedPath, ".cache", "dxmt-shaders");
+
+        if (existsSync(shaderCachePath) && statSync(shaderCachePath).isDirectory()) {
+          cachePaths.add(shaderCachePath);
+        }
+
+        // A Wine prefix is a terminal search node. Avoid traversing drive_c,
+        // where installed games can contain hundreds of thousands of files.
+        if (depth >= 2 || existsSync(path.join(resolvedPath, "system.reg"))) {
+          return;
+        }
+
+        for (const entry of readdirSync(resolvedPath, { withFileTypes: true })) {
+          if (entry.isDirectory()) {
+            inspectPrefixCandidates(path.join(resolvedPath, entry.name), depth + 1);
+          }
+        }
+      } catch {
+        // Missing or unreadable bottle roots simply contain no deletable cache.
+      }
+    };
+
+    for (const bottleRootPath of bottleRootPaths) {
+      if (bottleRootPath?.trim()) {
+        inspectPrefixCandidates(bottleRootPath, 0);
+      }
+    }
+
+    return [...cachePaths];
+  }
+
+  private getWineMetalPipelineCachePaths(): string[] {
+    if (process.platform !== "darwin") {
+      return [];
+    }
+
+    try {
+      const darwinUserCachePath = execFileSync(
+        "/usr/bin/getconf",
+        ["DARWIN_USER_CACHE_DIR"],
+        { encoding: "utf8" },
+      ).trim();
+
+      if (!darwinUserCachePath) {
+        return [];
+      }
+
+      const wineMetalCacheRoot = path.join(darwinUserCachePath, "org.winehq.wine");
+
+      return [
+        path.join(wineMetalCacheRoot, "com.apple.metal"),
+        path.join(wineMetalCacheRoot, "com.apple.metalfe"),
+      ];
+    } catch {
+      return [];
+    }
   }
 
   private expandUserHomePath(targetPath: string): string {
@@ -608,7 +714,18 @@ export class IPCManager {
       ? Number.POSITIVE_INFINITY
       : Math.max(1, Math.min(1000, request.limit));
     const defaultPath = this.expandUserHomePath(request.defaultPath || os.homedir());
-    const resolvedInput = this.resolvePathSuggestionInput(value, defaultPath);
+    const winePrefixPath = request.winePrefixPath
+      ? path.resolve(this.expandUserHomePath(request.winePrefixPath))
+      : undefined;
+    const sharedGamesPath = /^[gG](?::(?:[\\/])?)?/.test(value)
+      ? await this.resolveSharedGamesSuggestionPath(winePrefixPath)
+      : undefined;
+    const resolvedInput = this.resolvePathSuggestionInput(
+      value,
+      defaultPath,
+      winePrefixPath,
+      sharedGamesPath,
+    );
     const hasTrailingSeparator = value.length === 0 || /[\\/]$/.test(value) || this.isDriveRootSuggestionInput(value);
     const directoryPath = hasTrailingSeparator
       ? resolvedInput.localPath
@@ -633,7 +750,12 @@ export class IPCManager {
           const targetPath = path.join(directoryPath, entry.name);
 
           return {
-            path: this.formatPathSuggestion(targetPath, entry.isDirectory(), resolvedInput.mode, defaultPath),
+            path: this.formatPathSuggestion(
+              targetPath,
+              entry.isDirectory(),
+              resolvedInput.mode,
+              resolvedInput.driveRoot,
+            ),
             name: entry.name,
             isDirectory: entry.isDirectory(),
           };
@@ -648,7 +770,9 @@ export class IPCManager {
   private resolvePathSuggestionInput(
     value: string,
     defaultPath: string,
-  ): { localPath: string; mode: "local" | "z" | "c" } {
+    winePrefixPath?: string,
+    sharedGamesPath?: string,
+  ): { localPath: string; mode: "local" | "z" | "c" | "g"; driveRoot?: string } {
     if (/^z:?$/i.test(value)) {
       return {
         mode: "z",
@@ -668,9 +792,12 @@ export class IPCManager {
     }
 
     if (/^c:?$/i.test(value)) {
+      const driveRoot = path.resolve(winePrefixPath || defaultPath, "drive_c");
+
       return {
         mode: "c",
-        localPath: path.resolve(defaultPath, "drive_c"),
+        localPath: driveRoot,
+        driveRoot,
       };
     }
 
@@ -679,9 +806,37 @@ export class IPCManager {
         .replace(/^c:(?:[\\/])?/i, "")
         .replace(/[\\/]+/g, path.sep);
 
+      const driveRoot = path.resolve(winePrefixPath || defaultPath, "drive_c");
+
       return {
         mode: "c",
-        localPath: path.resolve(defaultPath, "drive_c", relativePath),
+        localPath: path.resolve(driveRoot, relativePath),
+        driveRoot,
+      };
+    }
+
+    if (/^g:?$/i.test(value)) {
+      const driveRoot = sharedGamesPath
+        || path.resolve(winePrefixPath || defaultPath, "dosdevices", "g:");
+
+      return {
+        mode: "g",
+        localPath: driveRoot,
+        driveRoot,
+      };
+    }
+
+    if (/^g:(?:[\\/])?/i.test(value)) {
+      const relativePath = value
+        .replace(/^g:(?:[\\/])?/i, "")
+        .replace(/[\\/]+/g, path.sep);
+      const driveRoot = sharedGamesPath
+        || path.resolve(winePrefixPath || defaultPath, "dosdevices", "g:");
+
+      return {
+        mode: "g",
+        localPath: path.resolve(driveRoot, relativePath),
+        driveRoot,
       };
     }
 
@@ -696,28 +851,45 @@ export class IPCManager {
   }
 
   private isDriveRootSuggestionInput(value: string): boolean {
-    return /^[cz]:?$/i.test(value.trim());
+    return /^[cgz]:?$/i.test(value.trim());
   }
 
   private formatPathSuggestion(
     targetPath: string,
     isDirectory: boolean,
-    mode: "local" | "z" | "c",
-    defaultPath: string,
+    mode: "local" | "z" | "c" | "g",
+    driveRoot?: string,
   ): string {
     if (mode === "z") {
       const winePath = `Z:${targetPath.replace(/\//g, "\\")}`;
       return isDirectory && !winePath.endsWith("\\") ? `${winePath}\\` : winePath;
     }
 
-    if (mode === "c") {
-      const driveRoot = path.resolve(defaultPath, "drive_c");
+    if ((mode === "c" || mode === "g") && driveRoot) {
       const relativePath = path.relative(driveRoot, targetPath).split(path.sep).join("\\");
-      const winePath = relativePath ? `C:\\${relativePath}` : "C:\\";
+      const driveLetter = mode.toUpperCase();
+      const winePath = relativePath ? `${driveLetter}:\\${relativePath}` : `${driveLetter}:\\`;
       return isDirectory && !winePath.endsWith("\\") ? `${winePath}\\` : winePath;
     }
 
     return isDirectory && !targetPath.endsWith(path.sep) ? `${targetPath}${path.sep}` : targetPath;
+  }
+
+  private async resolveSharedGamesSuggestionPath(winePrefixPath?: string): Promise<string | undefined> {
+    if (winePrefixPath) {
+      const mappedDrivePath = path.resolve(winePrefixPath, "dosdevices", "g:");
+
+      if (existsSync(mappedDrivePath)) {
+        return mappedDrivePath;
+      }
+    }
+
+    const preference = await this.preferences.getPreference();
+    const configuredPath = preference.gameInstallPath.trim();
+
+    return configuredPath
+      ? path.resolve(this.expandUserHomePath(configuredPath))
+      : undefined;
   }
 
   private resolveLauncherPath(targetPath?: string): string {

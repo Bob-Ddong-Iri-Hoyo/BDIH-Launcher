@@ -3,8 +3,10 @@ import { autoUpdater } from "electron-updater";
 import {
   AppUpdateStatusPayload,
   IPC_CHANNELS,
+  LauncherUpdateChannel,
 } from "../../Common/Types/IPC";
 import { logManager } from "./LogManager";
+import { preferenceManager } from "./PreferenceManager";
 import { send_to_web_contents } from "../Util/SafeWebContents";
 
 interface UpdateInfoLike {
@@ -24,6 +26,8 @@ export interface UpdateManagerOptions {
 export class UpdateManager {
   private initialized = false;
   private window: BrowserWindow | null = null;
+  private activeChannel: LauncherUpdateChannel = "stable";
+  private lastStatus: AppUpdateStatusPayload = { status: "idle" };
   private readonly logger = logManager.createLogger("UpdateManager");
 
   constructor(private readonly options: UpdateManagerOptions = {}) {}
@@ -93,6 +97,7 @@ export class UpdateManager {
 
   async checkForUpdatesAndNotify(window?: BrowserWindow): Promise<void> {
     this.init(window);
+    await this.configureUpdateChannel();
 
     if (!this.canCheckForUpdates()) {
       return;
@@ -111,6 +116,7 @@ export class UpdateManager {
 
   async checkForUpdates(window?: BrowserWindow): Promise<void> {
     this.init(window);
+    await this.configureUpdateChannel();
 
     if (!this.canCheckForUpdates()) {
       return;
@@ -131,6 +137,12 @@ export class UpdateManager {
     autoUpdater.quitAndInstall(false, true);
   }
 
+  async getStatus(window?: BrowserWindow): Promise<AppUpdateStatusPayload> {
+    this.init(window);
+    await this.configureUpdateChannel();
+    return this.withRuntimeInfo(this.lastStatus);
+  }
+
   private canCheckForUpdates(): boolean {
     if (app.isPackaged || this.options.checkInDevelopment) {
       return true;
@@ -144,8 +156,27 @@ export class UpdateManager {
   }
 
   private emitStatus(payload: AppUpdateStatusPayload): void {
-    this.logger.info(payload.status, payload.message ?? "");
-    send_to_web_contents(this.window?.webContents, IPC_CHANNELS.APP.UPDATE_STATUS.channelName, payload);
+    const status = this.withRuntimeInfo(payload);
+    this.lastStatus = status;
+    this.logger.info(status.status, status.message ?? "", { channel: status.channel });
+    send_to_web_contents(this.window?.webContents, IPC_CHANNELS.APP.UPDATE_STATUS.channelName, status);
+  }
+
+  private async configureUpdateChannel(): Promise<void> {
+    const preference = await preferenceManager.getPreference();
+    const channel = preference.updateChannel ?? "stable";
+
+    this.activeChannel = channel;
+    autoUpdater.channel = channel === "stable" ? "latest" : channel;
+    autoUpdater.allowPrerelease = channel !== "stable";
+  }
+
+  private withRuntimeInfo(payload: AppUpdateStatusPayload): AppUpdateStatusPayload {
+    return {
+      ...payload,
+      currentVersion: app.getVersion(),
+      channel: this.activeChannel,
+    };
   }
 
   private describeError(error: unknown): string {

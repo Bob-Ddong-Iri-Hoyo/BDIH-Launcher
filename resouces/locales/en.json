@@ -158,6 +158,23 @@
       "recipeSettings": "Recipe settings",
       "recipeSettingsDescription": "Adjust the selected bottle recipe, runtime options, and launch preparation steps.",
       "recipeViewAction": "View recipe",
+      "advancedSettings": {
+        "action": "Advanced settings",
+        "title": "Bottle advanced settings",
+        "description": "Select and manage DXMT shader caches for individual prefixes in this bottle.",
+        "shaderCacheTitle": "DXMT shader cache by prefix",
+        "shaderCacheDescription": "You can select multiple prefixes. Deleted caches are rebuilt on the next launch.",
+        "selectAll": "Select all",
+        "clearSelection": "Clear selection",
+        "clearSelected": "Clear",
+        "clearing": "Clearing...",
+        "noPrefixes": "This bottle has no managed prefixes.",
+        "runningWarning": "Caches cannot be deleted while the bottle is running. Stop all running apps and try again.",
+        "clearComplete": "The selected DXMT shader caches were cleared.",
+        "clearFailed": "Some DXMT shader caches could not be deleted.",
+        "clearAllAction": "Clear all DXMT caches",
+        "clearAllConfirm": "Clear DXMT shader caches for every prefix in {{name}}?"
+      },
       "recipeInfo": {
         "wineVersion": "Wine version",
         "dxmtVersion": "DXMT version",
@@ -178,7 +195,17 @@
         "applyComplete": "Recipe setup completed.",
         "validatingRecipe": "Validating the current recipe settings...",
         "validationComplete": "Recipe validation completed.",
-        "validationSkipped": "The current recipe is valid. No values changed, so the apply operation was skipped."
+        "validationSkipped": "The current recipe is valid. No values changed, so the apply operation was skipped.",
+        "applyWarningTitle": "Apply recipe changes?",
+        "applyWarningDescription": "After confirmation, running apps and prefix sessions will stop before the selected runtime changes are applied to the bottle.",
+        "applyWarningBody": "Finish any unsaved game or launcher work first. The bottle cannot be launched while the update is in progress.",
+        "applyWarningChangesTitle": "Changes to apply",
+        "applyWarningVersionChange": "{{runtime}}: {{from}} -> {{to}}",
+        "applyWarningPrefixUpdate": "Wine and DXMT runtime files will be reapplied to the existing prefixes in this bottle.",
+        "applyWarningShaderCacheReset": "The Wine or DXMT recipe key will change, so each prefix starts with a new empty DXMT shader cache. The next launch may temporarily compile more slowly or stutter.",
+        "applyWarningOldCachePreserved": "Shader caches for the previous recipe are preserved until you clear them from Advanced settings.",
+        "applyWarningCancelRollback": "Cancel restores every selection above to the current recipe values.",
+        "applyWarningAccept": "Confirm and apply"
       },
       "openRecipeSettings": "Open recipe settings",
       "bottleStatus": {
@@ -235,12 +262,21 @@
           "general": "Basic Wine and app behavior",
           "dxmt": "Graphics and MetalFX settings",
           "timing": "Startup and process supervision timing",
-          "network": "Game-specific network launch adjustments"
+          "network": "Game-specific network launch adjustments",
+          "directInput": "Custom environment variables"
         },
         "unsupportedByWine": "Unavailable for the selected Wine runtime metadata.",
         "general": "General",
         "timing": "Timing",
         "network": "Network",
+        "directInput": "Direct input",
+        "environmentVariablesDescription": "Add environment variables to the Wine process. The list is empty by default.",
+        "environmentVariablesEmpty": "No custom environment variables.",
+        "environmentVariableName": "Variable name",
+        "environmentVariableValue": "Value",
+        "environmentVariableInvalid": "Use unique variable names containing letters, numbers, and underscores. Names cannot start with a number.",
+        "addEnvironmentVariable": "Add variable",
+        "removeEnvironmentVariable": "Remove variable",
         "enableMsync": "Enable msync",
         "steamWebHelperArgs": "Steam WebHelper args",
         "hoyoplayInProcessGpu": "HoYoPlay --in-process-gpu",
@@ -374,7 +410,7 @@
         "addManualAppDescription": "Register an executable in this bottle when automatic app detection misses it.",
         "pathPlaceholder": "C:\\Program Files\\App\\app.exe or /Users/me/Downloads/setup.exe",
         "pathHint": "Use a Windows path inside the prefix or a local installer path on macOS.",
-        "pathAutocompleteHint": "Press Tab to open suggestions, Tab/arrow keys to move, Enter to choose, then Tab moves to arguments after an executable is selected. Scroll the list when a folder has many items.",
+        "pathAutocompleteHint": "Press Tab to open suggestions, use Tab/arrow keys to move, and Enter to choose. Scroll the list when a folder has many items.",
         "manualTitle": "Enter path or find file",
         "manualDescription": "Type a Windows path directly, or browse a macOS file and run it through Wine's Z: drive mapping.",
         "manualAddTitle": "Choose app executable",
@@ -392,6 +428,12 @@
         "prefixResetAction": "Reset",
         "prefixCustomNamePrompt": "Enter a name for the new prefix.",
         "prefixCustomNameDefault": "Custom prefix",
+        "prefixNameDialogTitle": "Create a prefix",
+        "prefixNameLabel": "Prefix name",
+        "prefixNameEmptyHint": "Leave this empty to create it as {{name}}.",
+        "prefixNameDuplicate": "A prefix named {{name}} already exists.",
+        "prefixNameCreate": "Create",
+        "prefixNameCancel": "Cancel",
         "prefixAdded": "{{name}} prefix was added.",
         "prefixAffectedApps": "{{count}} app(s) using this prefix will be removed from the list.",
         "prefixAffectedAppsMore": "{{count}} more",
@@ -404,9 +446,12 @@
         "pathAutocompleteRegisterHint": "Press Tab to open suggestions, Tab/arrow keys to move, and Enter to choose an executable.",
         "browseFile": "Find file",
         "selectFileTitle": "Select Windows executable",
-        "argumentsLabel": "Arguments",
-        "argumentsPlaceholder": "-windowed -language ko",
-        "argumentsHint": "Optional. Quotes are supported for arguments with spaces.",
+        "launchOptions": "Launch options",
+        "installerMode": "Treat as installer",
+        "installerModeActive": "Installer mode enabled",
+        "installerModeDescription": "Use this when the selected file installs another app.",
+        "installerModeActiveDescription": "The installer itself will not be added. Installed apps are discovered from the selected prefix after installation ends.",
+        "installerStarted": "Installer started. Waiting for installation to finish.",
         "pathRequired": "Enter an executable path first.",
         "wineRuntimeMissing": "Wine runtime is not installed or extracted: {{versionId}}",
         "starting": "Starting executable...",
@@ -460,6 +505,8 @@
         "generalDescription": "Language and display",
         "wine": "Wine",
         "wineDescription": "Data storage and diagnostics",
+        "appInfo": "App info",
+        "appInfoDescription": "Version and update channel",
         "shortcut": "Shortcuts",
         "shortcutDescription": "Launcher control keys"
       },
@@ -479,15 +526,15 @@
       "sharedGamesPathDescription": "Host folder where game launchers can download games for multiple Bottles to reference.",
         "wineInstallTitle": "Wine runtime storage",
         "wineInstallDescription": "Folder for downloaded Wine builds and runtimes.",
-        "bottlePrefixTitle": "Bottle prefix storage",
-        "bottlePrefixDescription": "Folder where bottle Wine prefixes are created and managed.",
-        "dxmtCacheTitle": "DXMT package storage",
-        "dxmtCacheDescription": "Folder for pre-downloaded DXMT packages and cached installers.",
+        "bottlePrefixTitle": "Bottle storage",
+        "bottlePrefixDescription": "Storage where bottle folders and their Wine prefixes are created and managed.",
+        "dxmtCacheTitle": "DXMT runtime storage",
+        "dxmtCacheDescription": "Folder for downloaded DXMT runtime packages and installation sources.",
         "resetAll": "Reset data location"
       },
       "dangerZone": {
         "title": "Danger zone",
-        "description": "Delete launcher-managed Wine runtimes, bottle prefixes, DXMT cache, settings, and logs.",
+      "description": "Delete launcher-managed Wine runtimes, bottle prefixes, DXMT and Metal caches, settings, and logs.",
         "deleteAction": "Delete all launcher data",
         "confirmTitle": "Delete all launcher data?",
         "confirmDescription": "This cannot be undone. Check the folders below before continuing, especially if you use custom paths.",
@@ -499,13 +546,25 @@
             "description": "Delete downloaded Wine builds and runtime files."
           },
           "bottlePrefixes": {
-            "title": "Bottle prefixes",
-            "description": "Delete managed Wine prefixes for bottles."
+            "title": "Bottle storage",
+            "description": "Delete managed bottle folders and every Wine prefix stored inside them."
           },
           "dxmtCache": {
-            "title": "DXMT cache",
-            "description": "Delete downloaded DXMT packages and installer cache."
-          },
+            "title": "DXMT runtime",
+            "description": "Delete downloaded DXMT runtime packages and installation sources."
+        },
+        "shaderCache": {
+          "title": "Shader cache",
+          "description": "Delete the DXMT shader caches reused by each prefix for its Wine and DXMT recipe."
+        },
+        "metalPipelineCache": {
+          "title": "Metal pipeline cache",
+          "description": "Delete the macOS Metal PSO and frontend caches shared by all launcher-managed Wine apps.",
+          "confirmDescription": "Stop all running launcher-managed Wine apps and delete their shared Metal pipeline cache. The next game launch may load more slowly or stutter while pipelines are recompiled.",
+          "workingTitle": "Deleting Metal cache",
+          "workingDescription": "Stopping Wine apps and deleting the shared Metal pipeline cache.",
+          "workingBody": "Keep this window open until the operation finishes. The cache will be rebuilt on the next game launch."
+        },
           "settings": {
             "title": "Settings",
             "description": "Delete launcher preferences and saved settings."
@@ -573,6 +632,24 @@
         "github": "GitHub",
         "discord": "Discord"
       },
+      "appInfo": {
+        "title": "App information",
+        "description": "Manage the installed launcher version and update release channel.",
+        "currentVersionTitle": "Current version",
+        "currentVersionDescription": "The installed version of BDIH Launcher currently running.",
+        "versionUnknown": "Unavailable",
+        "channelTitle": "Update channel",
+        "channelDescription": "Choose the stability level for launcher updates.",
+        "channels": {
+          "stable": { "label": "Stable", "description": "Receive only validated stable releases." },
+          "beta": { "label": "Beta", "description": "Receive upcoming features and fixes early." },
+          "nightly": { "label": "Nightly", "description": "Receive the newest experimental builds." }
+        },
+        "channelWarningTitle": "Switch to the {{channel}} channel?",
+        "channelWarningDescription": "Preview builds may be unstable, and returning directly to Stable may not be possible.",
+        "channelWarningBody": "New builds may change settings or data formats. Back up important Bottle data before switching channels.",
+        "channelWarningConfirm": "Switch channel"
+      },
       "appUpdate": {
         "title": "App update",
         "description": "Check for new versions and manage automatic update checks.",
@@ -612,6 +689,7 @@
           }
         },
         "status": {
+          "idle": "Ready",
           "disabled": "Idle",
           "checking": "Checking",
           "available": "Available",

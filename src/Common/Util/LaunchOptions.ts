@@ -1,4 +1,5 @@
 import type {
+  BottleEnvironmentVariablePayload,
   BottleLaunchOptionPresetId,
   BottleLaunchOptionsPayload,
   InstalledBottleAppPayload,
@@ -217,7 +218,39 @@ export function normalize_launch_options(
     autoNetworkCut: optional_boolean(options.autoNetworkCut),
     autoNetworkReconnectSeconds: optional_number(options.autoNetworkReconnectSeconds, 0, 600),
     allowDuplicateGame: optional_boolean(options.allowDuplicateGame),
+    environmentVariables: normalize_environment_variables(options.environmentVariables),
   };
+}
+
+function normalize_environment_variables(value: unknown): BottleEnvironmentVariablePayload[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const variables = new Map<string, string>();
+
+  for (const candidate of value.slice(0, 64)) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+
+    const name = "name" in candidate && typeof candidate.name === "string"
+      ? candidate.name.trim()
+      : "";
+    const variableValue = "value" in candidate && typeof candidate.value === "string"
+      ? candidate.value
+      : "";
+
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      continue;
+    }
+
+    variables.set(name, variableValue.slice(0, 8192));
+  }
+
+  return variables.size > 0
+    ? Array.from(variables, ([name, variableValue]) => ({ name, value: variableValue }))
+    : undefined;
 }
 
 function merge_defined_launch_options(

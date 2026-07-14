@@ -2,8 +2,8 @@ import React from "react";
 import { Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { HOYOPLAY_ICON_URL, STEAM_ICON_URL } from "../../Common/Constant/RuntimeSources";
-import type { BottleLauncherKind } from "../../Common/Types/IPC";
-import type { BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
+import type { BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
+import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
 import type { Bottle } from "../Types/Bottle";
 import { DirectExecutableAction } from "./DirectExecutableAction";
 import { Dialog } from "./Dialog";
@@ -20,6 +20,7 @@ export function BottleActionBar({
   bottle,
   wineRuntimePath,
   dxmtPackagePath,
+  launcherOptionsManifest,
   onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
@@ -30,10 +31,11 @@ export function BottleActionBar({
   bottle: Bottle;
   wineRuntimePath?: string;
   dxmtPackagePath?: string;
+  launcherOptionsManifest?: WineLauncherOptionsManifest;
   onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
 }) {
@@ -95,6 +97,7 @@ export function BottleActionBar({
         bottle={bottle}
         wineRuntimePath={wineRuntimePath}
         dxmtPackagePath={dxmtPackagePath}
+        launcherOptionsManifest={launcherOptionsManifest}
         onRegisterBottleExecutable={onRegisterBottleExecutable}
         onUpdateBottlePrefixes={onUpdateBottlePrefixes}
         onDeleteBottlePrefix={onDeleteBottlePrefix}

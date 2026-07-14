@@ -36,6 +36,14 @@ const FALLBACK_LAUNCH_OPTION_KEYS: readonly RuntimeLaunchOptionKey[] = [
   "earlyExitWaitMs",
 ];
 
+// DXMT is supplied by the selected Wine runtime, so its controls apply to
+// every executable rather than only to games with an explicit profile.
+const GLOBAL_DXMT_LAUNCH_OPTION_KEYS: readonly RuntimeLaunchOptionKey[] = [
+  "dxmtPreferredMaxFrameRate",
+  "dxmtMetalFxSpatialUpscale",
+  "dxmtMetalFxSpatialUpscaleFactor",
+];
+
 type RuntimeProfileAppIdentity = Pick<
   InstalledBottleAppPayload,
   "id" | "name" | "source" | "executablePath" | "steamAppId"
@@ -96,8 +104,13 @@ export function resolve_app_runtime_profile(
 export function launch_option_keys_for_app(
   app?: RuntimeProfileAppIdentity,
 ): readonly RuntimeLaunchOptionKey[] {
-  return resolve_app_runtime_profile(app)?.allowedLaunchOptionKeys
+  const profileKeys = resolve_app_runtime_profile(app)?.allowedLaunchOptionKeys
     ?? FALLBACK_LAUNCH_OPTION_KEYS;
+
+  return Array.from(new Set([
+    ...profileKeys,
+    ...GLOBAL_DXMT_LAUNCH_OPTION_KEYS,
+  ]));
 }
 
 export function get_launcher_runtime_profile(

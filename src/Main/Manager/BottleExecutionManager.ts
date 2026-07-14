@@ -58,6 +58,7 @@ const PREFIX_SESSION_WATCH_DELAY_MS = 500;
 const STEAM_GAME_PROCESS_LOG_POLL_MS = 750;
 const HOYO_STEAM_STUB_WIN_PATH = "C:\\windows\\system32\\steam.exe";
 const DXMT_RUNTIME_CACHE_DIR_NAME = ".cache/dxmt";
+const DXMT_SHADER_CACHE_DIR_NAME = ".cache/dxmt-shaders";
 const DXMT_PREFIX_REQUIRED_WINDOWS_FILES = ["d3d10core.dll", "d3d11.dll", "dxgi.dll", "winemetal.dll"];
 
 interface PrefixSession {
@@ -69,6 +70,7 @@ interface PrefixSession {
   appId?: string;
   appIds?: Set<string>;
   appName?: string;
+  executionMode?: "app" | "installer";
   wineRuntimePath?: string;
   startedAt: string;
   sender?: WebContents;
@@ -556,6 +558,8 @@ export class BottleExecutionManager {
     sender?: WebContents,
   ): Promise<RunBottleExecutableResultPayload> {
     const executablePath = request.executablePath.trim();
+    const executionMode = request.executionMode ?? "app";
+    const isInstallerMode = executionMode === "installer";
 
     if (!executablePath) {
       return {
@@ -592,22 +596,36 @@ export class BottleExecutionManager {
       };
     }
 
-    this.trackWinePrefix(request);
+    if (!is_wine_prefix_ready(bottlePath)) {
+      const setupResult = await this.setupPrefix(request, sender);
+
+      if (!setupResult.ok) {
+        return {
+          ok: false,
+          error: setupResult.error || "Bottle prefix setup failed.",
+        };
+      }
+    } else {
+      this.trackWinePrefix(request);
+    }
+
     const appName = request.appName?.trim() || app_name_from_executable_path(executablePath);
     const launcherOptionsManifest = request.launcherOptionsManifest ?? read_wine_launcher_options_manifest(request.wineRuntimePath);
-    const launchOptions = filter_launch_options_by_manifest(
-      resolve_launch_options_for_app(
-        {
-          id: request.appId ?? "",
-          name: appName,
-          source: undefined,
-          executablePath,
-          steamAppId: steam_app_id_from_args(request.executableArgs),
-        },
-        request.launchOptions,
-      ),
-      launcherOptionsManifest,
-    ) ?? {};
+    const launchOptions = isInstallerMode
+      ? {}
+      : filter_launch_options_by_manifest(
+          resolve_launch_options_for_app(
+            {
+              id: request.appId ?? "",
+              name: appName,
+              source: undefined,
+              executablePath,
+              steamAppId: steam_app_id_from_args(request.executableArgs),
+            },
+            request.launchOptions,
+          ),
+          launcherOptionsManifest,
+        ) ?? {};
     const appLogFileName = create_wine_app_log_file_name(request.bottleName, appName, request.bottleId, request.appId);
     const appLogger = logManager.createLogger({
       file: "wine",
@@ -618,10 +636,12 @@ export class BottleExecutionManager {
       bottleId: request.bottleId,
       bottleName: request.bottleName,
     });
-    const processId = `bottle:${request.bottleId}:${request.appId ?? "manual"}:${Date.now().toString(36)}`;
+    const processId = `bottle:${request.bottleId}:${isInstallerMode ? "installer" : request.appId ?? "manual"}:${Date.now().toString(36)}`;
     const preference = await preferenceManager.getPreference();
     ensure_shared_games_drive(bottlePath, preference, appLogger);
-    const hoyoGameKind = hoyo_game_from_run_request(request, appName, executablePath);
+    const hoyoGameKind = isInstallerMode
+      ? undefined
+      : hoyo_game_from_run_request(request, appName, executablePath);
 
     if (hoyoGameKind) {
       const directLaunchOptions = filter_launch_options_by_manifest(
@@ -656,7 +676,7 @@ export class BottleExecutionManager {
           : this.runHoyoGenshinExecutable(strategyContext, sender);
     }
 
-    if (should_use_hoyo_overseer_launch(request, appName, executablePath)) {
+    if (!isInstallerMode && should_use_hoyo_overseer_launch(request, appName, executablePath)) {
       return this.runHoyoOverseer(
         {
           request,
@@ -672,19 +692,23 @@ export class BottleExecutionManager {
       );
     }
 
-    const launcherSessionKind = launcher_from_run_request(request, executablePath);
+    const launcherSessionKind = isInstallerMode
+      ? undefined
+      : launcher_from_run_request(request, executablePath);
     let effectiveWineCommand = wineCommand;
     let effectiveWineRuntimePath = request.wineRuntimePath;
     let effectiveLauncherOptionsManifest = launcherOptionsManifest;
 
     await ensure_prefix_dxmt_runtime_files(request, bottlePath, appLogger);
 
-    const builtinDxmtWineRuntime = await prepare_steam_builtin_dxmt_wine_runtime({
-      request,
-      bottlePath,
-      wineCommand: effectiveWineCommand,
-      logger: appLogger,
-    });
+    const builtinDxmtWineRuntime = isInstallerMode
+      ? undefined
+      : await prepare_steam_builtin_dxmt_wine_runtime({
+          request,
+          bottlePath,
+          wineCommand: effectiveWineCommand,
+          logger: appLogger,
+        });
 
     if (builtinDxmtWineRuntime) {
       effectiveWineCommand = builtinDxmtWineRuntime.wineCommand;
@@ -699,6 +723,10 @@ export class BottleExecutionManager {
       preference.wineDebugArgs,
       effectiveWineRuntimePath,
       effectiveLauncherOptionsManifest,
+      isInstallerMode ? undefined : {
+        wineVersionId: request.wineVersionId,
+        dxmtVersionId: request.dxmtVersionId,
+      },
     );
 
     apply_launch_options_to_env(env, launchOptions);
@@ -706,6 +734,7 @@ export class BottleExecutionManager {
     const supportsSteamWebHelperArgs = is_launch_option_supported_by_manifest("steamWebHelperArgs", effectiveLauncherOptionsManifest);
 
     if (
+      !isInstallerMode &&
       supportsSteamWebHelperArgs &&
       (
         launchOptions.steamWebHelperArgs === true ||
@@ -733,7 +762,7 @@ export class BottleExecutionManager {
         onLog: (data) => appLogger.info("stdout", data.trim()),
         onError: (data) => appLogger.warn("stderr", data.trim()),
       });
-      const prefixSessionProcessId = launcherSessionKind
+      const prefixSessionProcessId = isInstallerMode || launcherSessionKind
         ? this.startPrefixSession(
             {
               ...request,
@@ -741,8 +770,9 @@ export class BottleExecutionManager {
             },
           {
             launcher: launcherSessionKind,
-            appId: request.appId ?? launcherSessionKind,
-            appName,
+            appId: isInstallerMode ? undefined : request.appId ?? launcherSessionKind,
+            appName: isInstallerMode ? undefined : appName,
+            executionMode,
             steamGameProcessLogPath: launcherSessionKind === "steam"
               ? steam_game_process_log_path(bottlePath, executablePath)
               : undefined,
@@ -753,14 +783,20 @@ export class BottleExecutionManager {
 
       process.done.then(
         (code) => {
-          const exitError = code === 0 ? undefined : `Wine exited with code ${code}.`;
+          const exitError = !isInstallerMode && code !== 0 ? `Wine exited with code ${code}.` : undefined;
           const exitPayload = exitError ? { processId, code, error: exitError } : { processId, code };
 
           if (!prefixSessionProcessId) {
             discordPresenceManager.clearActivity(processId);
           }
 
-          if (exitError) {
+          if (isInstallerMode) {
+            appLogger.info("installer bootstrap executable exited; waiting for prefix processes", {
+              processId,
+              code,
+              prefixSessionProcessId,
+            });
+          } else if (exitError) {
             appLogger.error("bottle app executable exited with error", { processId, code });
           } else {
             appLogger.info("bottle app executable exited", { processId, code });
@@ -794,6 +830,7 @@ export class BottleExecutionManager {
         wineVersionId: request.wineVersionId,
         wineCommand: effectiveWineCommand,
         executablePath,
+        executionMode,
         launchOptions,
       });
       this.logger.info("bottle executable started", {
@@ -1207,6 +1244,11 @@ export class BottleExecutionManager {
         preference.loggingLevel,
         preference.wineDebugArgs,
         effectiveRequest.wineRuntimePath,
+        undefined,
+        {
+          wineVersionId: effectiveRequest.wineVersionId,
+          dxmtVersionId: effectiveRequest.dxmtVersionId,
+        },
       );
       const zzzLaunchOptions = merge_defined_launch_options(
         {
@@ -1231,6 +1273,7 @@ export class BottleExecutionManager {
         WINE_ENABLE_TIMEOUT_FIX: env.WINE_ENABLE_TIMEOUT_FIX ?? "1",
         WINEMSYNC: env.WINEMSYNC ?? "0",
         DXMT_LOG_PATH: env.DXMT_LOG_PATH ?? dataRootPath,
+        DXMT_CONFIG: env.DXMT_CONFIG ?? gameProfile.launchRoutine.dxmtConfig,
         GST_PLUGIN_FEATURE_RANK: env.GST_PLUGIN_FEATURE_RANK ?? "atdec:MAX,avdec_h264:MAX",
         WINE_ENABLE_DISCONNECT: env.WINE_ENABLE_DISCONNECT ?? "0",
         WAIT_FOR_MANUAL_NETWORK_CUT: env.WAIT_FOR_MANUAL_NETWORK_CUT ?? "0",
@@ -1490,6 +1533,11 @@ export class BottleExecutionManager {
         preference.loggingLevel,
         preference.wineDebugArgs,
         effectiveRequest.wineRuntimePath,
+        undefined,
+        {
+          wineVersionId: effectiveRequest.wineVersionId,
+          dxmtVersionId: effectiveRequest.dxmtVersionId,
+        },
       );
       const hsrLaunchOptions = merge_defined_launch_options(
         gameProfile.launchRoutine.defaultLaunchOptions,
@@ -1805,6 +1853,11 @@ export class BottleExecutionManager {
         preference.loggingLevel,
         preference.wineDebugArgs,
         effectiveRequest.wineRuntimePath,
+        undefined,
+        {
+          wineVersionId: effectiveRequest.wineVersionId,
+          dxmtVersionId: effectiveRequest.dxmtVersionId,
+        },
       );
 
       const genshinLaunchOptions = {
@@ -2402,6 +2455,7 @@ export class BottleExecutionManager {
       launcher?: BottleLauncherKind;
       appId?: string;
       appName?: string;
+      executionMode?: "app" | "installer";
       steamGameProcessLogPath?: string;
     },
     sender?: WebContents,
@@ -2418,6 +2472,7 @@ export class BottleExecutionManager {
         existingSession.appIds.add(context.appId);
       }
       existingSession.appName = context.appName ?? existingSession.appName;
+      existingSession.executionMode = context.executionMode ?? existingSession.executionMode;
       if (context.steamGameProcessLogPath) {
         this.startSteamGameProcessWatcher(existingSession, context.steamGameProcessLogPath);
       }
@@ -2443,6 +2498,7 @@ export class BottleExecutionManager {
       appId: context.appId,
       appIds: context.appId ? new Set([context.appId]) : undefined,
       appName: context.appName,
+      executionMode: context.executionMode,
       wineRuntimePath: request.wineRuntimePath,
       startedAt: new Date().toISOString(),
       sender,
@@ -2466,6 +2522,7 @@ export class BottleExecutionManager {
       prefixPath,
       launcher: context.launcher,
       appId: context.appId,
+      executionMode: context.executionMode,
       steamLauncherOwnerAppId: session.steamLauncherOwnerAppId,
     });
     discordPresenceManager.setBottleActivity({
@@ -2762,8 +2819,12 @@ export class BottleExecutionManager {
       prefixPath: session.prefixPath,
       launcher: session.launcher,
       appId: session.appId,
+      executionMode: session.executionMode,
       error,
     });
+    if (session.executionMode === "installer") {
+      bottleManager.clearCache();
+    }
     this.sendPrefixSessionUpdate(session, false, error);
     discordPresenceManager.clearActivity(session.processId);
   }
@@ -2799,6 +2860,7 @@ export class BottleExecutionManager {
       appId: session.appId,
       appIds: session.appIds ? [...session.appIds] : undefined,
       appName: session.appName,
+      executionMode: session.executionMode,
       startedAt: session.startedAt,
       endedAt: isRunning ? undefined : new Date().toISOString(),
       error,
@@ -2956,11 +3018,14 @@ function is_wine_prefix_ready(bottlePath: string): boolean {
   const windowsPath = path.join(bottlePath, "drive_c", "windows");
   const system32Path = path.join(windowsPath, "system32");
   const syswow64Path = path.join(windowsPath, "syswow64");
+  const dosDevicesPath = path.join(bottlePath, "dosdevices");
   const hasRegistry = existsSync(path.join(bottlePath, "system.reg")) || existsSync(path.join(bottlePath, "user.reg"));
   const hasKernel32 = existsSync(path.join(system32Path, "kernel32.dll")) ||
     existsSync(path.join(syswow64Path, "kernel32.dll"));
+  const hasStandardDriveMappings = existsSync(path.join(dosDevicesPath, "c:"))
+    && existsSync(path.join(dosDevicesPath, "z:"));
 
-  return hasRegistry && existsSync(system32Path) && hasKernel32;
+  return hasRegistry && existsSync(system32Path) && hasKernel32 && hasStandardDriveMappings;
 }
 
 function quarantine_invalid_wine_prefix(
@@ -4536,23 +4601,24 @@ function apply_hoyo_dxmt_config_environment(
 
   if (sourceConfigPath) {
     try {
-      configParts.push(readFileSync(sourceConfigPath, "utf8").trimEnd());
+      const sourceConfig = readFileSync(sourceConfigPath, "utf8").trim();
+
+      if (sourceConfig) {
+        configParts.push(sourceConfig);
+      }
     } catch {
       // Keep launch resilient. DXMT can still consume inline env config.
     }
   }
 
   if (inlineConfig) {
-    configParts.push(inlineConfig);
-  }
-
-  const spatialUpscaleFactor = options.launchOptions.dxmtMetalFxSpatialUpscaleFactor;
-
-  if (typeof spatialUpscaleFactor === "number" && Number.isFinite(spatialUpscaleFactor)) {
-    configParts.push(`d3d11.metalSpatialUpscaleFactor = ${spatialUpscaleFactor}`);
+    env.DXMT_CONFIG = inlineConfig;
+  } else {
+    delete env.DXMT_CONFIG;
   }
 
   if (configParts.length === 0) {
+    delete env.DXMT_CONFIG_FILE;
     return;
   }
 
@@ -4562,17 +4628,9 @@ function apply_hoyo_dxmt_config_environment(
     mkdirSync(path.dirname(runtimeConfigPath), { recursive: true });
     writeFileSync(runtimeConfigPath, `${configParts.filter(Boolean).join("\n\n")}\n`, "utf8");
     env.DXMT_CONFIG_FILE = runtimeConfigPath;
-
-    if (!env.DXMT_CONFIG) {
-      env.DXMT_CONFIG = sourceConfigPath ?? runtimeConfigPath;
-    }
   } catch {
     if (sourceConfigPath) {
       env.DXMT_CONFIG_FILE = sourceConfigPath;
-
-      if (!env.DXMT_CONFIG) {
-        env.DXMT_CONFIG = sourceConfigPath;
-      }
     }
   }
 }
@@ -4614,7 +4672,6 @@ function find_hoyo_dxmt_config_path(dataRootPath: string, dxmtRuntimePath: strin
     path.join(dataRootPath, "dxmt.conf"),
     path.join(path.dirname(dxmtRuntimePath), "dxmt.conf"),
     path.join(dxmtRuntimePath, "dxmt.conf"),
-    ...application_support_dxmt_config_candidates(),
   ];
   const seen = new Set<string>();
 
@@ -4633,24 +4690,6 @@ function find_hoyo_dxmt_config_path(dataRootPath: string, dxmtRuntimePath: strin
   }
 
   return undefined;
-}
-
-function application_support_dxmt_config_candidates(): string[] {
-  const homePath = process.env.HOME;
-
-  if (!homePath) {
-    return [];
-  }
-
-  const applicationSupportPath = path.join(homePath, "Library", "Application Support");
-
-  try {
-    return readdirSync(applicationSupportPath, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(applicationSupportPath, entry.name, "dxmt.conf"));
-  } catch {
-    return [];
-  }
 }
 
 function hoyo_overseer_executable_args(game: HoyoGameKind, eventArgs: string[] = []): string[] {
@@ -4851,6 +4890,10 @@ function create_wine_environment(
   wineDebugArgs: string,
   wineRuntimePath?: string,
   launcherOptionsManifest?: WineLauncherOptionsManifest,
+  shaderCacheRecipe?: {
+    wineVersionId?: string;
+    dxmtVersionId?: string;
+  },
 ): Record<string, string> {
   const env: Record<string, string> = {
     WINEPREFIX: bottlePath,
@@ -4860,12 +4903,41 @@ function create_wine_environment(
 
   apply_wine_launcher_options_manifest_defaults(env, manifest);
   delete env.WINEMSYNC;
+  apply_dxmt_shader_cache_environment(env, bottlePath, shaderCacheRecipe);
 
   if (wineDebug) {
     env.WINEDEBUG = wineDebug;
   }
 
   return env;
+}
+
+function apply_dxmt_shader_cache_environment(
+  env: Record<string, string>,
+  prefixPath: string,
+  recipe?: {
+    wineVersionId?: string;
+    dxmtVersionId?: string;
+  },
+): void {
+  const wineVersionId = recipe?.wineVersionId?.trim();
+  const dxmtVersionId = recipe?.dxmtVersionId?.trim();
+
+  if (!wineVersionId || !dxmtVersionId) {
+    return;
+  }
+
+  const cacheKey = `${shader_cache_key_part(wineVersionId)}__${shader_cache_key_part(dxmtVersionId)}`;
+  const cachePath = path.join(expand_user_home_path(prefixPath), DXMT_SHADER_CACHE_DIR_NAME, cacheKey);
+  mkdirSync(cachePath, { recursive: true });
+  env.DXMT_SHADER_CACHE_PATH = cachePath;
+}
+
+function shader_cache_key_part(value: string): string {
+  return value
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96) || "unknown";
 }
 
 function pick_launch_option_env(env: Record<string, string>): Record<string, string> {
@@ -4878,6 +4950,7 @@ function pick_launch_option_env(env: Record<string, string>): Record<string, str
     "WINE_HOYO_DISCONNECT_SECONDS",
     "SUPERVISE_STEAM_WAIT_SECONDS",
     "DXMT_CONFIG",
+    "DXMT_SHADER_CACHE_PATH",
     "MTL_HUD_ENABLED",
   ];
 
@@ -4965,6 +5038,12 @@ function apply_launch_options_to_env(
   if (options.hoyoplayInProcessGpu) {
     env.WINE_HOYOPLAY_ARGS = "--in-process-gpu";
   }
+
+  for (const variable of options.environmentVariables ?? []) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(variable.name)) {
+      env[variable.name] = variable.value;
+    }
+  }
 }
 
 function merge_defined_launch_options(
@@ -5007,19 +5086,20 @@ async function apply_wine_registry_launch_options(
   options: BottleLaunchOptionsPayload,
   logger: { warn: (...args: unknown[]) => void },
 ): Promise<void> {
-  const values: Array<[string, string]> = [];
-
-  if (options.leftCommandIsCtrl !== undefined) {
-    values.push(["LeftCommandIsCtrl", options.leftCommandIsCtrl ? "y" : "n"]);
-  }
-
-  if (options.retinaMode !== undefined) {
-    values.push(["RetinaMode", options.retinaMode ? "y" : "n"]);
-  }
+  const values: Array<[string, string]> = [
+    ["LeftCommandIsCtrl", options.leftCommandIsCtrl === true ? "y" : "n"],
+    ["RetinaMode", options.retinaMode === true ? "y" : "n"],
+  ];
+  let registryWasUpdated = false;
 
   for (const [name, value] of values) {
+    if (wine_registry_mac_driver_value(bottlePath, name) === value) {
+      continue;
+    }
+
     try {
       await run_wine_reg_add(wineCommand, bottlePath, name, value);
+      registryWasUpdated = true;
     } catch (error) {
       logger.warn("failed to apply Wine Mac Driver launch option", {
         name,
@@ -5027,6 +5107,44 @@ async function apply_wine_registry_launch_options(
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  if (registryWasUpdated) {
+    const didStop = await wait_for_registry_wineserver_shutdown(wineCommand, bottlePath);
+
+    if (!didStop) {
+      logger.warn("Wine registry server remained active after applying Mac Driver launch options", {
+        bottlePath,
+      });
+    }
+  }
+}
+
+function wine_registry_mac_driver_value(
+  bottlePath: string,
+  valueName: string,
+): string | undefined {
+  try {
+    const registry = readFileSync(path.join(bottlePath, "user.reg"), "utf8");
+    const sectionHeader = "[Software\\\\Wine\\\\Mac Driver]";
+    const sectionStart = registry.indexOf(sectionHeader);
+
+    if (sectionStart < 0) {
+      return undefined;
+    }
+
+    const sectionEnd = registry.indexOf("\n[", sectionStart + sectionHeader.length);
+    const section = registry.slice(sectionStart, sectionEnd < 0 ? undefined : sectionEnd);
+    const valuePrefix = `"${valueName}"="`;
+    const valueLine = section.split(/\r?\n/).find((line) => line.startsWith(valuePrefix));
+
+    if (!valueLine?.endsWith('"')) {
+      return undefined;
+    }
+
+    return valueLine.slice(valuePrefix.length, -1);
+  } catch {
+    return undefined;
   }
 }
 
@@ -5070,6 +5188,46 @@ function run_wine_reg_add(
 
       reject(new Error(`wine reg exited with code ${code ?? "unknown"}.`));
     });
+  });
+}
+
+// Wine registry commands start a wineserver for the prefix. HoYo launchers
+// must not reuse that short-lived server because their Steam stub starts with
+// a different runtime environment. YAAGL applies the same registry values and
+// waits for wineserver shutdown before starting the game.
+function wait_for_registry_wineserver_shutdown(
+  wineCommand: string,
+  bottlePath: string,
+  timeoutMs = 5000,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const wineserverCommand = path.join(path.dirname(wineCommand), "wineserver");
+    const waiter = spawn(wineserverCommand, ["-w"], {
+      cwd: bottlePath,
+      env: {
+        ...process.env,
+        WINEPREFIX: bottlePath,
+        WINEDEBUG: "-all",
+      },
+      stdio: "ignore",
+    });
+    let settled = false;
+    const finish = (didStop: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      resolve(didStop);
+    };
+    const timeout = setTimeout(() => {
+      waiter.kill("SIGTERM");
+      finish(false);
+    }, timeoutMs);
+
+    waiter.once("error", () => finish(false));
+    waiter.once("close", (code) => finish(code === 0));
   });
 }
 

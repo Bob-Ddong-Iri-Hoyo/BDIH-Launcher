@@ -1,7 +1,8 @@
 import React from "react";
 import { ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
+import type { BottleLaunchOptionsPayload, BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
+import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
 import type { Bottle } from "../Types/Bottle";
 import { useDirectExecutableRunner } from "../Hooks/UseDirectExecutableRunner";
 import { Button } from "./Primitives";
@@ -18,6 +19,7 @@ export function DirectExecutableAction({
   bottle,
   wineRuntimePath,
   dxmtPackagePath,
+  launcherOptionsManifest,
   onRegisterBottleExecutable,
   onUpdateBottlePrefixes,
   onDeleteBottlePrefix,
@@ -25,7 +27,8 @@ export function DirectExecutableAction({
   bottle: Bottle;
   wineRuntimePath?: string;
   dxmtPackagePath?: string;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  launcherOptionsManifest?: WineLauncherOptionsManifest;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
 }) {
@@ -35,6 +38,7 @@ export function DirectExecutableAction({
     bottle,
     wineRuntimePath,
     dxmtPackagePath,
+    launcherOptionsManifest,
     onRegisterBottleExecutable,
     onUpdateBottlePrefixes,
     onDeleteBottlePrefix,

@@ -19,7 +19,10 @@ import type { BottleLaunchOptionsPayload } from "./IPC";
 
 export type RuntimeProfileKind = "launcher" | "game";
 export type RuntimeConfigValueType = "boolean" | "number" | "string" | "enum";
-export type RuntimeLaunchOptionKey = Exclude<keyof BottleLaunchOptionsPayload, "presetId">;
+export type RuntimeLaunchOptionKey = Exclude<
+  keyof BottleLaunchOptionsPayload,
+  "presetId" | "environmentVariables"
+>;
 
 export interface RuntimeConfigChoice {
   label: string;

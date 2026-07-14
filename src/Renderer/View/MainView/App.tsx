@@ -903,11 +903,11 @@ const App: React.FC = () => {
   }
 
   function update_bottles(updater: (currentBottles: Bottle[]) => Bottle[]) {
-    setBottles((currentBottles) => {
-      const nextBottles = updater(currentBottles);
-      void persist_bottles(nextBottles);
-      return nextBottles;
-    });
+    const nextBottles = updater(bottlesRef.current);
+
+    bottlesRef.current = nextBottles;
+    setBottles(nextBottles);
+    void persist_bottles(nextBottles);
   }
 
   function update_data_root_draft(nextDataRootPath: string) {
@@ -1100,12 +1100,14 @@ const App: React.FC = () => {
             launchingAppsRef.current.delete(`${payload.bottleId}:${app.id}`);
           }
         }
-        const shouldReloadBottles = Boolean(
-          payload.isRunning &&
-          payload.appId &&
-          matchingBottle &&
-          (!matchingApp || !matchingApp.iconSrc),
-        );
+        const shouldReloadBottles = payload.executionMode === "installer"
+          ? !payload.isRunning
+          : Boolean(
+              payload.isRunning &&
+              payload.appId &&
+              matchingBottle &&
+              (!matchingApp || !matchingApp.iconSrc),
+            );
 
         setBottles((currentBottles) =>
           apply_prefix_session_update_to_bottles(currentBottles, payload),
@@ -1779,7 +1781,7 @@ const App: React.FC = () => {
   };
 
   const handle_launch_bottle_app = async (bottleId: string, appId: string, executableArgs?: string[]) => {
-    const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
+    const bottle = bottlesRef.current.find((candidateBottle) => candidateBottle.id === bottleId);
     const app = bottle?.apps.find((candidateApp) => candidateApp.id === appId);
 
     if (!bottle || !app?.executablePath) {
@@ -1875,6 +1877,13 @@ const App: React.FC = () => {
       );
       return;
     }
+
+    // Launch only after pending metadata writes finish. Otherwise a process
+    // refresh can reload the previous app options and overwrite a just-saved
+    // prefix-wide Wine setting such as LeftCommandIsCtrl.
+    await bottlePersistQueueRef.current.catch((error) => {
+      console.error("Failed to persist bottle metadata before launch:", error);
+    });
 
     const appPrefixPath = create_bottle_app_prefix_path(bottle.path, app);
     const appExecutablePath = executable_path_for_wine_prefix(app.executablePath, appPrefixPath);
@@ -1979,10 +1988,6 @@ const App: React.FC = () => {
           : currentBottle,
       ),
     );
-  };
-
-  const handle_launch_bottle_app_with_args = (bottleId: string, appId: string, executableArgs: string[]) => {
-    void handle_launch_bottle_app(bottleId, appId, executableArgs);
   };
 
   const handle_stop_bottle_app = async (bottleId: string, appId: string) => {
@@ -2099,7 +2104,12 @@ const App: React.FC = () => {
     );
   };
 
-  const handle_register_bottle_executable = (bottleId: string, executablePath: string, prefixPath?: string) => {
+  const handle_register_bottle_executable = (
+    bottleId: string,
+    executablePath: string,
+    prefixPath?: string,
+    launchOptions?: BottleLaunchOptionsPayload,
+  ) => {
     const normalizedPath = executablePath.trim();
 
     if (!normalizedPath) {
@@ -2122,6 +2132,7 @@ const App: React.FC = () => {
         executablePath: executablePathForPrefix,
         prefixPath: appPrefixPath,
         source: "manual" as const,
+        ...(launchOptions ? { launchOptions } : {}),
         lastPlayed: new Date().toLocaleString(),
         status: "ready" as const,
       };
@@ -2442,6 +2453,35 @@ const App: React.FC = () => {
     window.setTimeout(() => setDeletingBottleModal(null), 520);
   };
 
+  const handle_clear_bottle_dxmt_shader_caches = async (bottleId: string, prefixPaths?: string[]) => {
+    const bottle = bottlesRef.current.find((candidateBottle) => candidateBottle.id === bottleId);
+    if (!bottle || !window.BTIH_API) return undefined;
+
+    const cacheRoots = [...new Set((prefixPaths?.length ? prefixPaths : [bottle.path])
+      .map((prefixPath) => prefixPath.trim())
+      .filter(Boolean))];
+    const aggregateResult = {
+      deletedPaths: [] as string[],
+      skippedPaths: [] as Array<{ path: string; reason: string }>,
+      failedPaths: [] as Array<{ path: string; error: string }>,
+    };
+
+    for (const cacheRoot of cacheRoots) {
+      const result = await window.BTIH_API.invoke(IPC_CHANNELS.APP.DELETE_LAUNCHER_DATA.channelName, {
+        targets: ["shaderCache"],
+        bottlePrefixPath: cacheRoot,
+      }) as typeof aggregateResult | undefined;
+
+      if (result) {
+        aggregateResult.deletedPaths.push(...result.deletedPaths);
+        aggregateResult.skippedPaths.push(...result.skippedPaths);
+        aggregateResult.failedPaths.push(...result.failedPaths);
+      }
+    }
+
+    return aggregateResult;
+  };
+
   const handle_reveal_bottle = (targetPath: string) => {
     void window.BTIH_API?.invoke(IPC_CHANNELS.APP.REVEAL_PATH.channelName, { path: targetPath });
   };
@@ -2501,11 +2541,11 @@ const App: React.FC = () => {
       onChangeBottleDescription={handle_change_bottle_description}
       onRevealBottle={handle_reveal_bottle}
       onDeleteBottle={handle_delete_bottle}
+      onClearBottleDxmtShaderCaches={handle_clear_bottle_dxmt_shader_caches}
       onSelectBottlePrefixPath={handle_select_bottle_prefix_path}
       onDownloadBottleLauncherInstaller={(bottleId, launcher) => void handle_download_bottle_launcher_installer(bottleId, launcher)}
       onInstallBottleLauncher={(bottleId, launcher) => void handle_install_bottle_launcher(bottleId, launcher)}
       onLaunchBottleApp={(bottleId, appId) => void handle_launch_bottle_app(bottleId, appId)}
-      onLaunchBottleAppWithArgs={handle_launch_bottle_app_with_args}
       onStopBottleApp={(bottleId, appId) => void handle_stop_bottle_app(bottleId, appId)}
       onDeleteBottleApp={handle_delete_bottle_app}
       onDeleteBottleAppFiles={(bottleId, appId) => void handle_delete_bottle_app_files(bottleId, appId)}

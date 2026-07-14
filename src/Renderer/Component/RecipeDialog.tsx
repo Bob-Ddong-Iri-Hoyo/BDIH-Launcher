@@ -67,6 +67,10 @@ export function RecipeDialog({
     draftWineVersionId !== bottle.wineVersionId
     || draftDxmtVersionId !== (bottle.dxmtVersionId || "")
     || (draftJadeiteVersionId || fallbackJadeiteVersionId) !== (bottle.jadeiteVersionId || fallbackJadeiteVersionId);
+  const hasWineRecipeChange = draftWineVersionId !== bottle.wineVersionId;
+  const hasDxmtRecipeChange = draftDxmtVersionId !== (bottle.dxmtVersionId || "");
+  const hasJadeiteRecipeChange =
+    (draftJadeiteVersionId || fallbackJadeiteVersionId) !== (bottle.jadeiteVersionId || fallbackJadeiteVersionId);
   const isApplyComplete = applyProgress >= 100;
   const canCloseApplyModal = Boolean(applyErrorMessage) || isApplyComplete;
 
@@ -108,6 +112,14 @@ export function RecipeDialog({
     }
 
     onClose();
+  }
+
+  function cancel_apply_recipe_changes() {
+    setDraftWineVersionId(bottle.wineVersionId);
+    setDraftDxmtVersionId(bottle.dxmtVersionId || "");
+    setDraftJadeiteVersionId(bottle.jadeiteVersionId || "");
+    setStatusMessage("");
+    setIsApplyConfirmOpen(false);
   }
 
   async function confirm_apply_recipe_changes(validateOnly = false) {
@@ -258,13 +270,13 @@ export function RecipeDialog({
         tone="warning"
         icon={AlertTriangle}
         placement="center"
-        widthClassName="max-w-md"
-        onClose={() => setIsApplyConfirmOpen(false)}
+        widthClassName="max-w-xl"
+        onClose={cancel_apply_recipe_changes}
         actions={[
           {
             label: t("common.actions.cancel"),
             variant: "secondary",
-            onClick: () => setIsApplyConfirmOpen(false),
+            onClick: cancel_apply_recipe_changes,
           },
           {
             label: t("main.recipeInfo.applyWarningAccept", { defaultValue: "앱 종료 후 변경" }),
@@ -273,11 +285,60 @@ export function RecipeDialog({
           },
         ]}
       >
-        <Text className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
-          {t("main.recipeInfo.applyWarningBody", {
-            defaultValue: "저장하지 않은 게임/런처 작업이 있다면 먼저 정리해 주세요. 레시피 변경 중에는 Bottle을 실행하지 않는 것이 안전합니다.",
-          })}
-        </Text>
+        <Stack className="gap-3">
+          <Text className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+            {t("main.recipeInfo.applyWarningBody")}
+          </Text>
+
+          <Box className="rounded-lg border border-white/10 bg-[#0b1020] p-3">
+            <Text className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              {t("main.recipeInfo.applyWarningChangesTitle")}
+            </Text>
+            <Box as="ul" className="mt-2 space-y-2 pl-4 text-xs leading-5 text-slate-300">
+              {hasWineRecipeChange ? (
+                <Text as="li" className="list-disc">
+                  {t("main.recipeInfo.applyWarningVersionChange", {
+                    runtime: t("main.recipeInfo.wineVersion"),
+                    from: bottle.wineVersionId || "-",
+                    to: draftWineVersionId || "-",
+                  })}
+                </Text>
+              ) : null}
+              {hasDxmtRecipeChange ? (
+                <Text as="li" className="list-disc">
+                  {t("main.recipeInfo.applyWarningVersionChange", {
+                    runtime: t("main.recipeInfo.dxmtVersion"),
+                    from: bottle.dxmtVersionId || "-",
+                    to: draftDxmtVersionId || "-",
+                  })}
+                </Text>
+              ) : null}
+              {hasJadeiteRecipeChange ? (
+                <Text as="li" className="list-disc">
+                  {t("main.recipeInfo.applyWarningVersionChange", {
+                    runtime: "Jadeite",
+                    from: bottle.jadeiteVersionId || fallbackJadeiteVersionId || "-",
+                    to: draftJadeiteVersionId || fallbackJadeiteVersionId || "-",
+                  })}
+                </Text>
+              ) : null}
+              <Text as="li" className="list-disc">
+                {t("main.recipeInfo.applyWarningPrefixUpdate")}
+              </Text>
+            </Box>
+          </Box>
+
+          {hasWineRecipeChange || hasDxmtRecipeChange ? (
+            <Stack className="gap-1 rounded-lg border border-sky-300/20 bg-sky-400/[0.08] px-3 py-2 text-xs leading-5 text-sky-100">
+              <Text>{t("main.recipeInfo.applyWarningShaderCacheReset")}</Text>
+              <Text className="text-sky-100/70">{t("main.recipeInfo.applyWarningOldCachePreserved")}</Text>
+            </Stack>
+          ) : null}
+
+          <Text className="text-xs leading-5 text-slate-500">
+            {t("main.recipeInfo.applyWarningCancelRollback")}
+          </Text>
+        </Stack>
       </Dialog>
 
       <Dialog

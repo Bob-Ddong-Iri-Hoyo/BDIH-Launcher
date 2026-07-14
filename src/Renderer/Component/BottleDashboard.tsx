@@ -16,9 +16,9 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, Download, FolderOpen, GripVertical, Layers3, LayoutGrid, PackageOpen, Plus, Search, Settings, Sparkles, Trash2, Wine as WineIcon } from "lucide-react";
+import { Check, Download, FolderOpen, GripVertical, Layers3, LayoutGrid, PackageOpen, Plus, Search, Settings, SlidersHorizontal, Sparkles, Trash2, Wine as WineIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
+import type { BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload, DeleteLauncherDataResultPayload } from "../../Common/Types/IPC";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
 import type { Bottle, CreateBottleInput } from "../Types/Bottle";
 import { create_bottle_path_from_name, normalize_bottle_prefix_root } from "../../Common/Util/BottlePath";
@@ -1093,13 +1093,13 @@ export function BottleDetailPanel({
   onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
   onLaunchBottleApp,
-  onLaunchBottleAppWithArgs,
   onStopBottleApp,
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
   onRegisterBottleExecutable,
   onUpdateBottlePrefixes,
   onDeleteBottlePrefix,
+  onClearBottleDxmtShaderCaches,
   onChangeBottleAppLaunchOptions,
   onChangeBottleRecipe,
   onApplyBottleRecipe,
@@ -1118,13 +1118,13 @@ export function BottleDetailPanel({
   onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
-  onLaunchBottleAppWithArgs?: (bottleId: string, appId: string, executableArgs: string[]) => void;
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string) => void;
+  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
+  onClearBottleDxmtShaderCaches?: (bottleId: string, prefixPaths?: string[]) => Promise<DeleteLauncherDataResultPayload | undefined>;
   onChangeBottleAppLaunchOptions?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
   onChangeBottleRecipe?: (bottleId: string, patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>) => void;
   onApplyBottleRecipe?: (
@@ -1138,6 +1138,10 @@ export function BottleDetailPanel({
 }) {
   const { t } = useTranslation();
   const [isRecipeOpen, setIsRecipeOpen] = React.useState(false);
+  const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = React.useState(false);
+  const [selectedCachePrefixPaths, setSelectedCachePrefixPaths] = React.useState<Set<string>>(new Set());
+  const [isClearingDxmtCache, setIsClearingDxmtCache] = React.useState(false);
+  const [dxmtCacheResult, setDxmtCacheResult] = React.useState<"success" | "error" | null>(null);
   const isBottleWorking = bottle.status === "updating" || Boolean(
     bottle.setupTask && ["setup", "dxmt", "download", "install"].includes(bottle.setupTask.stage),
   );
@@ -1156,6 +1160,48 @@ export function BottleDetailPanel({
     ? dxmtVersions.find((version) => version.id === bottle.dxmtVersionId)?.path
     : undefined;
   const launcherOptionsManifest = wineVersions.find((version) => version.id === bottle.wineVersionId)?.launcherOptionsManifest;
+  const dxmtCachePrefixes = React.useMemo(() => bottle_dxmt_cache_prefixes(bottle), [bottle]);
+  const areAllCachePrefixesSelected = dxmtCachePrefixes.length > 0 && dxmtCachePrefixes.every((prefix) =>
+    selectedCachePrefixPaths.has(prefix.path),
+  );
+
+  function open_advanced_settings() {
+    setSelectedCachePrefixPaths(new Set());
+    setDxmtCacheResult(null);
+    setIsAdvancedSettingsOpen(true);
+  }
+
+  function toggle_cache_prefix(prefixPath: string) {
+    setSelectedCachePrefixPaths((currentPaths) => {
+      const nextPaths = new Set(currentPaths);
+      if (nextPaths.has(prefixPath)) nextPaths.delete(prefixPath);
+      else nextPaths.add(prefixPath);
+      return nextPaths;
+    });
+    setDxmtCacheResult(null);
+  }
+
+  function toggle_all_cache_prefixes() {
+    setSelectedCachePrefixPaths(areAllCachePrefixesSelected
+      ? new Set()
+      : new Set(dxmtCachePrefixes.map((prefix) => prefix.path)));
+    setDxmtCacheResult(null);
+  }
+
+  async function clear_selected_dxmt_caches() {
+    if (isBottleRunning || selectedCachePrefixPaths.size === 0 || !onClearBottleDxmtShaderCaches) return;
+
+    setIsClearingDxmtCache(true);
+    setDxmtCacheResult(null);
+    try {
+      const result = await onClearBottleDxmtShaderCaches(bottle.id, [...selectedCachePrefixPaths]);
+      setDxmtCacheResult(result && result.failedPaths.length === 0 ? "success" : "error");
+    } catch {
+      setDxmtCacheResult("error");
+    } finally {
+      setIsClearingDxmtCache(false);
+    }
+  }
 
   return (
     <Box className="grid min-h-full grid-cols-[minmax(0,1fr)_18rem] gap-4 p-6">
@@ -1165,7 +1211,6 @@ export function BottleDetailPanel({
         launcherOptionsManifest={launcherOptionsManifest}
         appLogoSrc={appLogoSrc}
         onLaunchBottleApp={onLaunchBottleApp}
-        onLaunchBottleAppWithArgs={onLaunchBottleAppWithArgs}
         onStopBottleApp={onStopBottleApp}
         onDeleteBottleApp={onDeleteBottleApp}
         onDeleteBottleAppFiles={onDeleteBottleAppFiles}
@@ -1222,12 +1267,21 @@ export function BottleDetailPanel({
             <Settings size={13} />
             {t("main.recipeViewAction")}
           </Button>
+          <Button
+            type="button"
+            onClick={open_advanced_settings}
+            className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+          >
+            <SlidersHorizontal size={13} />
+            {t("main.advancedSettings.action")}
+          </Button>
         </Stack>
 
         <BottleActionBar
           bottle={bottle}
           wineRuntimePath={wineRuntimePath}
           dxmtPackagePath={dxmtPackagePath}
+          launcherOptionsManifest={launcherOptionsManifest}
           onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
           onInstallBottleLauncher={onInstallBottleLauncher}
           onLaunchBottleApp={onLaunchBottleApp}
@@ -1278,8 +1332,115 @@ export function BottleDetailPanel({
         onInstallDxmtVersion={onInstallDxmtVersion}
         onInstallJadeiteVersion={onInstallJadeiteVersion}
       />
+      <Dialog
+        open={isAdvancedSettingsOpen}
+        title={t("main.advancedSettings.title")}
+        description={t("main.advancedSettings.description")}
+        icon={SlidersHorizontal}
+        placement="center"
+        widthClassName="max-w-2xl"
+        onClose={() => {
+          if (!isClearingDxmtCache) setIsAdvancedSettingsOpen(false);
+        }}
+        closeOnBackdrop={!isClearingDxmtCache}
+        showCloseButton={!isClearingDxmtCache}
+        actions={[
+          {
+            label: t("common.actions.close"),
+            disabled: isClearingDxmtCache,
+            onClick: () => setIsAdvancedSettingsOpen(false),
+          },
+          {
+            label: isClearingDxmtCache ? t("main.advancedSettings.clearing") : t("main.advancedSettings.clearSelected"),
+            icon: Trash2,
+            variant: "danger",
+            disabled: isBottleRunning || isClearingDxmtCache || selectedCachePrefixPaths.size === 0 || !onClearBottleDxmtShaderCaches,
+            onClick: () => void clear_selected_dxmt_caches(),
+          },
+        ]}
+      >
+        <Stack className="gap-3">
+          <Inline className="items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2">
+            <Stack className="min-w-0 gap-1">
+              <Text className="text-sm font-semibold text-slate-100">{t("main.advancedSettings.shaderCacheTitle")}</Text>
+              <Text className="text-xs leading-5 text-slate-500">{t("main.advancedSettings.shaderCacheDescription")}</Text>
+            </Stack>
+            <Button type="button" variant="glass" size="sm" disabled={dxmtCachePrefixes.length === 0 || isClearingDxmtCache} onClick={toggle_all_cache_prefixes}>
+              {areAllCachePrefixesSelected ? t("main.advancedSettings.clearSelection") : t("main.advancedSettings.selectAll")}
+            </Button>
+          </Inline>
+
+          {isBottleRunning ? (
+            <Text className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+              {t("main.advancedSettings.runningWarning")}
+            </Text>
+          ) : null}
+
+          {dxmtCachePrefixes.length > 0 ? (
+            <Stack className="max-h-72 gap-2 overflow-y-auto pr-1">
+              {dxmtCachePrefixes.map((prefix) => (
+                <Box
+                  as="label"
+                  key={prefix.id}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition ${
+                    selectedCachePrefixPaths.has(prefix.path) ? "accent-selection" : "border-white/10 bg-[#0b1020]/70 hover:bg-white/[0.05]"
+                  }`}
+                >
+                  <Input
+                    type="checkbox"
+                    checked={selectedCachePrefixPaths.has(prefix.path)}
+                    disabled={isClearingDxmtCache}
+                    className="accent-checkbox mt-1 h-4 w-4 shrink-0"
+                    onChange={() => toggle_cache_prefix(prefix.path)}
+                  />
+                  <Stack className="min-w-0 gap-1">
+                    <Text className="truncate text-sm font-semibold text-slate-100">{prefix.name}</Text>
+                    <Text className="break-all font-mono text-[11px] leading-5 text-slate-500">{prefix.path}</Text>
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          ) : (
+            <Text className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-4 text-center text-xs text-slate-500">
+              {t("main.advancedSettings.noPrefixes")}
+            </Text>
+          )}
+
+          {dxmtCacheResult ? (
+            <Text className={`rounded-lg border px-3 py-2 text-xs leading-5 ${
+              dxmtCacheResult === "success" ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-100" : "border-red-300/25 bg-red-400/10 text-red-100"
+            }`}>
+              {t(dxmtCacheResult === "success" ? "main.advancedSettings.clearComplete" : "main.advancedSettings.clearFailed")}
+            </Text>
+          ) : null}
+        </Stack>
+      </Dialog>
     </Box>
   );
+}
+
+function bottle_dxmt_cache_prefixes(bottle: Bottle): BottlePrefixMetadataPayload[] {
+  const prefixesByPath = new Map<string, BottlePrefixMetadataPayload>();
+  const addPrefix = (prefixPath: string | undefined, name?: string, prefix?: BottlePrefixMetadataPayload) => {
+    const trimmedPath = prefixPath?.trim();
+    if (!trimmedPath) return;
+
+    const normalizedPath = trimmedPath.replace(/[\\/]+$/g, "").toLowerCase();
+    if (prefixesByPath.has(normalizedPath)) return;
+
+    const fallbackName = trimmedPath.split(/[\\/]/).filter(Boolean).pop() || "Prefix";
+    prefixesByPath.set(normalizedPath, prefix ?? {
+      id: `dxmt-cache:${normalizedPath}`,
+      name: name || fallbackName,
+      path: trimmedPath,
+      kind: "custom",
+    });
+  };
+
+  bottle.prefixes?.forEach((prefix) => addPrefix(prefix.path, prefix.name, prefix));
+  bottle.apps.forEach((app) => addPrefix(app.prefixPath, app.name));
+  addPrefix(bottle.prefixPath, bottle.name);
+  return [...prefixesByPath.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 /**

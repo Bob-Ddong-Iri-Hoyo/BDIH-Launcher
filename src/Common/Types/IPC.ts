@@ -67,6 +67,7 @@ export type DxmtStatusPayload = WineStatusPayload;
 export type JadeiteStatusPayload = WineStatusPayload;
 
 export type AppUpdateStatus =
+  | "idle"
   | "disabled"
   | "checking"
   | "available"
@@ -78,9 +79,11 @@ export type AppUpdateStatus =
 export interface AppUpdateStatusPayload {
   status: AppUpdateStatus;
   message?: string;
+  currentVersion?: string;
   version?: string;
   progress?: number;
   error?: string;
+  channel?: LauncherUpdateChannel;
 }
 
 export const LAUNCHER_LOG_LEVELS = ["off", "error", "warn", "info", "debug", "all"] as const;
@@ -89,6 +92,8 @@ export const DEBUG_FLAG_MODES = ["preset", "wineDebug"] as const;
 export type DebugFlagMode = (typeof DEBUG_FLAG_MODES)[number];
 export const RENDERER_THEME_MODES = ["dark", "light", "system"] as const;
 export type RendererThemeMode = (typeof RENDERER_THEME_MODES)[number];
+export const LAUNCHER_UPDATE_CHANNELS = ["stable", "beta", "nightly"] as const;
+export type LauncherUpdateChannel = (typeof LAUNCHER_UPDATE_CHANNELS)[number];
 export const LAUNCHER_SHORTCUT_ACTIONS = ["launch", "logs", "preferences"] as const;
 export type LauncherShortcutAction = (typeof LAUNCHER_SHORTCUT_ACTIONS)[number];
 export type LauncherShortcutMap = Record<LauncherShortcutAction, string>;
@@ -102,6 +107,7 @@ export interface LauncherPreferencePayload {
   dxmtCachePath: string;
   gameInstallPath: string;
   autoCheckUpdates: boolean;
+  updateChannel?: LauncherUpdateChannel;
   closeToTray: boolean;
   themeMode: RendererThemeMode;
   appLoggingLevel: LauncherLogLevel;
@@ -140,6 +146,7 @@ export interface SelectFileResultPayload {
 export interface PathSuggestionPayload {
   value: string;
   defaultPath?: string;
+  winePrefixPath?: string;
   limit?: number;
 }
 
@@ -153,7 +160,7 @@ export interface PathSuggestionResultPayload {
   suggestions: PathSuggestionItemPayload[];
 }
 
-export type LauncherDataDeleteTarget = "wineRuntime" | "bottlePrefixes" | "dxmtCache" | "settings" | "logs" | "all";
+export type LauncherDataDeleteTarget = "wineRuntime" | "bottlePrefixes" | "dxmtCache" | "shaderCache" | "metalPipelineCache" | "settings" | "logs" | "all";
 
 export interface DeleteLauncherDataPayload {
   targets?: LauncherDataDeleteTarget[];
@@ -264,6 +271,7 @@ export interface RunBottleExecutablePayload {
   executablePath: string;
   executableArgs?: string[];
   launchOptions?: BottleLaunchOptionsPayload;
+  executionMode?: "app" | "installer";
 }
 
 export interface StopBottleProcessPayload {
@@ -346,6 +354,7 @@ export interface BottlePrefixSessionPayload {
   appId?: string;
   appIds?: string[];
   appName?: string;
+  executionMode?: "app" | "installer";
   startedAt?: string;
   endedAt?: string;
   error?: string;
@@ -359,6 +368,11 @@ export type BottleLaunchOptionPresetId =
   | "hsr"
   | "genshin"
   | "custom";
+
+export interface BottleEnvironmentVariablePayload {
+  name: string;
+  value: string;
+}
 
 export interface BottleLaunchOptionsPayload {
   presetId?: BottleLaunchOptionPresetId;
@@ -380,6 +394,7 @@ export interface BottleLaunchOptionsPayload {
   autoNetworkCut?: boolean;
   autoNetworkReconnectSeconds?: number;
   allowDuplicateGame?: boolean;
+  environmentVariables?: BottleEnvironmentVariablePayload[];
 }
 export type BottleTaskStage =
   | "setup"
@@ -514,6 +529,7 @@ export interface AppChannelSchema {
   readonly MAXIMIZE: IpcChannelUnit<void>;
   readonly RESTART: IpcChannelUnit<void>;
   readonly UPDATE: IpcChannelUnit<void>;
+  readonly GET_UPDATE_STATUS: IpcChannelUnit<void>;
   readonly GET_ROSETTA_STATUS: IpcChannelUnit<void>;
   readonly CONTINUE_AFTER_ROSETTA_GATE: IpcChannelUnit<void>;
   readonly GET_LOCALE_RESOURCES: IpcChannelUnit<void>;
@@ -786,6 +802,12 @@ export const APP = {
     channelName: "app:update",
     direction: "RENDERER_TO_MAIN",
     method: "send",
+    payload: {} as never,
+  },
+  GET_UPDATE_STATUS: {
+    channelName: "app:get-update-status",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
     payload: {} as never,
   },
   GET_ROSETTA_STATUS: {

@@ -158,6 +158,23 @@
       "recipeSettings": "レシピ設定",
       "recipeSettingsDescription": "選択したボトルのレシピ、ランタイムオプション、起動準備手順を調整します。",
       "recipeViewAction": "レシピを表示",
+      "advancedSettings": {
+        "action": "詳細設定",
+        "title": "Bottle詳細設定",
+        "description": "このBottleのPrefixごとにDXMTシェーダーキャッシュを選択して管理します。",
+        "shaderCacheTitle": "Prefix別DXMTシェーダーキャッシュ",
+        "shaderCacheDescription": "複数のPrefixを同時に選択できます。削除したキャッシュは次回起動時に再作成されます。",
+        "selectAll": "すべて選択",
+        "clearSelection": "選択を解除",
+        "clearSelected": "クリア",
+        "clearing": "クリア中...",
+        "noPrefixes": "このBottleには管理対象のPrefixがありません。",
+        "runningWarning": "Bottleの実行中はキャッシュを削除できません。実行中のアプリをすべて終了してから再試行してください。",
+        "clearComplete": "選択したDXMTシェーダーキャッシュを削除しました。",
+        "clearFailed": "一部のDXMTシェーダーキャッシュを削除できませんでした。",
+        "clearAllAction": "すべてのDXMTキャッシュを削除",
+        "clearAllConfirm": "{{name}} BottleのすべてのPrefixのDXMTシェーダーキャッシュを削除しますか？"
+      },
       "recipeInfo": {
         "wineVersion": "Wineバージョン",
         "dxmtVersion": "DXMTバージョン",
@@ -178,7 +195,17 @@
         "applyComplete": "レシピ設定が完了しました。",
         "validatingRecipe": "現在のレシピ設定を検証中...",
         "validationComplete": "レシピの検証が完了しました。",
-        "validationSkipped": "現在のレシピ設定は有効です。変更項目がないため、適用処理をスキップしました。"
+        "validationSkipped": "現在のレシピ設定は有効です。変更項目がないため、適用処理をスキップしました。",
+        "applyWarningTitle": "レシピ変更を適用しますか？",
+        "applyWarningDescription": "確認すると、実行中のアプリとPrefixセッションを終了してから、選択したランタイム変更をBottleに適用します。",
+        "applyWarningBody": "保存していないゲームやランチャーの作業を先に終了してください。適用中はBottleを起動できません。",
+        "applyWarningChangesTitle": "適用予定の変更",
+        "applyWarningVersionChange": "{{runtime}}: {{from}} -> {{to}}",
+        "applyWarningPrefixUpdate": "このBottleの既存PrefixにWineおよびDXMTランタイムファイルを再適用します。",
+        "applyWarningShaderCacheReset": "WineまたはDXMTのレシピキーが変わるため、各Prefixは新しい空のDXMTシェーダーキャッシュから開始します。次回起動時に一時的なコンパイル遅延やカクつきが発生する場合があります。",
+        "applyWarningOldCachePreserved": "以前のレシピのシェーダーキャッシュは自動削除されず、詳細設定から削除できます。",
+        "applyWarningCancelRollback": "キャンセルすると、上の選択をすべて現在のレシピ値に戻します。",
+        "applyWarningAccept": "確認して適用"
       },
       "openRecipeSettings": "レシピ設定を開く",
       "bottleStatus": {
@@ -235,12 +262,21 @@
           "general": "Wineとアプリの基本動作",
           "dxmt": "グラフィックとMetalFX設定",
           "timing": "起動とプロセス監視の時間",
-          "network": "ゲーム別ネットワーク起動補正"
+          "network": "ゲーム別ネットワーク起動補正",
+          "directInput": "カスタム環境変数"
         },
         "unsupportedByWine": "選択中のWineランタイムメタデータでは利用できません。",
         "general": "一般",
         "timing": "タイミング",
         "network": "ネットワーク",
+        "directInput": "直接入力",
+        "environmentVariablesDescription": "Wineプロセスに追加する環境変数を入力します。初期状態は空です。",
+        "environmentVariablesEmpty": "カスタム環境変数はありません。",
+        "environmentVariableName": "変数名",
+        "environmentVariableValue": "値",
+        "environmentVariableInvalid": "変数名は英字またはアンダースコアで始め、英数字とアンダースコアのみを使用し、重複しないようにしてください。",
+        "addEnvironmentVariable": "環境変数を追加",
+        "removeEnvironmentVariable": "環境変数を削除",
         "enableMsync": "msyncを有効化",
         "steamWebHelperArgs": "Steam WebHelper引数",
         "hoyoplayInProcessGpu": "HoYoPlay --in-process-gpu",
@@ -374,7 +410,7 @@
         "addManualAppDescription": "自動検出されなかった実行ファイルをこのボトルに登録します。",
         "pathPlaceholder": "C:\\Program Files\\App\\app.exe or /Users/me/Downloads/setup.exe",
         "pathHint": "prefix内のWindowsパス、またはmacOS上のローカルインストーラパスを指定します。",
-        "pathAutocompleteHint": "Tabで候補を開き、Tab/矢印キーで移動、Enterで選択します。実行ファイルを選択した後はTabで引数欄へ移動します。項目が多いフォルダでは一覧をスクロールできます。",
+        "pathAutocompleteHint": "Tabで候補を開き、Tab/矢印キーで移動し、Enterで選択します。項目が多いフォルダでは一覧をスクロールできます。",
         "manualTitle": "パスを入力またはファイルを選択",
         "manualDescription": "Windowsパスを直接入力するか、macOSファイルを選択してWineのZ:ドライブ経由で実行します。",
         "manualAddTitle": "アプリ実行ファイルを選択",
@@ -392,6 +428,12 @@
         "prefixResetAction": "初期化",
         "prefixCustomNamePrompt": "新しいprefix名を入力してください。",
         "prefixCustomNameDefault": "Custom prefix",
+        "prefixNameDialogTitle": "Prefixを作成",
+        "prefixNameLabel": "Prefix名",
+        "prefixNameEmptyHint": "空欄の場合は{{name}}という名前で作成されます。",
+        "prefixNameDuplicate": "{{name}}という名前のprefixは既に存在します。",
+        "prefixNameCreate": "作成",
+        "prefixNameCancel": "キャンセル",
         "prefixAdded": "{{name}} prefixを追加しました。",
         "prefixAffectedApps": "このprefixを使用するアプリ{{count}}件が一覧から削除されます。",
         "prefixAffectedAppsMore": "ほか{{count}}件",
@@ -404,9 +446,12 @@
         "pathAutocompleteRegisterHint": "Tabで候補を開き、Tab/矢印キーで移動、Enterで実行ファイルを選択します。",
         "browseFile": "ファイルを探す",
         "selectFileTitle": "Windows実行ファイルを選択",
-        "argumentsLabel": "引数",
-        "argumentsPlaceholder": "-windowed -language ko",
-        "argumentsHint": "任意です。空白を含む引数には引用符を使えます。",
+        "launchOptions": "起動オプション",
+        "installerMode": "インストーラーとして扱う",
+        "installerModeActive": "インストーラーモード使用中",
+        "installerModeDescription": "選択したファイルが別のアプリをインストールする場合に使用します。",
+        "installerModeActiveDescription": "インストーラー自体は登録せず、終了後に選択したprefixからインストール済みアプリを検出します。",
+        "installerStarted": "インストーラーを開始しました。インストールの終了を待っています。",
         "pathRequired": "先に実行ファイルのパスを入力してください。",
         "wineRuntimeMissing": "Wineランタイムがインストールまたは展開されていません: {{versionId}}",
         "starting": "実行ファイルを起動中...",
@@ -460,6 +505,8 @@
         "generalDescription": "言語と表示",
         "wine": "Wine",
         "wineDescription": "データ保存と診断",
+        "appInfo": "アプリ情報",
+        "appInfoDescription": "バージョンと更新チャンネル",
         "shortcut": "ショートカット",
         "shortcutDescription": "ランチャー操作キー"
       },
@@ -479,15 +526,15 @@
       "sharedGamesPathDescription": "複数のBottleから参照できるゲームをランチャーがダウンロードするホストフォルダです。",
         "wineInstallTitle": "Wineランタイム保存先",
         "wineInstallDescription": "ダウンロードしたWineビルドとランタイムのフォルダです。",
-        "bottlePrefixTitle": "Bottle prefix保存先",
-        "bottlePrefixDescription": "ボトルのWine prefixを作成・管理するフォルダです。",
-        "dxmtCacheTitle": "DXMTパッケージ保存先",
-        "dxmtCacheDescription": "事前ダウンロードしたDXMTパッケージとインストーラキャッシュのフォルダです。",
+        "bottlePrefixTitle": "Bottleストレージ",
+        "bottlePrefixDescription": "BottleフォルダとBottleごとのWine Prefixを作成・管理する保存先です。",
+        "dxmtCacheTitle": "DXMTランタイムストレージ",
+        "dxmtCacheDescription": "ダウンロードしたDXMTランタイムパッケージとインストール元を保存するフォルダです。",
         "resetAll": "データ場所をリセット"
       },
       "dangerZone": {
         "title": "危険な操作",
-        "description": "ランチャー管理のWineランタイム、ボトルprefix、DXMTキャッシュ、設定、ログを削除します。",
+      "description": "ランチャー管理のWineランタイム、ボトルprefix、DXMTおよびMetalキャッシュ、設定、ログを削除します。",
         "deleteAction": "すべてのランチャーデータを削除",
         "confirmTitle": "すべてのランチャーデータを削除しますか？",
         "confirmDescription": "この操作は元に戻せません。続行前に、特にカスタムパスを使っている場合は下のフォルダを確認してください。",
@@ -499,13 +546,25 @@
             "description": "ダウンロード済みWineビルドとランタイムファイルを削除します。"
           },
           "bottlePrefixes": {
-            "title": "Bottle prefix",
-            "description": "ボトル用に管理されているWine prefixを削除します。"
+            "title": "Bottleストレージ",
+            "description": "管理対象のBottleフォルダと、その中のすべてのWine Prefixを削除します。"
           },
           "dxmtCache": {
-            "title": "DXMTキャッシュ",
-            "description": "ダウンロード済みDXMTパッケージとインストーラキャッシュを削除します。"
-          },
+            "title": "DXMTランタイム",
+            "description": "ダウンロード済みDXMTランタイムパッケージとインストール元を削除します。"
+        },
+        "shaderCache": {
+          "title": "シェーダーキャッシュ",
+          "description": "各PrefixがWineおよびDXMTレシピごとに再利用するDXMTシェーダーキャッシュを削除します。"
+        },
+        "metalPipelineCache": {
+          "title": "Metalパイプラインキャッシュ",
+          "description": "ランチャー管理のすべてのWineアプリが共有するmacOS Metal PSOおよびfrontendキャッシュを削除します。",
+          "confirmDescription": "実行中のランチャー管理Wineアプリをすべて終了し、共有Metalパイプラインキャッシュを削除します。次回のゲーム起動では再コンパイルにより読み込みの遅延や一時的なカクつきが発生する場合があります。",
+          "workingTitle": "Metalキャッシュを削除中",
+          "workingDescription": "Wineアプリを終了し、共有Metalパイプラインキャッシュを削除しています。",
+          "workingBody": "完了するまでこのウィンドウを開いたままにしてください。次回のゲーム起動時にキャッシュが再作成されます。"
+        },
           "settings": {
             "title": "設定",
             "description": "ランチャー設定と保存済み設定を削除します。"
@@ -573,6 +632,24 @@
         "github": "GitHub",
         "discord": "Discord"
       },
+      "appInfo": {
+        "title": "アプリ情報",
+        "description": "現在のランチャーバージョンと更新配信チャンネルを管理します。",
+        "currentVersionTitle": "現在のバージョン",
+        "currentVersionDescription": "現在実行中の BDIH Launcher のインストール済みバージョンです。",
+        "versionUnknown": "確認できません",
+        "channelTitle": "更新チャンネル",
+        "channelDescription": "ランチャー更新の安定性レベルを選択します。",
+        "channels": {
+          "stable": { "label": "Stable", "description": "検証済みの安定版のみ受け取ります。" },
+          "beta": { "label": "Beta", "description": "公開前の機能と修正を先行して受け取ります。" },
+          "nightly": { "label": "Nightly", "description": "最新の実験的ビルドを受け取ります。" }
+        },
+        "channelWarningTitle": "{{channel}} チャンネルに変更しますか？",
+        "channelWarningDescription": "プレビュー版は不安定な場合があり、Stable へすぐ戻せない可能性があります。",
+        "channelWarningBody": "新しいビルドで設定やデータ形式が変更される場合があります。変更前に重要な Bottle データをバックアップしてください。",
+        "channelWarningConfirm": "チャンネルを変更"
+      },
       "appUpdate": {
         "title": "アプリアップデート",
         "description": "新しいバージョンを確認し、自動更新チェックを管理します。",
@@ -612,6 +689,7 @@
           }
         },
         "status": {
+          "idle": "準備完了",
           "disabled": "待機中",
           "checking": "確認中",
           "available": "利用可能",

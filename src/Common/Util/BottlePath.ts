@@ -94,11 +94,15 @@ export function executable_path_for_wine_prefix(executablePath: string, prefixPa
   const normalizedPrefixPath = prefixPath.replace(/\\/g, "/").replace(/\/+$/, "");
   const driveCPath = `${normalizedPrefixPath}/drive_c/`;
 
-  if (!hostPath.toLowerCase().startsWith(driveCPath.toLowerCase())) {
-    return executablePath.trim();
+  if (hostPath.toLowerCase().startsWith(driveCPath.toLowerCase())) {
+    return `C:\\${hostPath.slice(driveCPath.length).replace(/\//g, "\\")}`;
   }
 
-  return `C:\\${hostPath.slice(driveCPath.length).replace(/\//g, "\\")}`;
+  if (hostPath.startsWith("/")) {
+    return `Z:${hostPath.replace(/\//g, "\\")}`;
+  }
+
+  return executablePath.trim();
 }
 
 export function is_internal_bottle_prefix_dir_name(name: string): boolean {

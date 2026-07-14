@@ -278,6 +278,11 @@ function create_hoyoplay_overseer_env(
   if (request.launchOptions.allowDuplicateGame !== undefined) {
     env.SUPERVISOR_ALLOW_DUPLICATE_GAME = request.launchOptions.allowDuplicateGame ? "1" : "0";
   }
+  for (const variable of request.launchOptions.environmentVariables ?? []) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(variable.name)) {
+      env[variable.name] = variable.value;
+    }
+  }
 
   return env;
 }

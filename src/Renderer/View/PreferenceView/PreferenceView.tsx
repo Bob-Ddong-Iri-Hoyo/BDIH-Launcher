@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { FolderOpen, Keyboard, MonitorCog, RotateCcw, Save, Trash2, Wine } from "lucide-react";
+import { AlertTriangle, FolderOpen, Info, Keyboard, MonitorCog, RotateCcw, Save, Trash2, Wine } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { BDIH_DISCORD_URL, BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateStatusPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
+import { AppUpdateStatusPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_UPDATE_CHANNELS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherUpdateChannel, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
 import { I18N_RESOURCES } from "../../I18n/Resources";
 import { AppUpdatePanel } from "../../Component/AppUpdatePanel";
 import { DeveloperLinkGroup } from "../../Component/DeveloperLinks";
@@ -15,7 +15,7 @@ import { Box, Button, FieldLabel, InlineText, Input, Text } from "../../Componen
 import { is_supported_locale, LOCALE_OPTIONS, SupportedLocale } from "../../I18n";
 import { ACCENT_COLOR_ITEMS, AccentColor, is_accent_color } from "../../Theme";
 
-type PreferenceCategory = "general" | "wine" | "shortcut";
+type PreferenceCategory = "general" | "wine" | "shortcut" | "appInfo";
 export type PreferencePathKey = "dataRootPath" | "bottlePrefixPath" | "gameInstallPath";
 
 const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
@@ -428,6 +428,9 @@ export function PreferenceView({
   const [deleteTargets, setDeleteTargets] = useState<LauncherDataDeleteTarget[]>(["all"]);
   const [shortcutValidationErrors, setShortcutValidationErrors] = useState<Partial<Record<LauncherShortcutAction, boolean>>>({});
   const [shortcutDuplicateConflictActions, setShortcutDuplicateConflictActions] = useState<LauncherShortcutAction[]>([]);
+  const [appInfoStatus, setAppInfoStatus] = useState<AppUpdateStatusPayload>();
+  const [updateChannel, setUpdateChannel] = useState<LauncherUpdateChannel>("stable");
+  const [pendingUpdateChannel, setPendingUpdateChannel] = useState<LauncherUpdateChannel>();
   const defaultBottlePrefixPath = useMemo(() => create_data_root_child_path(dataRootPath, "Bottles"), [dataRootPath]);
   const defaultGameInstallPath = useMemo(() => create_data_root_child_path(dataRootPath, "Games"), [dataRootPath]);
   const [isAdvancedStorageOpen, setIsAdvancedStorageOpen] = useState(() =>
@@ -445,6 +448,32 @@ export function PreferenceView({
       setLocalHasChanges(false);
     }
   }, [initialHasChanges]);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function load_app_information() {
+      const [status, preference] = await Promise.all([
+        window.BTIH_API?.invoke(IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName, undefined as never),
+        window.BTIH_API?.invoke(IPC_CHANNELS.APP.GET_PREFERENCE.channelName, undefined as never),
+      ]);
+
+      if (!isMounted) return;
+
+      const nextStatus = status as AppUpdateStatusPayload | undefined;
+      const nextPreference = preference as LauncherPreferencePayload | undefined;
+      setAppInfoStatus(nextStatus);
+
+      if (nextPreference?.updateChannel && LAUNCHER_UPDATE_CHANNELS.includes(nextPreference.updateChannel)) {
+        setUpdateChannel(nextPreference.updateChannel);
+      }
+    }
+
+    void load_app_information();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   const currentLanguage = i18n.language.split("-")[0];
   const selectedLocale = locale ?? (is_supported_locale(currentLanguage) ? currentLanguage : "ko");
   const localeOptions = LOCALE_OPTIONS.map((supportedLocale) => ({
@@ -465,6 +494,12 @@ export function PreferenceView({
     label: t(`preferences.logging.levels.${level}.label`),
     description: t(`preferences.logging.levels.${level}.description`),
   }));
+  const updateChannelOptions = LAUNCHER_UPDATE_CHANNELS.map((channel) => ({
+    value: channel,
+    label: t(`preferences.appInfo.channels.${channel}.label`),
+    description: t(`preferences.appInfo.channels.${channel}.description`),
+  }));
+  const resolvedAppUpdateStatus = appUpdateStatus ?? appInfoStatus;
   const categories = useMemo(
     () => [
       {
@@ -484,6 +519,12 @@ export function PreferenceView({
         label: t("preferences.categories.shortcut"),
         description: t("preferences.categories.shortcutDescription"),
         icon: Keyboard,
+      },
+      {
+        id: "appInfo" as const,
+        label: t("preferences.categories.appInfo"),
+        description: t("preferences.categories.appInfoDescription"),
+        icon: Info,
       },
     ],
     [t],
@@ -505,6 +546,28 @@ export function PreferenceView({
 
     onSave?.();
     setLocalHasChanges(false);
+  }
+
+  async function apply_update_channel(channel: LauncherUpdateChannel) {
+    setUpdateChannel(channel);
+    setPendingUpdateChannel(undefined);
+    await window.BTIH_API?.invoke(IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName, { updateChannel: channel });
+    const status = await window.BTIH_API?.invoke(
+      IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName,
+      undefined as never,
+    ) as AppUpdateStatusPayload | undefined;
+    setAppInfoStatus(status);
+  }
+
+  function request_update_channel(channel: LauncherUpdateChannel) {
+    if (channel === updateChannel) return;
+
+    if (channel === "stable") {
+      void apply_update_channel(channel);
+      return;
+    }
+
+    setPendingUpdateChannel(channel);
   }
 
   function handleShortcutInvalidChange(action: LauncherShortcutAction, isInvalid: boolean) {
@@ -600,6 +663,18 @@ export function PreferenceView({
       paths: [dxmtCachePath],
     },
     {
+      id: "shaderCache",
+      title: t("preferences.dangerZone.targets.shaderCache.title"),
+      description: t("preferences.dangerZone.targets.shaderCache.description"),
+      paths: [`${bottlePrefixPath}/<Bottle>/<Prefix>/.cache/dxmt-shaders`],
+    },
+    {
+      id: "metalPipelineCache",
+      title: t("preferences.dangerZone.targets.metalPipelineCache.title"),
+      description: t("preferences.dangerZone.targets.metalPipelineCache.description"),
+      paths: ["$(getconf DARWIN_USER_CACHE_DIR)/org.winehq.wine/com.apple.metal*"],
+    },
+    {
       id: "settings",
       title: t("preferences.dangerZone.targets.settings.title"),
       description: t("preferences.dangerZone.targets.settings.description"),
@@ -615,6 +690,7 @@ export function PreferenceView({
   const launcherDataPaths = deleteTargets.includes("all")
     ? [...new Set(deleteTargetOptions.flatMap((option) => option.paths))]
     : [...new Set(deleteTargetOptions.filter((option) => deleteTargets.includes(option.id)).flatMap((option) => option.paths))];
+  const deletesMetalPipelineCache = deleteTargets.includes("all") || deleteTargets.includes("metalPipelineCache");
   const hasInvalidShortcuts = Object.values(shortcutValidationErrors).some(Boolean);
 
   return (
@@ -777,18 +853,6 @@ export function PreferenceView({
                   }}
                 />
               </SettingField>
-            </Box>
-
-            <Box className="mt-5">
-              <AppUpdatePanel
-                autoUpdateEnabled={autoUpdateEnabled}
-                status={appUpdateStatus}
-                onAutoUpdateChange={(enabled) => {
-                  onAutoUpdateEnabledChange?.(enabled);
-                  markChanged();
-                }}
-                onCheckForUpdates={onCheckForUpdates}
-              />
             </Box>
 
             <Box className="preference-danger-zone mt-5 rounded-lg border border-red-400/20 bg-red-500/[0.06] p-4">
@@ -1039,6 +1103,48 @@ export function PreferenceView({
             </Box>
           </PreferenceSection>
         ) : null}
+
+        {activeCategory === "appInfo" ? (
+          <PreferenceSection title={t("preferences.appInfo.title")} description={t("preferences.appInfo.description")}>
+            <Box className="grid gap-5 md:grid-cols-2">
+              <SettingField
+                title={t("preferences.appInfo.currentVersionTitle")}
+                description={t("preferences.appInfo.currentVersionDescription")}
+              >
+                <Box className="flex h-11 items-center rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm font-semibold text-slate-100">
+                  {resolvedAppUpdateStatus?.currentVersion ?? t("preferences.appInfo.versionUnknown")}
+                </Box>
+              </SettingField>
+              <SettingField
+                title={t("preferences.appInfo.channelTitle")}
+                description={t("preferences.appInfo.channelDescription")}
+              >
+                <SelectMenu
+                  value={updateChannel}
+                  label={t("preferences.appInfo.channelTitle")}
+                  options={updateChannelOptions}
+                  onChange={(value) => {
+                    if (LAUNCHER_UPDATE_CHANNELS.includes(value as LauncherUpdateChannel)) {
+                      request_update_channel(value as LauncherUpdateChannel);
+                    }
+                  }}
+                />
+              </SettingField>
+            </Box>
+
+            <Box className="mt-5">
+              <AppUpdatePanel
+                autoUpdateEnabled={autoUpdateEnabled}
+                status={resolvedAppUpdateStatus}
+                onAutoUpdateChange={(enabled) => {
+                  onAutoUpdateEnabledChange?.(enabled);
+                  markChanged();
+                }}
+                onCheckForUpdates={onCheckForUpdates}
+              />
+            </Box>
+          </PreferenceSection>
+        ) : null}
       </Box>
       </Box>
 
@@ -1067,9 +1173,41 @@ export function PreferenceView({
       </Box>
 
       <Dialog
+        open={Boolean(pendingUpdateChannel)}
+        title={t("preferences.appInfo.channelWarningTitle", {
+          channel: pendingUpdateChannel ? t(`preferences.appInfo.channels.${pendingUpdateChannel}.label`) : "",
+        })}
+        description={t("preferences.appInfo.channelWarningDescription")}
+        tone="warning"
+        icon={AlertTriangle}
+        placement="center"
+        widthClassName="max-w-lg"
+        onClose={() => setPendingUpdateChannel(undefined)}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            onClick: () => setPendingUpdateChannel(undefined),
+          },
+          {
+            label: t("preferences.appInfo.channelWarningConfirm"),
+            variant: "primary",
+            onClick: () => {
+              if (pendingUpdateChannel) void apply_update_channel(pendingUpdateChannel);
+            },
+          },
+        ]}
+      >
+        <Box className="rounded-lg border border-amber-400/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+          {t("preferences.appInfo.channelWarningBody")}
+        </Box>
+      </Dialog>
+
+      <Dialog
         open={isDeleteDialogOpen}
         title={t("preferences.dangerZone.confirmTitle")}
-        description={t("preferences.dangerZone.confirmDescription")}
+        description={deletesMetalPipelineCache
+          ? t("preferences.dangerZone.targets.metalPipelineCache.confirmDescription")
+          : t("preferences.dangerZone.confirmDescription")}
         tone="danger"
         icon={Trash2}
         placement="center"
@@ -1103,8 +1241,12 @@ export function PreferenceView({
       </Dialog>
       <Dialog
         open={isDeleteWorking}
-        title={t("preferences.dangerZone.deleteWorkingTitle", "Deleting data")}
-        description={t("preferences.dangerZone.deleteWorkingDescription", "Please wait until the launcher finishes deleting the selected data.")}
+        title={deletesMetalPipelineCache
+          ? t("preferences.dangerZone.targets.metalPipelineCache.workingTitle")
+          : t("preferences.dangerZone.deleteWorkingTitle", "Deleting data")}
+        description={deletesMetalPipelineCache
+          ? t("preferences.dangerZone.targets.metalPipelineCache.workingDescription")
+          : t("preferences.dangerZone.deleteWorkingDescription", "Please wait until the launcher finishes deleting the selected data.")}
         tone="danger"
         icon={Trash2}
         placement="center"
@@ -1116,7 +1258,9 @@ export function PreferenceView({
       >
         <Box className="grid gap-3 rounded-lg border border-red-400/15 bg-black/20 p-4 text-sm text-slate-300">
           <Box>
-            {t("preferences.dangerZone.deleteWorkingBody", "Deletion is in progress. Keep this window open for a moment.")}
+            {deletesMetalPipelineCache
+              ? t("preferences.dangerZone.targets.metalPipelineCache.workingBody")
+              : t("preferences.dangerZone.deleteWorkingBody", "Deletion is in progress. Keep this window open for a moment.")}
           </Box>
           <ProgressBar
             progressValue={deleteProgress}

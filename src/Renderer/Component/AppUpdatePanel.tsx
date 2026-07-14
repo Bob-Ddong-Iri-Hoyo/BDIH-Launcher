@@ -21,6 +21,7 @@ export interface AppUpdatePanelProps {
 }
 
 const STATUS_TONE_MAP: Record<AppUpdateStatusPayload["status"], StatusTone> = {
+  idle: "neutral",
   disabled: "neutral",
   checking: "info",
   available: "warning",
@@ -73,7 +74,7 @@ export function AppUpdatePanel({
   const { t } = useTranslation();
   const [isResultDialogOpen, setIsResultDialogOpen] = React.useState(false);
   const [dialogStatus, setDialogStatus] = React.useState<AppUpdateStatusPayload | undefined>();
-  const statusKey = status?.status ?? "disabled";
+  const statusKey = status?.status ?? "idle";
   const dialogStatusKey = dialogStatus?.status ?? "checking";
   const Icon = icon_from_status(status?.status);
   const DialogIcon = icon_from_status(dialogStatus?.status);
