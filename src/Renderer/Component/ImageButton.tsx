@@ -89,6 +89,11 @@ export function ImageButton({
   const resolvedImageShape = imageShape ?? image_button_default_image_shape(preset);
   const resolvedImageSize = imageSize ?? image_button_default_image_size(preset);
   const isBusy = isRunning || isLaunching;
+  const nameLabel = (
+    <InlineText tone="strong" size="sm" className="line-clamp-2 text-center font-semibold">
+      {name}
+    </InlineText>
+  );
 
   return (
     <Button
@@ -126,30 +131,36 @@ export function ImageButton({
       >
         <AppImage src={src} name={name} />
       </ImageFrame>
-      <InlineText tone="strong" size="sm" className="line-clamp-2 text-center font-semibold">
-        {name}
-      </InlineText>
+      {preset === "desktop" ? (
+        <Box className="flex h-10 w-full shrink-0 items-center justify-center">
+          {nameLabel}
+        </Box>
+      ) : nameLabel}
       {subtitle && preset !== "desktop" ? (
         <Text tone="muted" size="xs" truncate className="mt-1 max-w-full text-center">
           {subtitle}
         </Text>
       ) : null}
-      {preset === "desktop" && isRunning ? (
-        <Inline className="mt-1 items-center rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-200/20">
-          <RunningBeacon />
-          {t("main.appContext.running")}
-        </Inline>
-      ) : null}
-      {preset === "desktop" && isLaunching ? (
-        <Inline className="app-launching-indicator mt-1 items-center rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-semibold text-sky-200 ring-1 ring-sky-200/20">
-          <RunningBeacon />
-          {t("main.appContext.launching")}
-        </Inline>
-      ) : null}
-      {preset === "desktop" && hasError ? (
-        <InlineText className="mt-1 rounded-full bg-red-400/15 px-2 py-0.5 text-[10px] font-semibold text-red-200">
-          {t("main.appContext.launchFailed")}
-        </InlineText>
+      {preset === "desktop" ? (
+        <Box className="mt-1 flex h-5 w-full shrink-0 items-center justify-center">
+          {isRunning ? (
+            <Inline className="items-center rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-200/20">
+              <RunningBeacon />
+              {t("main.appContext.running")}
+            </Inline>
+          ) : null}
+          {isLaunching ? (
+            <Inline className="app-launching-indicator items-center rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-semibold text-sky-200 ring-1 ring-sky-200/20">
+              <RunningBeacon />
+              {t("main.appContext.launching")}
+            </Inline>
+          ) : null}
+          {hasError ? (
+            <InlineText className="rounded-full bg-red-400/15 px-2 py-0.5 text-[10px] font-semibold text-red-200">
+              {t("main.appContext.launchFailed")}
+            </InlineText>
+          ) : null}
+        </Box>
       ) : null}
       <ActionOverlay isRunning={isBusy} actionLabel={isLaunching ? t("main.appContext.launching") : resolvedActionLabel} />
     </Button>

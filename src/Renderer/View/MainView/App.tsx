@@ -36,8 +36,8 @@ const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   logs: "Command + L",
   preferences: "Command + ,",
   logFind: "Command + F",
-  logFindNext: "Command + G",
-  logFindPrevious: "Command + Shift + G",
+  logFindNext: "Command + N",
+  logFindPrevious: "Command + P",
 };
 const DEVELOPER_YOUTUBE_HANDLE = BDIH_YOUTUBE_HANDLE;
 
@@ -582,6 +582,7 @@ function set_runtime_log_session_state(
   appIds: Array<string | undefined>,
   appName: string | undefined,
   isRunning: boolean,
+  runtimeProcessId?: string,
 ): LogSession[] {
   const matchingSessions = sessions.filter((session) =>
     log_session_matches_runtime_app(session, bottleId, bottleName, appIds, appName),
@@ -598,11 +599,42 @@ function set_runtime_log_session_state(
       return session;
     }
 
+    if (isRunning) {
+      if (session.id === latestSession?.id) {
+        return {
+          ...session,
+          isRunning: true,
+          runtimeProcessId,
+        };
+      }
+
+      // Clear stale name-matched history, but never overwrite a marker owned
+      // by another process that is still active.
+      if (!session.runtimeProcessId || session.runtimeProcessId === runtimeProcessId) {
+        return {
+          ...session,
+          isRunning: false,
+          runtimeProcessId: undefined,
+        };
+      }
+
+      return session;
+    }
+
+    // Delayed exit events must only stop the log marker they originally
+    // created. This keeps a newer run of the same app marked as active.
+    if (runtimeProcessId && session.runtimeProcessId && session.runtimeProcessId !== runtimeProcessId) {
+      return session;
+    }
+
+    if (runtimeProcessId && !session.runtimeProcessId && session.id !== latestSession?.id) {
+      return session;
+    }
+
     return {
       ...session,
-      // One running app owns one current history item. Older matching log
-      // files remain history even when the same app is launched again.
-      isRunning: isRunning && session.id === latestSession?.id,
+      isRunning: false,
+      runtimeProcessId: undefined,
     };
   });
 }
@@ -1169,6 +1201,7 @@ const App: React.FC = () => {
             [payload.appId, ...(payload.appIds ?? [])],
             payload.appName,
             payload.isRunning,
+            payload.processId,
           );
           logSessionsRef.current = nextSessions;
           return nextSessions;
@@ -1237,6 +1270,7 @@ const App: React.FC = () => {
                 [app.id],
                 app.name,
                 false,
+                payload.processId,
               ),
               currentSessions,
             );

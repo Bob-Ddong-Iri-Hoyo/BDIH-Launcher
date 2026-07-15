@@ -480,6 +480,7 @@
       "runtimeDownloads": {
         "title": "런타임 다운로드",
         "description": "BDIH 릴리즈 저장소에서 Wine 런타임과 DXMT 패키지를 다운로드합니다.",
+        "defaultSelection": "기본 선택",
         "noWine": "사용 가능한 Wine 릴리즈 에셋이 없습니다.",
         "noDxmt": "사용 가능한 DXMT 릴리즈 에셋이 없습니다."
       },

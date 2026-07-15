@@ -480,6 +480,7 @@
       "runtimeDownloads": {
         "title": "ランタイムダウンロード",
         "description": "BDIHのリリース元からWineランタイムとDXMTパッケージをダウンロードします。",
+        "defaultSelection": "デフォルト選択",
         "noWine": "利用可能なWineリリースアセットがありません。",
         "noDxmt": "利用可能なDXMTリリースアセットがありません。"
       },

@@ -27,7 +27,7 @@ import { ProgressBar } from "./ProgressBar";
 import { PathAutocompleteInput } from "./PathAutocompleteInput";
 import { AppLibraryPanel } from "./AppLibraryPanel";
 import { BottleActionBar } from "./BottleActionBar";
-import { Box, Button, IconSlot, Inline, InlineText, Input, List, ListItem, ListItemBody, ListItemDescription, ListItemIcon, ListItemTitle, Stack, Text, Textarea } from "./Primitives";
+import { Badge, Box, Button, IconSlot, Inline, InlineText, Input, List, ListItem, ListItemBody, ListItemDescription, ListItemIcon, ListItemTitle, Stack, Text, Textarea } from "./Primitives";
 import { RecipeDialog } from "./RecipeDialog";
 import { RuntimeVersionSelect } from "./RuntimeVersionSelect";
 import { label_from_status, StatusBadge, tone_from_status } from "./StatusBadge";
@@ -848,7 +848,7 @@ export function DashboardHomePanel({
         tone={isLoadingWineVersions || isLoadingDxmtVersions || isLoadingJadeiteVersions ? "info" : "neutral"}
         icon={Layers3}
         placement="center"
-        widthClassName="max-w-5xl"
+        widthClassName="max-w-4xl"
         onClose={onToggleInstalledWine}
       >
         <Stack className="max-h-[72vh] gap-5 overflow-y-auto pr-1">
@@ -937,7 +937,7 @@ function RuntimeDownloadPanel({
         </Stack>
       </Inline>
 
-      <Box className="grid gap-5 xl:grid-cols-2">
+      <Box className="grid gap-5">
         <Stack className="min-w-0 gap-2">
           <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Wine</Text>
           <List>
@@ -976,7 +976,7 @@ function RuntimeDownloadPanel({
           {visibleDxmtVersions.length === 0 ? <RuntimeEmptyMessage>{t("main.runtimeDownloads.noDxmt")}</RuntimeEmptyMessage> : null}
         </Stack>
 
-        <Stack className="min-w-0 gap-2 xl:col-span-2">
+        <Stack className="min-w-0 gap-2">
           <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Jadeite</Text>
           <List>
             {visibleJadeiteVersions.map((version) => (
@@ -1023,24 +1023,39 @@ function RuntimeCompactCard({
   const progress = isInstalled ? 100 : Math.max(0, Math.min(100, Math.round(version.progress ?? 0)));
 
   return (
-    <ListItem as="article" density="compact" tone={isSelected ? "selected" : "default"} className="flex-col p-3">
-      <Box className="grid min-w-0 items-center gap-3 md:grid-cols-[minmax(0,1fr)_8rem_14rem]">
-        <Button type="button" className="flex min-w-0 items-center gap-3 text-left" onClick={() => onSelect?.(version.id)}>
-          <ListItemIcon className="accent-text flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-800 ring-1 ring-white/10">
-            {icon}
-          </ListItemIcon>
-          <ListItemBody className="gap-0.5">
-            <ListItemTitle>{version.name}</ListItemTitle>
-            <ListItemDescription className="text-[11px]">{version.version}{path ? ` - ${path}` : ""}</ListItemDescription>
-          </ListItemBody>
-        </Button>
-        <Box className="min-w-0">
-          <ProgressBar progressValue={progress} showValue size="sm" tone={isWorking ? "blue" : "emerald"} animated={isWorking} />
-        </Box>
-        <Inline className="shrink-0 items-center justify-end gap-2">
-          <Box className="flex w-24 justify-end">
-            <StatusBadge label={label_from_status(version.status, t)} tone={tone_from_status(version.status)} className="w-24 justify-center" />
-          </Box>
+    <Box className={isSelected ? "relative pt-3" : "relative"}>
+      {isSelected ? (
+        <Badge
+          tone="unstyled"
+          className="accent-primary absolute left-3 top-3 z-10 inline-flex -translate-y-1/2 items-center justify-center rounded-md border border-white/20 px-2.5 py-1 text-[10px] font-bold leading-none text-white shadow-[0_5px_14px_rgba(0,0,0,0.38)]"
+        >
+          {t("main.runtimeDownloads.defaultSelection")}
+        </Badge>
+      ) : null}
+      <ListItem as="article" density="compact" tone={isSelected ? "selected" : "default"} className={`flex-col p-2 ${isSelected ? "pt-3.5" : ""}`}>
+        <Box className="grid min-w-0 items-stretch gap-2 sm:grid-cols-[minmax(0,1fr)_6rem]">
+          <Button
+            type="button"
+            aria-pressed={isSelected}
+            className="grid min-w-0 items-center gap-3 rounded-md p-1.5 text-left transition hover:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent-rgb)/0.45)] md:grid-cols-[minmax(0,1fr)_8rem_6rem]"
+            onClick={() => onSelect?.(version.id)}
+          >
+            <Inline className="min-w-0 items-center gap-3">
+              <ListItemIcon className="accent-text flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-800 ring-1 ring-white/10">
+                {icon}
+              </ListItemIcon>
+              <ListItemBody className="gap-0.5">
+                <ListItemTitle title={version.name}>{version.name}</ListItemTitle>
+                <ListItemDescription className="text-[11px]">{version.version}{path ? ` - ${path}` : ""}</ListItemDescription>
+              </ListItemBody>
+            </Inline>
+            <Box className="min-w-0">
+              <ProgressBar progressValue={progress} showValue size="sm" tone={isWorking ? "blue" : "emerald"} animated={isWorking} />
+            </Box>
+            <Box className="flex w-24 justify-start md:justify-end">
+              <StatusBadge label={label_from_status(version.status, t)} tone={tone_from_status(version.status)} className="w-24 justify-center" />
+            </Box>
+          </Button>
           <Button
             type="button"
             disabled={isWorking || (isInstalled ? !onDelete : !canInstall || !onInstall)}
@@ -1052,7 +1067,7 @@ function RuntimeCompactCard({
 
               onInstall?.(version.id);
             }}
-            className={`inline-flex h-8 w-24 shrink-0 items-center justify-center gap-1 rounded-md px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 ${
+            className={`inline-flex h-8 w-24 shrink-0 self-center justify-self-end items-center justify-center gap-1 rounded-md px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 ${
               isInstalled
                 ? "border border-rose-300/20 bg-rose-500/10 text-rose-100 hover:border-rose-300/35 hover:bg-rose-500/20"
                 : "accent-primary"
@@ -1061,9 +1076,9 @@ function RuntimeCompactCard({
             {isInstalled ? <Trash2 size={14} /> : <Download size={14} />}
             {isWorking ? `${progress}%` : isInstalled ? t("common.actions.delete") : t("common.actions.install")}
           </Button>
-        </Inline>
-      </Box>
-    </ListItem>
+        </Box>
+      </ListItem>
+    </Box>
   );
 }
 

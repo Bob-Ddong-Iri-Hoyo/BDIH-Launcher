@@ -23,8 +23,8 @@ const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   logs: "Command + L",
   preferences: "Command + ,",
   logFind: "Command + F",
-  logFindNext: "Command + G",
-  logFindPrevious: "Command + Shift + G",
+  logFindNext: "Command + N",
+  logFindPrevious: "Command + P",
 };
 const ACCENT_COLORS = ["rose", "sky", "emerald", "violet", "amber"] as const;
 type AccentColorPreference = (typeof ACCENT_COLORS)[number];

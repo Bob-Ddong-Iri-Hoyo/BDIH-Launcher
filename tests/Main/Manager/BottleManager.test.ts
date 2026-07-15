@@ -91,8 +91,8 @@ describe("BottleManager", () => {
         logs: "Command + L",
         preferences: "Command + ,",
         logFind: "Command + F",
-        logFindNext: "Command + G",
-        logFindPrevious: "Command + Shift + G",
+        logFindNext: "Command + N",
+        logFindPrevious: "Command + P",
       },
     });
     await create_bottle_fixture(customPrefixRoot, "custom-bottle");

@@ -60,6 +60,19 @@ export const Running: Story = {
   render: Default.render,
 };
 
+export const DesktopStatusAlignment: Story = {
+  render: (args) => (
+    <Surface tone="deep" padding="lg" className="w-[560px] text-slate-100">
+      <Inline gap="lg" align="start">
+        <ImageButton {...args} preset="desktop" name="Steam" isRunning className="w-28" />
+        <ImageButton {...args} preset="desktop" name="Honkai: Star Rail" isRunning className="w-28" />
+        <ImageButton {...args} preset="desktop" name="Zenless Zone Zero" isLaunching className="w-28" />
+        <ImageButton {...args} preset="desktop" name="Genshin Impact" hasError className="w-28" />
+      </Inline>
+    </Surface>
+  ),
+};
+
 export const Error: Story = {
   args: {
     hasError: true,

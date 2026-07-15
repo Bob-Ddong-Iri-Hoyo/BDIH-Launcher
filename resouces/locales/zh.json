@@ -480,6 +480,7 @@
       "runtimeDownloads": {
         "title": "运行时下载",
         "description": "从 BDIH 发布源下载 Wine 运行时和 DXMT 软件包。",
+        "defaultSelection": "默认选择",
         "noWine": "没有可用的 Wine 发布资源。",
         "noDxmt": "没有可用的 DXMT 发布资源。"
       },

@@ -480,6 +480,7 @@
       "runtimeDownloads": {
         "title": "Runtime downloads",
         "description": "Download Wine runtimes and DXMT packages from the BDIH release houses.",
+        "defaultSelection": "Default selection",
         "noWine": "No Wine release assets are available.",
         "noDxmt": "No DXMT release assets are available."
       },

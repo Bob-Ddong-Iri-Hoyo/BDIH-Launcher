@@ -80,6 +80,7 @@ export interface LogSession {
   bottleName?: string;
   count?: number;
   isRunning?: boolean;
+  runtimeProcessId?: string;
 }
 
 /** Select option for filtering logs by source. */
@@ -129,8 +130,8 @@ const LOG_SEARCH_HIGHLIGHT_NAME = "bdih-log-search-match";
 const LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME = "bdih-log-search-active";
 const DEFAULT_LOG_SEARCH_SHORTCUTS = {
   logFind: "Command + F",
-  logFindNext: "Command + G",
-  logFindPrevious: "Command + Shift + G",
+  logFindNext: "Command + N",
+  logFindPrevious: "Command + P",
 } as const;
 
 /**
@@ -1195,6 +1196,7 @@ export interface LogTextPanelProps {
 interface LogTextMatch {
   start: number;
   end: number;
+  line: number;
 }
 
 /**
@@ -1260,8 +1262,15 @@ export function LogTextPanel({
     const HighlightConstructor = get_css_highlight_constructor();
     registry?.delete(LOG_SEARCH_HIGHLIGHT_NAME);
 
-    const textNode = textPanelRef.current?.firstChild;
-    if (!registry || !HighlightConstructor || !(textNode instanceof Text) || searchMatches.length === 0) {
+    const textNode = find_first_text_node(textPanelRef.current);
+    if (
+      !registry
+      || !HighlightConstructor
+      || !textNode
+      || textNode.nodeType !== Node.TEXT_NODE
+      || (textNode.textContent?.length ?? 0) < searchMatches[searchMatches.length - 1]?.end
+      || searchMatches.length === 0
+    ) {
       return () => {
         cancelled = true;
         registry?.delete(LOG_SEARCH_HIGHLIGHT_NAME);
@@ -1298,23 +1307,34 @@ export function LogTextPanel({
     registry?.delete(LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME);
 
     const textPanel = textPanelRef.current;
-    const textNode = textPanel?.firstChild;
+    const textNode = find_first_text_node(textPanel);
     const match = searchMatches[activeSearchMatchIndex];
-    if (!textPanel || !(textNode instanceof Text) || !match) return;
-
-    const range = document.createRange();
-    range.setStart(textNode, match.start);
-    range.setEnd(textNode, match.end);
-
-    if (registry && HighlightConstructor) {
-      registry.set(LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME, new HighlightConstructor(range));
+    if (!textPanel || !textNode || textNode.nodeType !== Node.TEXT_NODE || !match) {
+      clear_log_text_selection(textPanel);
+      return;
     }
 
-    const matchRect = range.getBoundingClientRect();
-    const panelRect = textPanel.getBoundingClientRect();
-    textPanel.scrollTop += matchRect.top - panelRect.top - (textPanel.clientHeight / 2);
+    const animationFrame = window.requestAnimationFrame(() => {
+      if ((textNode.textContent?.length ?? 0) < match.end) return;
 
-    return () => registry?.delete(LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME);
+      const range = document.createRange();
+      range.setStart(textNode, match.start);
+      range.setEnd(textNode, match.end);
+
+      if (registry && HighlightConstructor) {
+        registry.set(LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME, new HighlightConstructor(range));
+      }
+
+      const lineHeight = Number.parseFloat(window.getComputedStyle(textPanel).lineHeight) || 20;
+      const targetScrollTop = (match.line * lineHeight) - (textPanel.clientHeight / 2) + (lineHeight / 2);
+      textPanel.scrollTop = Math.max(0, targetScrollTop);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      registry?.delete(LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME);
+      clear_log_text_selection(textPanel);
+    };
   }, [activeSearchMatchIndex, scrollScopeKey, searchMatches, text]);
 
   function remember_scroll_position(event: React.UIEvent<HTMLPreElement>) {
@@ -1714,6 +1734,7 @@ async function find_text_matches_async(
 
   const matches: LogTextMatch[] = [];
   const overlap = Math.max(0, search.length - 1);
+  let currentLine = 0;
   await yield_to_renderer();
 
   for (let chunkStart = 0; chunkStart < text.length; chunkStart += LOG_SEARCH_CHUNK_SIZE) {
@@ -1724,13 +1745,31 @@ async function find_text_matches_async(
     const sliceEnd = Math.min(text.length, acceptedEnd + overlap);
     const searchableChunk = text.slice(sliceStart, sliceEnd).toLocaleLowerCase();
     let localStart = searchableChunk.indexOf(search);
+    let lineCursor = chunkStart;
 
     while (localStart >= 0) {
       const globalStart = sliceStart + localStart;
       if (globalStart >= chunkStart && globalStart < acceptedEnd) {
-        matches.push({ start: globalStart, end: globalStart + search.length });
+        let newlineIndex = text.indexOf("\n", lineCursor);
+        while (newlineIndex >= 0 && newlineIndex < globalStart) {
+          currentLine += 1;
+          lineCursor = newlineIndex + 1;
+          newlineIndex = text.indexOf("\n", lineCursor);
+        }
+        matches.push({
+          start: globalStart,
+          end: globalStart + search.length,
+          line: currentLine,
+        });
       }
       localStart = searchableChunk.indexOf(search, localStart + Math.max(search.length, 1));
+    }
+
+    let newlineIndex = text.indexOf("\n", lineCursor);
+    while (newlineIndex >= 0 && newlineIndex < acceptedEnd) {
+      currentLine += 1;
+      lineCursor = newlineIndex + 1;
+      newlineIndex = text.indexOf("\n", lineCursor);
     }
 
     await yield_to_renderer();
@@ -1759,7 +1798,21 @@ function get_css_highlight_registry(): CssHighlightRegistryLike | undefined {
 }
 
 function get_css_highlight_constructor(): CssHighlightConstructor | undefined {
-  return (window as unknown as { Highlight?: CssHighlightConstructor }).Highlight;
+  return (globalThis as unknown as { Highlight?: CssHighlightConstructor }).Highlight;
+}
+
+function find_first_text_node(root: Node | null | undefined): Node | undefined {
+  if (!root) return undefined;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  return walker.nextNode() ?? undefined;
+}
+
+function clear_log_text_selection(textPanel: HTMLElement | null | undefined): void {
+  if (!textPanel) return;
+  const selection = window.getSelection();
+  if (selection?.anchorNode && textPanel.contains(selection.anchorNode)) {
+    selection.removeAllRanges();
+  }
 }
 
 function log_shortcut_label_from_keyboard_event(event: KeyboardEvent): string | null {
