@@ -583,7 +583,9 @@ export class LogManager {
             category: "wine",
             bottleName: metadata.bottleName,
             count: 0,
-            isRunning: sessionDir === options.logDir,
+            // A log file in the current launcher session is not proof that its
+            // Wine process is still alive. Runtime events own this state.
+            isRunning: false,
           });
         }
 

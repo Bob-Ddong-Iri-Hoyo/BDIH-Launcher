@@ -525,7 +525,12 @@ export class BottleManager {
     const visibleIncomingBottles = incomingBottles.filter((bottle) => !is_deleted_bottle(bottle, deletedBottleKeys));
     const registryAndScannedBottles = merge_bottles(registryBottles, scannedBottles);
     const mergedBottles = merge_bottles(visibleIncomingBottles, registryAndScannedBottles);
-    const enrichedBottles = await Promise.all(mergedBottles.map((bottle) => enrich_bottle_apps_from_prefix(bottle)));
+    const appEnrichedBottles = await Promise.all(
+      mergedBottles.map((bottle) => enrich_bottle_apps_from_prefix(bottle)),
+    );
+    const enrichedBottles = await Promise.all(
+      appEnrichedBottles.map((bottle) => enrich_bottle_prefixes_from_disk(bottle)),
+    );
 
     await Promise.all(enrichedBottles.map((bottle) => write_prefix_metadata(bottle)));
 
@@ -1107,6 +1112,107 @@ function is_wine_prefix_path(bottlePath: string): boolean {
   return existsSync(path.join(bottlePath, "system.reg"))
     || existsSync(path.join(bottlePath, "user.reg"))
     || existsSync(path.join(bottlePath, "drive_c"));
+}
+
+const BOTTLE_PREFIX_SCAN_MAX_DEPTH = 3;
+const BOTTLE_PREFIX_SCAN_IGNORED_DIRECTORIES = new Set([
+  ".cache",
+  ".snapshots",
+  "dosdevices",
+  "drive_c",
+  "logs",
+  "snapshots",
+]);
+
+function discovered_prefix_metadata(prefixPath: string): BottlePrefixMetadataPayload {
+  const directoryName = path.basename(prefixPath);
+  const knownPrefix = new Map<string, { name: string; presetId: string }>([
+    ["wine-prefix", { name: "Default Wine", presetId: "default" }],
+    ["steam-prefix", { name: "Steam", presetId: "steam" }],
+    ["hoyo-prefix", { name: "HoYoPlay", presetId: "hoyoplay" }],
+    ["genshin-prefix", { name: "Genshin Impact", presetId: "genshin" }],
+    ["hsr-prefix", { name: "Honkai: Star Rail", presetId: "hsr" }],
+    ["zzz-prefix", { name: "Zenless Zone Zero", presetId: "zzz" }],
+  ]).get(directoryName.toLowerCase());
+
+  return {
+    id: `discovered:${prefixPath}`,
+    name: knownPrefix?.name ?? directoryName,
+    path: prefixPath,
+    kind: knownPrefix ? "preset" : "custom",
+    presetId: knownPrefix?.presetId,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function enrich_bottle_prefixes_from_disk(
+  bottle: BottleMetadataPayload,
+): Promise<BottleMetadataPayload> {
+  const prefixesByPath = new Map<string, BottlePrefixMetadataPayload>();
+  const rememberPrefix = (prefix: BottlePrefixMetadataPayload) => {
+    const expandedPath = path.resolve(expand_user_home_path(prefix.path));
+    prefixesByPath.set(expandedPath, {
+      ...prefix,
+      path: expandedPath,
+    });
+  };
+
+  for (const prefix of bottle.prefixes ?? []) {
+    rememberPrefix(prefix);
+  }
+
+  for (const app of bottle.apps) {
+    const prefixPath = optional_string(app.prefixPath);
+    if (prefixPath) {
+      const expandedPath = path.resolve(expand_user_home_path(prefixPath));
+      if (is_wine_prefix_path(expandedPath) && !prefixesByPath.has(expandedPath)) {
+        rememberPrefix({
+          ...discovered_prefix_metadata(expandedPath),
+          name: app.name,
+        });
+      }
+    }
+  }
+
+  const bottlePath = path.resolve(expand_user_home_path(bottle.path));
+  const directories: Array<{ directoryPath: string; depth: number }> = [{
+    directoryPath: bottlePath,
+    depth: 0,
+  }];
+
+  while (directories.length > 0) {
+    const current = directories.shift();
+    if (!current) break;
+
+    let entries: Dirent[];
+    try {
+      entries = await readdir(current.directoryPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (BOTTLE_PREFIX_SCAN_IGNORED_DIRECTORIES.has(entry.name.toLowerCase())) continue;
+
+      const candidatePath = path.join(current.directoryPath, entry.name);
+      if (is_wine_prefix_path(candidatePath)) {
+        if (!prefixesByPath.has(candidatePath)) {
+          rememberPrefix(discovered_prefix_metadata(candidatePath));
+        }
+        continue;
+      }
+
+      if (current.depth < BOTTLE_PREFIX_SCAN_MAX_DEPTH) {
+        directories.push({ directoryPath: candidatePath, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  return {
+    ...bottle,
+    prefixes: [...prefixesByPath.values()],
+  };
 }
 
 function primary_launcher_prefix_path(bottlePath: string, launcher: BottleLauncherKind): string {

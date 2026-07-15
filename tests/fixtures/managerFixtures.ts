@@ -110,6 +110,9 @@ export async function write_legacy_preference(
       launch: "Command + Return",
       logs: "Command + L",
       preferences: "Command + ,",
+      logFind: "Command + F",
+      logFindNext: "Command + G",
+      logFindPrevious: "Command + Shift + G",
     },
     ...patch,
   });

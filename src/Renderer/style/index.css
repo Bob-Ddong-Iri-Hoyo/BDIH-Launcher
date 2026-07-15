@@ -120,6 +120,18 @@
   }
 }
 
+::highlight(bdih-log-search-match) {
+  background-color: rgb(251 191 36 / 0.42);
+  color: inherit;
+}
+
+::highlight(bdih-log-search-active) {
+  background-color: rgb(252 211 77 / 0.96);
+  color: #111827;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
 @layer components {
   @keyframes progress-wave {
     0% {

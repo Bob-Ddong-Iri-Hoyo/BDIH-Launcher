@@ -84,6 +84,7 @@ export interface AppUpdateStatusPayload {
   progress?: number;
   error?: string;
   channel?: LauncherUpdateChannel;
+  channelLocked?: boolean;
 }
 
 export const LAUNCHER_LOG_LEVELS = ["off", "error", "warn", "info", "debug", "all"] as const;
@@ -93,8 +94,16 @@ export type DebugFlagMode = (typeof DEBUG_FLAG_MODES)[number];
 export const RENDERER_THEME_MODES = ["dark", "light", "system"] as const;
 export type RendererThemeMode = (typeof RENDERER_THEME_MODES)[number];
 export const LAUNCHER_UPDATE_CHANNELS = ["stable", "beta", "nightly"] as const;
+export const LAUNCHER_PUBLIC_UPDATE_CHANNELS = ["stable", "beta"] as const;
 export type LauncherUpdateChannel = (typeof LAUNCHER_UPDATE_CHANNELS)[number];
-export const LAUNCHER_SHORTCUT_ACTIONS = ["launch", "logs", "preferences"] as const;
+export const LAUNCHER_SHORTCUT_ACTIONS = [
+  "launch",
+  "logs",
+  "preferences",
+  "logFind",
+  "logFindNext",
+  "logFindPrevious",
+] as const;
 export type LauncherShortcutAction = (typeof LAUNCHER_SHORTCUT_ACTIONS)[number];
 export type LauncherShortcutMap = Record<LauncherShortcutAction, string>;
 

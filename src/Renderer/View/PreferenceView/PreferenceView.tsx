@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { AlertTriangle, FolderOpen, Info, Keyboard, MonitorCog, RotateCcw, Save, Trash2, Wine } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { BDIH_DISCORD_URL, BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateStatusPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_UPDATE_CHANNELS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherUpdateChannel, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
+import { AppUpdateStatusPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_PUBLIC_UPDATE_CHANNELS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherUpdateChannel, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
 import { I18N_RESOURCES } from "../../I18n/Resources";
 import { AppUpdatePanel } from "../../Component/AppUpdatePanel";
 import { DeveloperLinkGroup } from "../../Component/DeveloperLinks";
@@ -464,7 +464,7 @@ export function PreferenceView({
       const nextPreference = preference as LauncherPreferencePayload | undefined;
       setAppInfoStatus(nextStatus);
 
-      if (nextPreference?.updateChannel && LAUNCHER_UPDATE_CHANNELS.includes(nextPreference.updateChannel)) {
+      if (nextPreference?.updateChannel && LAUNCHER_PUBLIC_UPDATE_CHANNELS.some((channel) => channel === nextPreference.updateChannel)) {
         setUpdateChannel(nextPreference.updateChannel);
       }
     }
@@ -494,7 +494,7 @@ export function PreferenceView({
     label: t(`preferences.logging.levels.${level}.label`),
     description: t(`preferences.logging.levels.${level}.description`),
   }));
-  const updateChannelOptions = LAUNCHER_UPDATE_CHANNELS.map((channel) => ({
+  const updateChannelOptions = LAUNCHER_PUBLIC_UPDATE_CHANNELS.map((channel) => ({
     value: channel,
     label: t(`preferences.appInfo.channels.${channel}.label`),
     description: t(`preferences.appInfo.channels.${channel}.description`),
@@ -533,6 +533,9 @@ export function PreferenceView({
     ["launch", "preferences.shortcuts.launchTitle", "preferences.shortcuts.launchDescription"],
     ["logs", "preferences.shortcuts.logsTitle", "preferences.shortcuts.logsDescription"],
     ["preferences", "preferences.shortcuts.preferencesTitle", "preferences.shortcuts.preferencesDescription"],
+    ["logFind", "preferences.shortcuts.logFindTitle", "preferences.shortcuts.logFindDescription"],
+    ["logFindNext", "preferences.shortcuts.logFindNextTitle", "preferences.shortcuts.logFindNextDescription"],
+    ["logFindPrevious", "preferences.shortcuts.logFindPreviousTitle", "preferences.shortcuts.logFindPreviousDescription"],
   ] as const;
 
   function markChanged() {
@@ -557,6 +560,7 @@ export function PreferenceView({
       undefined as never,
     ) as AppUpdateStatusPayload | undefined;
     setAppInfoStatus(status);
+    setUpdateChannel(status?.channel ?? channel);
   }
 
   function request_update_channel(channel: LauncherUpdateChannel) {
@@ -1117,18 +1121,26 @@ export function PreferenceView({
               </SettingField>
               <SettingField
                 title={t("preferences.appInfo.channelTitle")}
-                description={t("preferences.appInfo.channelDescription")}
+                description={resolvedAppUpdateStatus?.channelLocked
+                  ? t("preferences.appInfo.channelLockedDescription")
+                  : t("preferences.appInfo.channelDescription")}
               >
-                <SelectMenu
-                  value={updateChannel}
-                  label={t("preferences.appInfo.channelTitle")}
-                  options={updateChannelOptions}
-                  onChange={(value) => {
-                    if (LAUNCHER_UPDATE_CHANNELS.includes(value as LauncherUpdateChannel)) {
-                      request_update_channel(value as LauncherUpdateChannel);
-                    }
-                  }}
-                />
+                {resolvedAppUpdateStatus?.channelLocked ? (
+                  <Box className="flex h-11 items-center rounded-lg border border-white/10 bg-[#0b1020] px-3 text-sm font-semibold text-slate-100">
+                    {t(`preferences.appInfo.channels.${resolvedAppUpdateStatus.channel ?? "nightly"}.label`)}
+                  </Box>
+                ) : (
+                  <SelectMenu
+                    value={updateChannel}
+                    label={t("preferences.appInfo.channelTitle")}
+                    options={updateChannelOptions}
+                    onChange={(value) => {
+                      if (LAUNCHER_PUBLIC_UPDATE_CHANNELS.some((channel) => channel === value)) {
+                        request_update_channel(value as LauncherUpdateChannel);
+                      }
+                    }}
+                  />
+                )}
               </SettingField>
             </Box>
 

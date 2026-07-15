@@ -62,6 +62,7 @@ export function AppLibraryPanel({
   } | null>(null);
   const [appLogText, setAppLogText] = React.useState("");
   const [isAppLogLoading, setIsAppLogLoading] = React.useState(false);
+  const appLogPanelRef = React.useRef<HTMLPreElement>(null);
   const manualAddRunner = useDirectExecutableRunner({
     bottle,
     launcherOptionsManifest,
@@ -85,6 +86,19 @@ export function AppLibraryPanel({
     setAppLogText("");
     setIsAppLogLoading(false);
   }, []);
+
+  React.useEffect(() => {
+    if (!selectedLogAppId || isAppLogLoading) return;
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      const logPanel = appLogPanelRef.current;
+      if (logPanel) {
+        logPanel.scrollTop = logPanel.scrollHeight;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [appLogText, isAppLogLoading, selectedLogAppId]);
 
   const appContextMenuItems = React.useMemo<ContextMenuItem[]>(() => {
     if (!contextApp) {
@@ -370,7 +384,7 @@ export function AppLibraryPanel({
               tone={isAppLogLoading ? "info" : "success"}
             />
           </Inline>
-          <CodeBlock className="max-h-[60vh] min-h-80 overflow-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-[#050914] p-4 font-mono text-xs leading-5 text-slate-200 shadow-inner shadow-black/30">
+          <CodeBlock ref={appLogPanelRef} className="max-h-[60vh] min-h-80 overflow-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-[#050914] p-4 font-mono text-xs leading-5 text-slate-200 shadow-inner shadow-black/30">
             {appLogText || t("main.appContext.noLogs")}
           </CodeBlock>
         </Stack>
@@ -422,9 +436,8 @@ function app_log_entries_from_snapshot(
 
   const bottleTokens = build_log_tokens([bottle.id, bottle.name]);
   const appTokens = build_log_tokens([app.id, app.name]);
-  const matchingSessionIds = new Set(
-    snapshot.sessions
-      .filter((session) => {
+  const matchingSessions = snapshot.sessions
+    .filter((session) => {
         if (session.kind !== "bottle") {
           return false;
         }
@@ -440,16 +453,21 @@ function app_log_entries_from_snapshot(
         return log_text_matches_any_token(sessionText, bottleTokens)
           && log_text_matches_any_token(sessionText, appTokens);
       })
-      .map((session) => session.id),
-  );
+    .sort((left, right) => log_timestamp(right.startedAt) - log_timestamp(left.startedAt));
+  const latestSession = matchingSessions[0];
 
-  return snapshot.entries.filter((entry) => {
+  if (latestSession) {
+    const latestSessionEntries = snapshot.entries.filter((entry) =>
+      entry.category === "wine" && entry.sessionId === latestSession.id,
+    );
+    if (latestSessionEntries.length > 0) {
+      return latestSessionEntries;
+    }
+  }
+
+  const matchingEntries = snapshot.entries.filter((entry) => {
     if (entry.category !== "wine") {
       return false;
-    }
-
-    if (matchingSessionIds.has(entry.sessionId)) {
-      return true;
     }
 
     const entryText = build_log_search_text([
@@ -463,6 +481,19 @@ function app_log_entries_from_snapshot(
     return log_text_matches_any_token(entryText, bottleTokens)
       && log_text_matches_any_token(entryText, appTokens);
   });
+
+  const latestFallbackEntry = matchingEntries.reduce<LauncherLogEntryPayload | undefined>(
+    (latest, entry) => !latest || log_timestamp(entry.timestamp) > log_timestamp(latest.timestamp) ? entry : latest,
+    undefined,
+  );
+  return latestFallbackEntry?.sessionId
+    ? matchingEntries.filter((entry) => entry.sessionId === latestFallbackEntry.sessionId)
+    : matchingEntries;
+}
+
+function log_timestamp(value: string): number {
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function build_log_tokens(values: Array<string | undefined>): string[] {

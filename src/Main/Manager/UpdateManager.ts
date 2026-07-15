@@ -8,6 +8,7 @@ import {
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
 import { send_to_web_contents } from "../Util/SafeWebContents";
+import { is_nightly_update_test_build } from "../Environment/AppPaths";
 
 interface UpdateInfoLike {
   version?: string;
@@ -164,7 +165,9 @@ export class UpdateManager {
 
   private async configureUpdateChannel(): Promise<void> {
     const preference = await preferenceManager.getPreference();
-    const channel = preference.updateChannel ?? "stable";
+    const channel = is_nightly_update_test_build()
+      ? "nightly"
+      : preference.updateChannel === "beta" ? "beta" : "stable";
 
     this.activeChannel = channel;
     autoUpdater.channel = channel === "stable" ? "latest" : channel;
@@ -176,6 +179,7 @@ export class UpdateManager {
       ...payload,
       currentVersion: app.getVersion(),
       channel: this.activeChannel,
+      channelLocked: is_nightly_update_test_build(),
     };
   }
 

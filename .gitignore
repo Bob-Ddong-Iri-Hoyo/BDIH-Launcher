@@ -2,6 +2,7 @@ node_modules
 .DS_Store
 dist/**
 release/
+tests/Release/
 storybook-static/
 output/
 screenshots/

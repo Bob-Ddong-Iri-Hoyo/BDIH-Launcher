@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
+import type { LauncherShortcutMap } from "../../Common/Types/IPC";
 import {
   CalendarDays,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -105,6 +108,7 @@ export interface LogViewerProps {
   favoriteTargetIds?: string[];
   targetDisplayMode?: LogTargetDisplayMode;
   targetLabel?: string;
+  shortcuts?: LauncherShortcutMap;
   onTargetChange?: (targetId: string) => void;
   onFavoriteTargetIdsChange?: (targetIds: string[]) => void;
   onSessionChange?: (sessionId: string) => void;
@@ -119,6 +123,15 @@ export interface LogViewerProps {
 
 const LEVELS: LogLevelFilter[] = ["all", "debug", "info", "warn", "error"];
 const LOG_BOTTOM_STICKY_THRESHOLD = 32;
+const LOG_SEARCH_CHUNK_SIZE = 64 * 1024;
+const LOG_HIGHLIGHT_BATCH_SIZE = 200;
+const LOG_SEARCH_HIGHLIGHT_NAME = "bdih-log-search-match";
+const LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME = "bdih-log-search-active";
+const DEFAULT_LOG_SEARCH_SHORTCUTS = {
+  logFind: "Command + F",
+  logFindNext: "Command + G",
+  logFindPrevious: "Command + Shift + G",
+} as const;
 
 /**
  * Full-featured log viewer with filters, target picker, and file actions.
@@ -139,6 +152,7 @@ export function LogViewer({
   favoriteTargetIds,
   targetDisplayMode = "picker",
   targetLabel,
+  shortcuts,
   onTargetChange,
   onFavoriteTargetIdsChange,
   onSessionChange,
@@ -169,6 +183,11 @@ export function LogViewer({
   });
   const [localFavoriteTargetIds, setLocalFavoriteTargetIds] = useState<string[]>(favoriteTargetIds ?? []);
   const [localBottleAppFilterValues, setLocalBottleAppFilterValues] = useState<string[]>([]);
+  const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState(-1);
+  const [searchMatches, setSearchMatches] = useState<LogTextMatch[]>([]);
+  const [isSearchPending, setIsSearchPending] = useState(false);
+  const lastSearchScopeKeyRef = React.useRef("");
+  const lastSearchQueryRef = React.useRef("");
   const [contextMenuState, setContextMenuState] = useState<{
     x: number;
     y: number;
@@ -231,15 +250,60 @@ export function LogViewer({
       filter_entries(sessionEntries, {
         category: selectedCategory,
         level,
-        search,
         sourceId,
       }),
-    [level, search, selectedCategory, sessionEntries, sourceId],
+    [level, selectedCategory, sessionEntries, sourceId],
   );
   const logText = useMemo(
-    () => filteredEntries.map(format_log_line).join("\n"),
+    () => filteredEntries.map(format_log_line).join("\n").normalize("NFC"),
     [filteredEntries],
   );
+  const normalizedSearch = normalize_log_search_query(search);
+  const searchScopeKey = `${sessionId}\u0000${normalizedSearch}`;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const queryChanged = lastSearchQueryRef.current !== normalizedSearch;
+    lastSearchQueryRef.current = normalizedSearch;
+
+    if (!normalizedSearch) {
+      setSearchMatches([]);
+      setActiveSearchMatchIndex(-1);
+      setIsSearchPending(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (queryChanged) {
+      setSearchMatches([]);
+      setActiveSearchMatchIndex(-1);
+    }
+    setIsSearchPending(true);
+
+    void find_text_matches_async(logText, normalizedSearch, () => cancelled).then((matches) => {
+      if (cancelled) return;
+      setSearchMatches(matches);
+      setIsSearchPending(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [logText, normalizedSearch]);
+
+  React.useEffect(() => {
+    const scopeChanged = lastSearchScopeKeyRef.current !== searchScopeKey;
+    lastSearchScopeKeyRef.current = searchScopeKey;
+
+    setActiveSearchMatchIndex((currentIndex) => {
+      if (searchMatches.length === 0) return -1;
+      if (scopeChanged || currentIndex < 0 || currentIndex >= searchMatches.length) {
+        return searchMatches.length - 1;
+      }
+      return currentIndex;
+    });
+  }, [searchMatches.length, searchScopeKey]);
 
   const activeFavoriteTargetIds =
     favoriteTargetIds !== undefined && onFavoriteTargetIdsChange
@@ -342,6 +406,15 @@ export function LogViewer({
     onSearchChange?.(nextSearch);
   }
 
+  function move_search_match(direction: -1 | 1) {
+    if (searchMatches.length === 0) return;
+
+    setActiveSearchMatchIndex((currentIndex) => {
+      if (currentIndex < 0) return searchMatches.length - 1;
+      return (currentIndex + direction + searchMatches.length) % searchMatches.length;
+    });
+  }
+
   function open_session_context_menu(event: React.MouseEvent, nextSession: LogSession) {
     event.preventDefault();
     setContextMenuState({
@@ -395,6 +468,9 @@ export function LogViewer({
           <LogContent
             entries={filteredEntries}
             logText={logText}
+            searchMatches={searchMatches}
+            activeSearchMatchIndex={activeSearchMatchIndex}
+            isSearchPending={isSearchPending}
             selectedSession={session}
             sources={sourceOptions}
             selectedSourceId={sourceId}
@@ -405,6 +481,11 @@ export function LogViewer({
             onSourceChange={change_source}
             onLevelChange={change_level}
             onSearchChange={change_search}
+            onPreviousSearchMatch={() => move_search_match(-1)}
+            onNextSearchMatch={() => move_search_match(1)}
+            findShortcut={shortcuts?.logFind ?? DEFAULT_LOG_SEARCH_SHORTCUTS.logFind}
+            nextSearchMatchShortcut={shortcuts?.logFindNext ?? DEFAULT_LOG_SEARCH_SHORTCUTS.logFindNext}
+            previousSearchMatchShortcut={shortcuts?.logFindPrevious ?? DEFAULT_LOG_SEARCH_SHORTCUTS.logFindPrevious}
             onOpenLogFolder={onOpenLogFolder}
             onOpenLogFile={onOpenLogFile}
             onRevealLogFile={onRevealLogFile}
@@ -741,6 +822,9 @@ export function SessionButton({
 export function LogContent({
   entries,
   logText,
+  searchMatches,
+  activeSearchMatchIndex,
+  isSearchPending,
   selectedSession,
   sources,
   selectedSourceId,
@@ -751,12 +835,20 @@ export function LogContent({
   onSourceChange,
   onLevelChange,
   onSearchChange,
+  onPreviousSearchMatch,
+  onNextSearchMatch,
+  findShortcut,
+  nextSearchMatchShortcut,
+  previousSearchMatchShortcut,
   onOpenLogFolder,
   onOpenLogFile,
   onRevealLogFile,
 }: {
   entries: LogEntry[];
   logText: string;
+  searchMatches: LogTextMatch[];
+  activeSearchMatchIndex: number;
+  isSearchPending: boolean;
   selectedSession?: LogSession;
   sources: LogSourceOption[];
   selectedSourceId: LogSourceFilter;
@@ -767,6 +859,11 @@ export function LogContent({
   onSourceChange: (sourceId: LogSourceFilter) => void;
   onLevelChange: (level: LogLevelFilter) => void;
   onSearchChange: (value: string) => void;
+  onPreviousSearchMatch: () => void;
+  onNextSearchMatch: () => void;
+  findShortcut: string;
+  nextSearchMatchShortcut: string;
+  previousSearchMatchShortcut: string;
   onOpenLogFolder?: () => void;
   onOpenLogFile?: (session: LogSession) => void;
   onRevealLogFile?: (session: LogSession) => void;
@@ -786,6 +883,14 @@ export function LogContent({
         onSourceChange={onSourceChange}
         onLevelChange={onLevelChange}
         onSearchChange={onSearchChange}
+        searchMatchCount={searchMatches.length}
+        activeSearchMatchIndex={activeSearchMatchIndex}
+        isSearchPending={isSearchPending}
+        onPreviousSearchMatch={onPreviousSearchMatch}
+        onNextSearchMatch={onNextSearchMatch}
+        findShortcut={findShortcut}
+        nextSearchMatchShortcut={nextSearchMatchShortcut}
+        previousSearchMatchShortcut={previousSearchMatchShortcut}
         onOpenLogFolder={onOpenLogFolder}
         onOpenLogFile={onOpenLogFile}
         onRevealLogFile={onRevealLogFile}
@@ -793,6 +898,8 @@ export function LogContent({
       <LogTextPanel
         entries={entries}
         text={logText}
+        searchMatches={searchMatches}
+        activeSearchMatchIndex={activeSearchMatchIndex}
         scrollScopeKey={selectedSession?.id ?? "no-session"}
         placeholder={selectedSession
           ? t("logViewer.content.noMatches")
@@ -813,6 +920,14 @@ export function LogToolbar({
   onSourceChange,
   onLevelChange,
   onSearchChange,
+  searchMatchCount,
+  activeSearchMatchIndex,
+  isSearchPending,
+  onPreviousSearchMatch,
+  onNextSearchMatch,
+  findShortcut,
+  nextSearchMatchShortcut,
+  previousSearchMatchShortcut,
   onOpenLogFolder,
   onOpenLogFile,
   onRevealLogFile,
@@ -827,11 +942,20 @@ export function LogToolbar({
   onSourceChange: (sourceId: LogSourceFilter) => void;
   onLevelChange: (level: LogLevelFilter) => void;
   onSearchChange: (value: string) => void;
+  searchMatchCount: number;
+  activeSearchMatchIndex: number;
+  isSearchPending: boolean;
+  onPreviousSearchMatch: () => void;
+  onNextSearchMatch: () => void;
+  findShortcut: string;
+  nextSearchMatchShortcut: string;
+  previousSearchMatchShortcut: string;
   onOpenLogFolder?: () => void;
   onOpenLogFile?: (session: LogSession) => void;
   onRevealLogFile?: (session: LogSession) => void;
 }) {
   const { t } = useTranslation();
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
   const hasSelectedSessionFile = Boolean(selectedSession && log_session_file_target(selectedSession));
   const hasSelectedSessionFolder = Boolean(selectedSession && log_session_reveal_target(selectedSession));
   const sourceSelectOptions: SelectMenuOption[] = [
@@ -841,6 +965,34 @@ export function LogToolbar({
       label: source.count !== undefined ? `${source.label} (${source.count})` : source.label,
     })),
   ];
+
+  React.useEffect(() => {
+    const handle_search_shortcut = (event: KeyboardEvent) => {
+      const shortcut = log_shortcut_label_from_keyboard_event(event);
+      if (!shortcut) return;
+
+      if (shortcut === findShortcut) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      if (shortcut === nextSearchMatchShortcut) {
+        event.preventDefault();
+        onNextSearchMatch();
+        return;
+      }
+
+      if (shortcut === previousSearchMatchShortcut) {
+        event.preventDefault();
+        onPreviousSearchMatch();
+      }
+    };
+
+    window.addEventListener("keydown", handle_search_shortcut);
+    return () => window.removeEventListener("keydown", handle_search_shortcut);
+  }, [findShortcut, nextSearchMatchShortcut, onNextSearchMatch, onPreviousSearchMatch, previousSearchMatchShortcut]);
 
   return (
     <Box className="border-b border-white/10 bg-[#101827] p-3">
@@ -888,11 +1040,52 @@ export function LogToolbar({
         <RelativeBox className="min-w-52 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <Input
+            ref={searchInputRef}
             value={searchValue}
             onChange={(event) => onSearchChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              if (event.shiftKey) {
+                onPreviousSearchMatch();
+              } else {
+                onNextSearchMatch();
+              }
+            }}
             placeholder={t("logViewer.filters.filterText")}
-            className="h-9 w-full rounded-md border border-white/10 bg-[#0b1020] px-3 pl-9 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+            className={`h-9 w-full rounded-md border border-white/10 bg-[#0b1020] px-3 pl-9 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)] ${searchValue.trim() ? "pr-32" : ""}`}
           />
+          {searchValue.trim() ? (
+            <Inline className="absolute right-1 top-1/2 h-7 -translate-y-1/2 items-center gap-0.5 rounded bg-[#101827] pl-2 ring-1 ring-white/10">
+              <InlineText className="min-w-12 text-center text-[11px] tabular-nums text-slate-400">
+                {isSearchPending
+                  ? "..."
+                  : `${searchMatchCount > 0 ? activeSearchMatchIndex + 1 : 0} / ${searchMatchCount}`}
+              </InlineText>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={isSearchPending || searchMatchCount === 0}
+                aria-label="Previous match"
+                title={`Previous match (${previousSearchMatchShortcut})`}
+                onClick={onPreviousSearchMatch}
+              >
+                <ChevronUp size={14} />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={isSearchPending || searchMatchCount === 0}
+                aria-label="Next match"
+                title={`Next match (${nextSearchMatchShortcut})`}
+                onClick={onNextSearchMatch}
+              >
+                <ChevronDown size={14} />
+              </Button>
+            </Inline>
+          ) : null}
         </RelativeBox>
         <Select
           value={selectedSourceId}
@@ -995,6 +1188,13 @@ export interface LogTextPanelProps {
   entries?: LogEntry[];
   placeholder?: string;
   scrollScopeKey?: string;
+  searchMatches?: LogTextMatch[];
+  activeSearchMatchIndex?: number;
+}
+
+interface LogTextMatch {
+  start: number;
+  end: number;
 }
 
 /**
@@ -1008,6 +1208,8 @@ export function LogTextPanel({
   entries = [],
   placeholder,
   scrollScopeKey = "default",
+  searchMatches = [],
+  activeSearchMatchIndex = -1,
 }: LogTextPanelProps) {
   const { t } = useTranslation();
   const textPanelRef = React.useRef<HTMLPreElement>(null);
@@ -1029,10 +1231,91 @@ export function LogTextPanel({
       lastScrollScopeKeyRef.current = scrollScopeKey;
     }
 
-    if (shouldStickToBottomRef.current) {
+    if (shouldStickToBottomRef.current && searchMatches.length === 0) {
       textPanel.scrollTop = textPanel.scrollHeight;
     }
-  }, [scrollScopeKey, text]);
+  }, [scrollScopeKey, searchMatches.length, text]);
+
+  React.useEffect(() => {
+    if (!shouldStickToBottomRef.current || searchMatches.length > 0) {
+      return;
+    }
+
+    // Dialogs and resizable panels can finish sizing after the layout effect.
+    // Re-apply the initial/latest position after paint so opening an app log
+    // never leaves the viewport at the oldest entries.
+    const animationFrame = window.requestAnimationFrame(() => {
+      const textPanel = textPanelRef.current;
+      if (textPanel && shouldStickToBottomRef.current) {
+        textPanel.scrollTop = textPanel.scrollHeight;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [scrollScopeKey, searchMatches.length, text]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const registry = get_css_highlight_registry();
+    const HighlightConstructor = get_css_highlight_constructor();
+    registry?.delete(LOG_SEARCH_HIGHLIGHT_NAME);
+
+    const textNode = textPanelRef.current?.firstChild;
+    if (!registry || !HighlightConstructor || !(textNode instanceof Text) || searchMatches.length === 0) {
+      return () => {
+        cancelled = true;
+        registry?.delete(LOG_SEARCH_HIGHLIGHT_NAME);
+      };
+    }
+
+    const highlight = new HighlightConstructor();
+    registry.set(LOG_SEARCH_HIGHLIGHT_NAME, highlight);
+
+    void (async () => {
+      for (let index = 0; index < searchMatches.length; index += 1) {
+        if (cancelled) return;
+        const match = searchMatches[index];
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.end);
+        highlight.add(range);
+
+        if ((index + 1) % LOG_HIGHLIGHT_BATCH_SIZE === 0) {
+          await yield_to_renderer();
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      registry.delete(LOG_SEARCH_HIGHLIGHT_NAME);
+    };
+  }, [searchMatches, text]);
+
+  React.useEffect(() => {
+    const registry = get_css_highlight_registry();
+    const HighlightConstructor = get_css_highlight_constructor();
+    registry?.delete(LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME);
+
+    const textPanel = textPanelRef.current;
+    const textNode = textPanel?.firstChild;
+    const match = searchMatches[activeSearchMatchIndex];
+    if (!textPanel || !(textNode instanceof Text) || !match) return;
+
+    const range = document.createRange();
+    range.setStart(textNode, match.start);
+    range.setEnd(textNode, match.end);
+
+    if (registry && HighlightConstructor) {
+      registry.set(LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME, new HighlightConstructor(range));
+    }
+
+    const matchRect = range.getBoundingClientRect();
+    const panelRect = textPanel.getBoundingClientRect();
+    textPanel.scrollTop += matchRect.top - panelRect.top - (textPanel.clientHeight / 2);
+
+    return () => registry?.delete(LOG_SEARCH_ACTIVE_HIGHLIGHT_NAME);
+  }, [activeSearchMatchIndex, scrollScopeKey, searchMatches, text]);
 
   function remember_scroll_position(event: React.UIEvent<HTMLPreElement>) {
     shouldStickToBottomRef.current = is_log_panel_at_bottom(event.currentTarget);
@@ -1404,12 +1687,9 @@ function filter_entries(
   filters: {
     category: LogCategoryFilter;
     level: LogLevelFilter;
-    search: string;
     sourceId: LogSourceFilter;
   },
 ) {
-  const search = filters.search.normalize("NFC").trim().toLocaleLowerCase();
-
   return entries.filter((entry) => {
     const matchesCategory =
       filters.category === "all" || entry.category === filters.category;
@@ -1417,13 +1697,105 @@ function filter_entries(
       filters.sourceId === "all" || entry.source === filters.sourceId;
     const matchesLevel =
       filters.level === "all" || entry.level === filters.level;
-    const matchesSearch = search.length === 0 || format_log_line(entry)
-      .normalize("NFC")
-      .toLocaleLowerCase()
-      .includes(search);
-
-    return matchesCategory && matchesSource && matchesLevel && matchesSearch;
+    return matchesCategory && matchesSource && matchesLevel;
   });
+}
+
+function normalize_log_search_query(searchValue: string): string {
+  return searchValue.normalize("NFC").trim().toLocaleLowerCase();
+}
+
+async function find_text_matches_async(
+  text: string,
+  search: string,
+  isCancelled: () => boolean,
+): Promise<LogTextMatch[]> {
+  if (!search) return [];
+
+  const matches: LogTextMatch[] = [];
+  const overlap = Math.max(0, search.length - 1);
+  await yield_to_renderer();
+
+  for (let chunkStart = 0; chunkStart < text.length; chunkStart += LOG_SEARCH_CHUNK_SIZE) {
+    if (isCancelled()) return [];
+
+    const acceptedEnd = Math.min(text.length, chunkStart + LOG_SEARCH_CHUNK_SIZE);
+    const sliceStart = Math.max(0, chunkStart - overlap);
+    const sliceEnd = Math.min(text.length, acceptedEnd + overlap);
+    const searchableChunk = text.slice(sliceStart, sliceEnd).toLocaleLowerCase();
+    let localStart = searchableChunk.indexOf(search);
+
+    while (localStart >= 0) {
+      const globalStart = sliceStart + localStart;
+      if (globalStart >= chunkStart && globalStart < acceptedEnd) {
+        matches.push({ start: globalStart, end: globalStart + search.length });
+      }
+      localStart = searchableChunk.indexOf(search, localStart + Math.max(search.length, 1));
+    }
+
+    await yield_to_renderer();
+  }
+
+  return matches;
+}
+
+function yield_to_renderer(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+interface CssHighlightLike {
+  add(range: Range): void;
+}
+
+interface CssHighlightRegistryLike {
+  set(name: string, highlight: CssHighlightLike): void;
+  delete(name: string): void;
+}
+
+type CssHighlightConstructor = new (...ranges: Range[]) => CssHighlightLike;
+
+function get_css_highlight_registry(): CssHighlightRegistryLike | undefined {
+  return (CSS as unknown as { highlights?: CssHighlightRegistryLike }).highlights;
+}
+
+function get_css_highlight_constructor(): CssHighlightConstructor | undefined {
+  return (window as unknown as { Highlight?: CssHighlightConstructor }).Highlight;
+}
+
+function log_shortcut_label_from_keyboard_event(event: KeyboardEvent): string | null {
+  if (["Meta", "Control", "Alt", "Shift"].includes(event.key)) return null;
+  if (!event.metaKey && !event.ctrlKey && !event.altKey) return null;
+
+  const parts: string[] = [];
+  if (event.metaKey) parts.push("Command");
+  if (event.ctrlKey) parts.push("Ctrl");
+  if (event.altKey) parts.push("Option");
+  if (event.shiftKey) parts.push("Shift");
+  parts.push(log_shortcut_key_label_from_code(event.code));
+  return parts.join(" + ");
+}
+
+function log_shortcut_key_label_from_code(code: string): string {
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+
+  const labels: Record<string, string> = {
+    Backquote: "`",
+    Backslash: "\\",
+    BracketLeft: "[",
+    BracketRight: "]",
+    Comma: ",",
+    Enter: "Return",
+    Equal: "=",
+    Minus: "-",
+    Period: ".",
+    Quote: "'",
+    Semicolon: ";",
+    Slash: "/",
+    Space: "Space",
+    Tab: "Tab",
+  };
+  return labels[code] ?? code.replace(/^Numpad/, "Numpad ");
 }
 
 function format_log_line(entry: LogEntry): string {

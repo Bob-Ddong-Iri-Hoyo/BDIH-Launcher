@@ -1439,7 +1439,6 @@ function bottle_dxmt_cache_prefixes(bottle: Bottle): BottlePrefixMetadataPayload
 
   bottle.prefixes?.forEach((prefix) => addPrefix(prefix.path, prefix.name, prefix));
   bottle.apps.forEach((app) => addPrefix(app.prefixPath, app.name));
-  addPrefix(bottle.prefixPath, bottle.name);
   return [...prefixesByPath.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 

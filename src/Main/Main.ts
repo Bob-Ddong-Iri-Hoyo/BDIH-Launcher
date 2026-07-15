@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { config as load_dotenv_config } from "dotenv";
 import path from "path";
+import { get_app_data_root, is_update_test_build } from "./Environment/AppPaths";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
 import { bottleExecutionManager } from "./Manager/BottleExecutionManager";
@@ -17,6 +18,11 @@ import { windowManager } from "./Manager/WindowManager";
 let isQuitCleanupComplete = false;
 let quitCleanupPromise: Promise<void> | null = null;
 const AUTO_UPDATE_CHECK_DELAY_MS = 2_000;
+const IS_UPDATE_TEST_BUILD = is_update_test_build();
+
+if (IS_UPDATE_TEST_BUILD) {
+  app.setPath("userData", get_app_data_root());
+}
 
 load_dotenv_config({ quiet: true });
 
@@ -27,7 +33,9 @@ load_dotenv_config({ quiet: true });
  * before any renderer window is visible.
  */
 function configureAppIdentity(language?: string): void {
-  apply_localized_app_name(language);
+  if (!IS_UPDATE_TEST_BUILD) {
+    apply_localized_app_name(language);
+  }
 
   if (process.platform === "darwin") {
     app.dock.setIcon(get_app_icon_path());
@@ -49,7 +57,9 @@ async function createApp(): Promise<void> {
     logDir: path.join(expand_user_home_path(preference.dataRootPath), "logs"),
     minLevel: log_level_from_preference(preference.appLoggingLevel),
   });
-  discordPresenceManager.init(preference.language);
+  if (!IS_UPDATE_TEST_BUILD) {
+    discordPresenceManager.init(preference.language);
+  }
   ipcManager.init();
 
   const mainWindow = await windowManager.createMainWindow();

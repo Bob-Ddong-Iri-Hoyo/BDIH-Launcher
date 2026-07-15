@@ -801,6 +801,7 @@ export function LauncherView({
             entries={logEntries}
             sessions={logSessions}
             sources={logSources}
+            shortcuts={shortcuts}
             className="h-full"
             onOpenLogFolder={onOpenLogFolder}
             onOpenLogFile={(session) => onOpenLogFile?.(log_session_file_path(session))}

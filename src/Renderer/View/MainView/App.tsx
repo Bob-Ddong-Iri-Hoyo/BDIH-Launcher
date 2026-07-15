@@ -35,6 +35,9 @@ const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   launch: "Command + Return",
   logs: "Command + L",
   preferences: "Command + ,",
+  logFind: "Command + F",
+  logFindNext: "Command + G",
+  logFindPrevious: "Command + Shift + G",
 };
 const DEVELOPER_YOUTUBE_HANDLE = BDIH_YOUTUBE_HANDLE;
 
@@ -536,6 +539,72 @@ function update_log_sessions(sessions: LogSession[], entry: LauncherLogEntryPayl
         }
       : session,
   );
+}
+
+function normalize_log_runtime_target(value: string | undefined): string {
+  return (value ?? "")
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[\s/\\:_-]+/g, "");
+}
+
+function log_session_matches_runtime_app(
+  session: LogSession,
+  bottleId: string | undefined,
+  bottleName: string | undefined,
+  appIds: Array<string | undefined>,
+  appName: string | undefined,
+): boolean {
+  if (session.kind !== "bottle") return false;
+
+  const sameBottle = bottleId && session.bottleId
+    ? bottleId === session.bottleId
+    : normalize_log_runtime_target(bottleName) === normalize_log_runtime_target(session.bottleName);
+  if (!sameBottle) return false;
+
+  const sessionTarget = normalize_log_runtime_target(log_session_app_target(session));
+  const candidates = [...appIds, appName]
+    .map((candidate) => normalize_log_runtime_target(candidate))
+    .filter(Boolean);
+
+  if (candidates.length === 0) return true;
+  return candidates.some((candidate) =>
+    sessionTarget === candidate
+      || (candidate.length > 2 && sessionTarget.includes(candidate))
+      || (sessionTarget.length > 2 && candidate.includes(sessionTarget)),
+  );
+}
+
+function set_runtime_log_session_state(
+  sessions: LogSession[],
+  bottleId: string | undefined,
+  bottleName: string | undefined,
+  appIds: Array<string | undefined>,
+  appName: string | undefined,
+  isRunning: boolean,
+): LogSession[] {
+  const matchingSessions = sessions.filter((session) =>
+    log_session_matches_runtime_app(session, bottleId, bottleName, appIds, appName),
+  );
+  const latestSession = matchingSessions.reduce<LogSession | undefined>((latest, session) => {
+    if (!latest) return session;
+    return new Date(session.startedAt).getTime() > new Date(latest.startedAt).getTime()
+      ? session
+      : latest;
+  }, undefined);
+
+  return sessions.map((session) => {
+    if (!log_session_matches_runtime_app(session, bottleId, bottleName, appIds, appName)) {
+      return session;
+    }
+
+    return {
+      ...session,
+      // One running app owns one current history item. Older matching log
+      // files remain history even when the same app is launched again.
+      isRunning: isRunning && session.id === latestSession?.id,
+    };
+  });
 }
 
 function update_log_sources(sources: LogSourceOption[], entry: LauncherLogEntryPayload): LogSourceOption[] {
@@ -1092,6 +1161,19 @@ const App: React.FC = () => {
           activePrefixSessionsRef.current.delete(payload.processId);
         }
 
+        setLogSessions((currentSessions) => {
+          const nextSessions = set_runtime_log_session_state(
+            currentSessions,
+            payload.bottleId,
+            payload.bottleName,
+            [payload.appId, ...(payload.appIds ?? [])],
+            payload.appName,
+            payload.isRunning,
+          );
+          logSessionsRef.current = nextSessions;
+          return nextSessions;
+        });
+
         const currentBottles = bottlesRef.current;
         const matchingBottle = currentBottles.find((bottle) => bottle.id === payload.bottleId);
         const matchingApp = matchingBottle?.apps.find((app) => app.id === payload.appId);
@@ -1140,6 +1222,29 @@ const App: React.FC = () => {
     const unsubscribe = window.BTIH_API?.on(
       IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName,
       (_event, payload: BottleProcessExitPayload) => {
+        const exitedApps = bottlesRef.current.flatMap((bottle) =>
+          bottle.apps
+            .filter((app) => app.processId === payload.processId)
+            .map((app) => ({ bottle, app })),
+        );
+        if (exitedApps.length > 0) {
+          setLogSessions((currentSessions) => {
+            const nextSessions = exitedApps.reduce(
+              (sessions, { bottle, app }) => set_runtime_log_session_state(
+                sessions,
+                bottle.id,
+                bottle.name,
+                [app.id],
+                app.name,
+                false,
+              ),
+              currentSessions,
+            );
+            logSessionsRef.current = nextSessions;
+            return nextSessions;
+          });
+        }
+
         exitedProcessIdsRef.current.add(payload.processId);
         window.setTimeout(() => {
           exitedProcessIdsRef.current.delete(payload.processId);

@@ -1,5 +1,5 @@
 import { readConfigFile, readUserSettings, writeUserSettings } from "../FileIO/IO";
-import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LAUNCHER_UPDATE_CHANNELS, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutMap, LauncherUpdateChannel, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
+import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LAUNCHER_PUBLIC_UPDATE_CHANNELS, LAUNCHER_SHORTCUT_ACTIONS, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutMap, LauncherUpdateChannel, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
 import path from "path";
 import {
   get_default_data_root_path,
@@ -8,6 +8,8 @@ import {
   get_default_wine_install_path,
   get_legacy_settings_path,
   is_dev_resource_environment,
+  is_nightly_update_test_build,
+  is_update_test_build,
 } from "../Environment/AppPaths";
 
 export type LauncherPreference = LauncherPreferencePayload;
@@ -20,6 +22,9 @@ const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   launch: "Command + Return",
   logs: "Command + L",
   preferences: "Command + ,",
+  logFind: "Command + F",
+  logFindNext: "Command + G",
+  logFindPrevious: "Command + Shift + G",
 };
 const ACCENT_COLORS = ["rose", "sky", "emerald", "violet", "amber"] as const;
 type AccentColorPreference = (typeof ACCENT_COLORS)[number];
@@ -32,8 +37,8 @@ export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
   dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
   gameInstallPath: path.join(DEFAULT_DATA_ROOT_PATH, "Games"),
-  autoCheckUpdates: true,
-  updateChannel: "stable",
+  autoCheckUpdates: !is_update_test_build(),
+  updateChannel: is_nightly_update_test_build() ? "nightly" : "stable",
   closeToTray: false,
   themeMode: "system",
   appLoggingLevel: "info",
@@ -134,8 +139,10 @@ export class PreferenceManager {
       bottlePrefixPath: this.stringOrDefault(record.bottlePrefixPath, get_default_bottle_prefix_path(dataRootPath)),
       dxmtCachePath: get_default_dxmt_cache_path(dataRootPath),
       gameInstallPath: this.stringOrDefault(record.gameInstallPath, path.join(dataRootPath, "Games")),
-      autoCheckUpdates: this.booleanOrDefault(record.autoCheckUpdates, true),
-      updateChannel: this.updateChannelOrDefault(record.updateChannel, "stable"),
+      autoCheckUpdates: this.booleanOrDefault(record.autoCheckUpdates, !is_update_test_build()),
+      updateChannel: is_nightly_update_test_build()
+        ? "nightly"
+        : this.updateChannelOrDefault(record.updateChannel, "stable"),
       closeToTray: this.booleanOrDefault(record.closeToTray, false),
       themeMode: this.themeModeOrDefault(record.themeMode, "system"),
       appLoggingLevel: this.loggingLevelOrDefault(record.appLoggingLevel, "info"),
@@ -177,7 +184,7 @@ export class PreferenceManager {
   }
 
   private updateChannelOrDefault(value: unknown, fallback: LauncherUpdateChannel): LauncherUpdateChannel {
-    return typeof value === "string" && LAUNCHER_UPDATE_CHANNELS.includes(value as LauncherUpdateChannel)
+    return typeof value === "string" && LAUNCHER_PUBLIC_UPDATE_CHANNELS.some((channel) => channel === value)
       ? (value as LauncherUpdateChannel)
       : fallback;
   }
