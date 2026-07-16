@@ -87,6 +87,20 @@ export interface AppUpdateStatusPayload {
   channelLocked?: boolean;
 }
 
+export const APP_UPDATE_INSTALL_STAGES = [
+  "checking-processes",
+  "saving-state",
+  "stopping-processes",
+  "downloading",
+  "installing",
+] as const;
+export type AppUpdateInstallStage = (typeof APP_UPDATE_INSTALL_STAGES)[number];
+
+export interface AppUpdateInstallProgressPayload {
+  stage: AppUpdateInstallStage;
+  progress: number;
+}
+
 export const LAUNCHER_LOG_LEVELS = ["off", "error", "warn", "info", "debug", "all"] as const;
 export type LauncherLogLevel = (typeof LAUNCHER_LOG_LEVELS)[number];
 export const DEBUG_FLAG_MODES = ["preset", "wineDebug"] as const;
@@ -107,6 +121,23 @@ export const LAUNCHER_SHORTCUT_ACTIONS = [
 export type LauncherShortcutAction = (typeof LAUNCHER_SHORTCUT_ACTIONS)[number];
 export type LauncherShortcutMap = Record<LauncherShortcutAction, string>;
 
+export const LAUNCHER_WINDOW_STARTUP_SIZE_MODES = [
+  "default",
+  "wide",
+  "large",
+  "maximized",
+  "custom",
+  "last",
+] as const;
+export type LauncherWindowStartupSizeMode = (typeof LAUNCHER_WINDOW_STARTUP_SIZE_MODES)[number];
+export const LAUNCHER_WINDOW_DEFAULT_SIZE = { width: 1200, height: 800 } as const;
+export const LAUNCHER_WINDOW_MIN_SIZE = { width: 960, height: 640 } as const;
+export const LAUNCHER_WINDOW_PRESET_SIZES = {
+  default: LAUNCHER_WINDOW_DEFAULT_SIZE,
+  wide: { width: 1440, height: 900 },
+  large: { width: 1600, height: 1000 },
+} as const;
+
 export interface LauncherPreferencePayload {
   language: string;
   accentColor: string;
@@ -118,6 +149,13 @@ export interface LauncherPreferencePayload {
   autoCheckUpdates: boolean;
   updateChannel?: LauncherUpdateChannel;
   closeToTray: boolean;
+  windowStartupSizeMode?: LauncherWindowStartupSizeMode;
+  windowStartupCustomWidth?: number;
+  windowStartupCustomHeight?: number;
+  lastWindowWidth?: number;
+  lastWindowHeight?: number;
+  lastWindowMaximized?: boolean;
+  lastWindowFullscreen?: boolean;
   themeMode: RendererThemeMode;
   appLoggingLevel: LauncherLogLevel;
   debugFlagMode: DebugFlagMode;
@@ -286,6 +324,10 @@ export interface RunBottleExecutablePayload {
 export interface StopBottleProcessPayload {
   processId: string;
   appId?: string;
+}
+
+export interface BottleExecutionStatePayload {
+  isRunning: boolean;
 }
 
 export interface DeleteBottlePayload {
@@ -538,11 +580,13 @@ export interface AppChannelSchema {
   readonly MAXIMIZE: IpcChannelUnit<void>;
   readonly RESTART: IpcChannelUnit<void>;
   readonly UPDATE: IpcChannelUnit<void>;
+  readonly INSTALL_UPDATE: IpcChannelUnit<void>;
   readonly GET_UPDATE_STATUS: IpcChannelUnit<void>;
   readonly GET_ROSETTA_STATUS: IpcChannelUnit<void>;
   readonly CONTINUE_AFTER_ROSETTA_GATE: IpcChannelUnit<void>;
   readonly GET_LOCALE_RESOURCES: IpcChannelUnit<void>;
   readonly UPDATE_STATUS: IpcChannelUnit<AppUpdateStatusPayload>;
+  readonly UPDATE_INSTALL_PROGRESS: IpcChannelUnit<AppUpdateInstallProgressPayload>;
   readonly GET_PREFERENCE: IpcChannelUnit<void>;
   readonly UPDATE_PREFERENCE: IpcChannelUnit<LauncherPreferencePatch>;
   readonly SELECT_DIRECTORY: IpcChannelUnit<SelectDirectoryPayload>;
@@ -570,6 +614,8 @@ export interface BottleChannelSchema {
   readonly DELETE_PREFIX: IpcChannelUnit<DeleteBottlePrefixPayload>;
   readonly RUN_EXECUTABLE: IpcChannelUnit<RunBottleExecutablePayload>;
   readonly STOP_PROCESS: IpcChannelUnit<StopBottleProcessPayload>;
+  readonly GET_EXECUTION_STATE: IpcChannelUnit<void>;
+  readonly STOP_ALL_PROCESSES: IpcChannelUnit<void>;
   readonly SETUP_PREFIX: IpcChannelUnit<SetupBottlePrefixPayload>;
   readonly APPLY_RECIPE: IpcChannelUnit<ApplyBottleRecipePayload>;
   readonly DOWNLOAD_LAUNCHER_INSTALLER: IpcChannelUnit<DownloadBottleLauncherInstallerPayload>;
@@ -735,6 +781,18 @@ export const BOTTLE = {
     direction: "RENDERER_TO_MAIN",
     payload: {} as StopBottleProcessPayload,
   },
+  GET_EXECUTION_STATE: {
+    channelName: "bottle:get-execution-state",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as never,
+  },
+  STOP_ALL_PROCESSES: {
+    channelName: "bottle:stop-all-processes",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as never,
+  },
   SETUP_PREFIX: {
     channelName: "bottle:setup-prefix",
     method: "invoke",
@@ -813,6 +871,12 @@ export const APP = {
     method: "send",
     payload: {} as never,
   },
+  INSTALL_UPDATE: {
+    channelName: "app:install-update",
+    direction: "RENDERER_TO_MAIN",
+    method: "send",
+    payload: {} as never,
+  },
   GET_UPDATE_STATUS: {
     channelName: "app:get-update-status",
     direction: "RENDERER_TO_MAIN",
@@ -842,6 +906,12 @@ export const APP = {
     direction: "MAIN_TO_RENDERER",
     method: "on",
     payload: {} as AppUpdateStatusPayload,
+  },
+  UPDATE_INSTALL_PROGRESS: {
+    channelName: "app:update-install-progress",
+    direction: "MAIN_TO_RENDERER",
+    method: "on",
+    payload: {} as AppUpdateInstallProgressPayload,
   },
   GET_PREFERENCE: {
     channelName: "app:get-preference",

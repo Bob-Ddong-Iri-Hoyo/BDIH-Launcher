@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { readdir, rm } from "fs/promises";
 import os from "os";
 import path from "path";
-import { ApplyBottleRecipePayload, DeleteBottleAppPayload, DeleteBottleAppResultPayload, DeleteBottlePayload, DeleteBottlePrefixPayload, DeleteBottlePrefixResultPayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, DownloadBottleLauncherInstallerPayload, DxmtDeletePayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, JadeiteDeletePayload, JadeiteInstallPayload, LauncherDataDeleteTarget, LauncherPreferencePatch, LocaleResourcesPayload, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RendererLogPayload, RosettaStatusPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, RuntimeDeleteResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload, WineDeletePayload } from "../../Common/Types/IPC";
+import { ApplyBottleRecipePayload, BottleExecutionStatePayload, BottleTaskResultPayload, DeleteBottleAppPayload, DeleteBottleAppResultPayload, DeleteBottlePayload, DeleteBottlePrefixPayload, DeleteBottlePrefixResultPayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, DownloadBottleLauncherInstallerPayload, DxmtDeletePayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, JadeiteDeletePayload, JadeiteInstallPayload, LauncherDataDeleteTarget, LauncherPreferencePatch, LocaleResourcesPayload, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RendererLogPayload, RosettaStatusPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, RuntimeDeleteResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload, WineDeletePayload } from "../../Common/Types/IPC";
 import {
   get_bottle_registry_path,
   get_default_bottle_prefix_path,
@@ -198,6 +198,30 @@ export class IPCManager {
       },
     );
 
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.GET_EXECUTION_STATE.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.GET_EXECUTION_STATE.channelName,
+      async (): Promise<BottleExecutionStatePayload> => ({
+        isRunning: this.bottleExecutions.hasActiveWineProcesses(),
+      }),
+    );
+
+    ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.STOP_ALL_PROCESSES.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.BOTTLE.STOP_ALL_PROCESSES.channelName,
+      async (): Promise<BottleTaskResultPayload> => {
+        try {
+          await this.bottleExecutions.stopAllWineProcesses();
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    );
+
     ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.SETUP_PREFIX.channelName);
     ipcMain.handle(
       IPC_CHANNELS.BOTTLE.SETUP_PREFIX.channelName,
@@ -274,7 +298,11 @@ export class IPCManager {
     this.onAppEvent(IPC_CHANNELS.APP.UPDATE.channelName, async (event) => {
       const window =
         BrowserWindow.fromWebContents(event.sender) ?? this.windows.getMainWindow();
-      await this.updates.checkForUpdatesAndNotify(window ?? undefined);
+      await this.updates.checkForUpdates(window ?? undefined);
+    });
+
+    this.onAppEvent(IPC_CHANNELS.APP.INSTALL_UPDATE.channelName, () => {
+      void this.updates.quitAndInstall();
     });
 
     ipcMain.removeHandler(IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName);
@@ -366,7 +394,16 @@ export class IPCManager {
     ipcMain.handle(
       IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName,
       async (_event, patch: LauncherPreferencePatch) => {
+        const previousPreference = await this.preferences.getPreference();
         const preference = await this.preferences.updatePreference(patch);
+
+        if (
+          previousPreference.windowStartupSizeMode !== preference.windowStartupSizeMode
+          || previousPreference.windowStartupCustomWidth !== preference.windowStartupCustomWidth
+          || previousPreference.windowStartupCustomHeight !== preference.windowStartupCustomHeight
+        ) {
+          this.windows.applyLauncherWindowStartupSize(preference);
+        }
 
         if (
           Object.prototype.hasOwnProperty.call(patch, "dataRootPath")

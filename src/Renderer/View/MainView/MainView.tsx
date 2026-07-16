@@ -1,7 +1,7 @@
 ﻿import React from "react";
 import { Copy, FolderOpen, Pencil, Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload, DebugFlagMode, DeleteLauncherDataResultPayload, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, RendererThemeMode } from "../../../Common/Types/IPC";
+import type { AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload, DebugFlagMode, DeleteLauncherDataResultPayload, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RendererThemeMode } from "../../../Common/Types/IPC";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../../Common/Types/Wine";
 import { BottleDetailPanel, CreateBottleDialog, DashboardBreadcrumb, DashboardHomePanel, is_bottle_running } from "../../Component/BottleDashboard";
 import { ContextMenu, ContextMenuItem, ContextMenuPosition } from "../../Component/ContextMenu";
@@ -90,6 +90,10 @@ export interface LauncherViewProps extends DashboardViewProps {
   shortcuts?: LauncherShortcutMap;
   autoUpdateEnabled?: boolean;
   closeToTray?: boolean;
+  hasUnsavedPreferenceChanges?: boolean;
+  windowStartupSizeMode?: LauncherWindowStartupSizeMode;
+  windowStartupCustomWidth?: number;
+  windowStartupCustomHeight?: number;
   appUpdateStatus?: AppUpdateStatusPayload;
   dataRootPath?: string;
   bottlePrefixPath?: string;
@@ -117,7 +121,11 @@ export interface LauncherViewProps extends DashboardViewProps {
   onShortcutChange?: (action: LauncherShortcutAction, shortcut: string) => void;
   onAutoUpdateEnabledChange?: (enabled: boolean) => void;
   onCloseToTrayChange?: (enabled: boolean) => void;
+  onWindowStartupSizeModeChange?: (mode: LauncherWindowStartupSizeMode) => void;
+  onWindowStartupCustomWidthChange?: (width: number) => void;
+  onWindowStartupCustomHeightChange?: (height: number) => void;
   onCheckForUpdates?: () => void;
+  onInstallUpdate?: () => void;
   onBrowsePath?: (pathKey: PreferencePathKey) => void;
   onResetPath?: (pathKey: PreferencePathKey) => void;
   onDeleteLauncherData?: (targets: LauncherDataDeleteTarget[]) => Promise<DeleteLauncherDataResultPayload | undefined> | DeleteLauncherDataResultPayload | undefined;
@@ -637,6 +645,10 @@ export function LauncherView({
   shortcuts,
   autoUpdateEnabled,
   closeToTray,
+  hasUnsavedPreferenceChanges = false,
+  windowStartupSizeMode,
+  windowStartupCustomWidth,
+  windowStartupCustomHeight,
   appUpdateStatus,
   dataRootPath,
   bottlePrefixPath,
@@ -693,7 +705,11 @@ export function LauncherView({
   onShortcutChange,
   onAutoUpdateEnabledChange,
   onCloseToTrayChange,
+  onWindowStartupSizeModeChange,
+  onWindowStartupCustomWidthChange,
+  onWindowStartupCustomHeightChange,
   onCheckForUpdates,
+  onInstallUpdate,
   onBrowsePath,
   onResetPath,
   onDeleteLauncherData,
@@ -826,6 +842,10 @@ export function LauncherView({
           shortcuts={shortcuts}
           autoUpdateEnabled={autoUpdateEnabled}
           closeToTray={closeToTray}
+          initialHasChanges={hasUnsavedPreferenceChanges}
+          windowStartupSizeMode={windowStartupSizeMode}
+          windowStartupCustomWidth={windowStartupCustomWidth}
+          windowStartupCustomHeight={windowStartupCustomHeight}
           appUpdateStatus={appUpdateStatus}
           isDeveloperOnAir={isDeveloperOnAir}
           onDataRootPathChange={onDataRootPathChange}
@@ -843,7 +863,11 @@ export function LauncherView({
           onShortcutChange={onShortcutChange}
           onAutoUpdateEnabledChange={onAutoUpdateEnabledChange}
           onCloseToTrayChange={onCloseToTrayChange}
+          onWindowStartupSizeModeChange={onWindowStartupSizeModeChange}
+          onWindowStartupCustomWidthChange={onWindowStartupCustomWidthChange}
+          onWindowStartupCustomHeightChange={onWindowStartupCustomHeightChange}
           onCheckForUpdates={onCheckForUpdates}
+          onInstallUpdate={onInstallUpdate}
           onBrowsePath={onBrowsePath}
           onResetPath={onResetPath}
           onDeleteLauncherData={onDeleteLauncherData}

@@ -1,7 +1,8 @@
 import React from "react";
-import { AlertTriangle, CheckCircle2, Download, RefreshCw, RotateCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Copy, Download, RefreshCw, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AppUpdateStatusPayload } from "../../Common/Types/IPC";
+import { classify_app_update_failure } from "../Logic/AppUpdateError";
 import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
 import { Box, Button, Checkbox, IconSlot, Inline, InlineText, Stack, Text } from "./Primitives";
@@ -17,7 +18,8 @@ export interface AppUpdatePanelProps {
   autoUpdateEnabled: boolean;
   status?: AppUpdateStatusPayload;
   onAutoUpdateChange?: (enabled: boolean) => void;
-  onCheckForUpdates?: () => void;
+  onCheckForUpdates?: () => boolean | void | Promise<boolean | void>;
+  onInstallUpdate?: () => void;
 }
 
 const STATUS_TONE_MAP: Record<AppUpdateStatusPayload["status"], StatusTone> = {
@@ -59,6 +61,135 @@ function dialog_tone_from_status(status?: AppUpdateStatusPayload["status"]) {
   return "info";
 }
 
+interface AppUpdateErrorDetailsProps {
+  error: string;
+}
+
+async function copy_text_to_clipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Electron file pages may expose the Clipboard API but reject writes.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  let copied = false;
+
+  try {
+    textarea.select();
+    copied = document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
+
+  if (!copied) {
+    throw new Error("Failed to copy update error details.");
+  }
+}
+
+function AppUpdateErrorDetails({ error }: AppUpdateErrorDetailsProps) {
+  const { t } = useTranslation();
+  const failure = classify_app_update_failure(error);
+  const reasonKey = `preferences.appUpdate.dialog.error.reasons.${failure.reason}`;
+  const description = t(`${reasonKey}.description`);
+  const normalizedDetails = failure.details.replace(/^Error:\s*/i, "").trim();
+  const shouldShowTechnicalDetails = !failure.code
+    || normalizedDetails.toLowerCase() !== failure.code.toLowerCase();
+  const copyContent = [
+    description,
+    failure.code
+      ? `${t("preferences.appUpdate.dialog.error.errorCode")}: ${failure.code}`
+      : undefined,
+    shouldShowTechnicalDetails
+      ? `${t("preferences.appUpdate.dialog.error.technicalDetails")}:\n${failure.details}`
+      : undefined,
+  ].filter((line): line is string => Boolean(line)).join("\n");
+  const [copied, setCopied] = React.useState(false);
+  const resetCopyFeedbackTimer = React.useRef<number>();
+
+  React.useEffect(() => () => {
+    if (resetCopyFeedbackTimer.current !== undefined) {
+      window.clearTimeout(resetCopyFeedbackTimer.current);
+    }
+  }, []);
+
+  async function copy_error_details() {
+    try {
+      await copy_text_to_clipboard(copyContent);
+      setCopied(true);
+
+      if (resetCopyFeedbackTimer.current !== undefined) {
+        window.clearTimeout(resetCopyFeedbackTimer.current);
+      }
+
+      resetCopyFeedbackTimer.current = window.setTimeout(() => {
+        setCopied(false);
+        resetCopyFeedbackTimer.current = undefined;
+      }, 1_800);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const CopyIcon = copied ? Check : Copy;
+  const copyLabel = t(copied ? "common.actions.copied" : "common.actions.copy");
+
+  return (
+    <Stack className="gap-2">
+      <Text className="text-sm font-semibold leading-5 text-red-100">
+        {t(`${reasonKey}.title`)}
+      </Text>
+      <Box className="rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-3">
+        <Box className="flex items-start justify-between gap-3">
+          <Text className="min-w-0 text-xs leading-5 text-red-100/80">
+            {description}
+          </Text>
+          <Button
+            type="button"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 text-[11px] font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white"
+            aria-label={copyLabel}
+            title={copyLabel}
+            onClick={() => void copy_error_details()}
+          >
+            <CopyIcon size={12} />
+            {copyLabel}
+          </Button>
+        </Box>
+
+        {failure.code ? (
+          <Inline className="mt-2.5 min-w-0 flex-wrap items-baseline gap-2 border-t border-white/10 pt-2.5">
+            <InlineText className="text-[11px] font-medium text-slate-400">
+              {t("preferences.appUpdate.dialog.error.errorCode")}:
+            </InlineText>
+            <Text as="code" className="min-w-0 select-text break-all font-mono text-[11px] text-red-200">
+              {failure.code}
+            </Text>
+          </Inline>
+        ) : null}
+
+        {shouldShowTechnicalDetails ? (
+          <Stack className="mt-2 gap-1 border-t border-white/10 pt-2">
+            <Text className="text-[11px] font-medium text-slate-400">
+              {t("preferences.appUpdate.dialog.error.technicalDetails")}
+            </Text>
+            <Text className="max-h-32 select-text overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-slate-400">
+              {failure.details}
+            </Text>
+          </Stack>
+        ) : null}
+      </Box>
+    </Stack>
+  );
+}
+
 /**
  * App update status and manual check panel.
  *
@@ -70,10 +201,13 @@ export function AppUpdatePanel({
   status,
   onAutoUpdateChange,
   onCheckForUpdates,
+  onInstallUpdate,
 }: AppUpdatePanelProps) {
   const { t } = useTranslation();
   const [isResultDialogOpen, setIsResultDialogOpen] = React.useState(false);
   const [dialogStatus, setDialogStatus] = React.useState<AppUpdateStatusPayload | undefined>();
+  const [isRequestingCheck, setIsRequestingCheck] = React.useState(false);
+  const [isRequestingInstall, setIsRequestingInstall] = React.useState(false);
   const statusKey = status?.status ?? "idle";
   const dialogStatusKey = dialogStatus?.status ?? "checking";
   const Icon = icon_from_status(status?.status);
@@ -83,6 +217,9 @@ export function AppUpdatePanel({
   const isDialogWorking = dialogStatus?.status === "checking" || dialogStatus?.status === "downloading";
   const progress = Math.round(status?.progress ?? 0);
   const dialogProgress = Math.round(dialogStatus?.progress ?? 0);
+  const statusDescription = status && status.status !== "idle"
+    ? t(`preferences.appUpdate.dialog.${status.status}.description`)
+    : t("preferences.appUpdate.description");
 
   React.useEffect(() => {
     if (!isResultDialogOpen || !status) {
@@ -92,13 +229,49 @@ export function AppUpdatePanel({
     setDialogStatus(status);
   }, [isResultDialogOpen, status]);
 
-  function handle_check_for_updates() {
+  React.useEffect(() => {
+    if (status?.status !== "available") {
+      setIsRequestingInstall(false);
+    }
+  }, [status?.status]);
+
+  async function handle_check_for_updates() {
+    if (isRequestingCheck) return;
+
+    if (status?.status === "available") {
+      setDialogStatus(status);
+      setIsResultDialogOpen(true);
+      return;
+    }
+
+    setIsRequestingCheck(true);
     setDialogStatus({
       status: "checking",
       message: t("preferences.appUpdate.dialog.checking.description"),
     });
     setIsResultDialogOpen(true);
-    onCheckForUpdates?.();
+    let shouldProceed: boolean | void;
+
+    try {
+      shouldProceed = await onCheckForUpdates?.();
+    } finally {
+      setIsRequestingCheck(false);
+    }
+
+    if (shouldProceed === false) {
+      setIsResultDialogOpen(false);
+      return;
+    }
+  }
+
+  function handle_install_update() {
+    if (isRequestingInstall || !onInstallUpdate) {
+      return;
+    }
+
+    setIsRequestingInstall(true);
+    setIsResultDialogOpen(false);
+    onInstallUpdate();
   }
 
   return (
@@ -115,12 +288,11 @@ export function AppUpdatePanel({
                 <StatusBadge label={t(`preferences.appUpdate.status.${statusKey}`)} tone={STATUS_TONE_MAP[statusKey]} />
               </Inline>
               <Text className="text-xs leading-5 text-slate-500">
-                {status?.message ?? t("preferences.appUpdate.description")}
+                {statusDescription}
               </Text>
               {status?.version ? (
                 <Text className="text-xs text-slate-400">{t("preferences.appUpdate.version", { version: status.version })}</Text>
               ) : null}
-              {status?.error ? <Text className="text-xs text-red-300">{status.error}</Text> : null}
             </Stack>
           </Inline>
 
@@ -134,14 +306,20 @@ export function AppUpdatePanel({
             <Button
               type="button"
               className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={isChecking || isDownloading}
-              onClick={handle_check_for_updates}
+              disabled={isChecking || isDownloading || isRequestingCheck}
+              onClick={() => void handle_check_for_updates()}
             >
-              <RefreshCw size={14} className={isChecking ? "animate-spin" : ""} />
+              <RefreshCw size={14} className={isChecking || isRequestingCheck ? "animate-spin" : ""} />
               {t("preferences.appUpdate.check")}
             </Button>
           </Inline>
         </Stack>
+
+        {status?.error ? (
+          <Box className="mt-4">
+            <AppUpdateErrorDetails error={status.error} />
+          </Box>
+        ) : null}
 
         {isDownloading ? (
           <ProgressBar
@@ -154,12 +332,6 @@ export function AppUpdatePanel({
           />
         ) : null}
 
-        {status?.status === "downloaded" ? (
-          <Inline className="mt-4 inline-flex items-center gap-2 rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200">
-            <RotateCw size={14} />
-            <InlineText>{t("preferences.appUpdate.restartHint")}</InlineText>
-          </Inline>
-        ) : null}
       </Box>
 
       <Dialog
@@ -171,13 +343,28 @@ export function AppUpdatePanel({
         placement="center"
         widthClassName="max-w-lg"
         onClose={() => setIsResultDialogOpen(false)}
-        actions={[
-          {
+        actions={dialogStatus?.status === "available" && onInstallUpdate
+          ? [
+            {
+              label: t("preferences.appUpdate.actions.later"),
+              variant: "secondary",
+              autoFocus: true,
+              disabled: isRequestingInstall,
+              onClick: () => setIsResultDialogOpen(false),
+            },
+            {
+              label: t("preferences.appUpdate.actions.updateNow"),
+              icon: Download,
+              variant: "primary",
+              disabled: isRequestingInstall,
+              onClick: handle_install_update,
+            },
+          ]
+          : [{
             label: t("common.actions.close"),
             variant: "secondary",
             onClick: () => setIsResultDialogOpen(false),
-          },
-        ]}
+          }]}
       >
         <Stack className="gap-3">
           <Inline className="items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
@@ -196,11 +383,7 @@ export function AppUpdatePanel({
             </Text>
           ) : null}
 
-          {dialogStatus?.error ? (
-            <Text className="rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">
-              {dialogStatus.error}
-            </Text>
-          ) : null}
+          {dialogStatus?.error ? <AppUpdateErrorDetails error={dialogStatus.error} /> : null}
 
           {dialogStatus?.status === "downloading" ? (
             <ProgressBar
@@ -210,12 +393,6 @@ export function AppUpdatePanel({
               tone="blue"
               descriptionText={t("preferences.appUpdate.downloading")}
             />
-          ) : null}
-
-          {dialogStatus?.status === "downloaded" ? (
-            <Text className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold leading-5 text-emerald-200">
-              {t("preferences.appUpdate.restartHint")}
-            </Text>
           ) : null}
         </Stack>
       </Dialog>

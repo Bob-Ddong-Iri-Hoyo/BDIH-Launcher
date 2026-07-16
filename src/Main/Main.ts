@@ -1,7 +1,8 @@
 import { app } from "electron";
 import { config as load_dotenv_config } from "dotenv";
+import { mkdirSync } from "fs";
 import path from "path";
-import { get_app_data_root, is_update_test_build } from "./Environment/AppPaths";
+import { get_update_test_runtime_paths, is_update_test_build } from "./Environment/AppPaths";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
 import { bottleExecutionManager } from "./Manager/BottleExecutionManager";
@@ -17,11 +18,50 @@ import { windowManager } from "./Manager/WindowManager";
 // Main-process entry state used to make the asynchronous quit cleanup idempotent.
 let isQuitCleanupComplete = false;
 let quitCleanupPromise: Promise<void> | null = null;
-const AUTO_UPDATE_CHECK_DELAY_MS = 2_000;
+const UPDATE_INSTALL_HANDOFF_DELAY_MS = 350;
 const IS_UPDATE_TEST_BUILD = is_update_test_build();
 
 if (IS_UPDATE_TEST_BUILD) {
-  app.setPath("userData", get_app_data_root());
+  const runtimePaths = get_update_test_runtime_paths();
+  const managedDirectories = [
+    runtimePaths.settingsDir,
+    runtimePaths.appDataRoot,
+    runtimePaths.homeRoot,
+    runtimePaths.appDataPathRoot,
+    runtimePaths.userDataRoot,
+    runtimePaths.sessionDataRoot,
+    runtimePaths.electronLogsRoot,
+    runtimePaths.crashDumpsRoot,
+    runtimePaths.tempRoot,
+    runtimePaths.desktopRoot,
+    runtimePaths.documentsRoot,
+    runtimePaths.downloadsRoot,
+    runtimePaths.musicRoot,
+    runtimePaths.picturesRoot,
+    runtimePaths.videosRoot,
+    runtimePaths.updaterCacheRoot,
+  ];
+
+  for (const directory of managedDirectories) {
+    mkdirSync(directory, { recursive: true });
+  }
+
+  process.env.HOME = runtimePaths.homeRoot;
+  process.env.TMPDIR = runtimePaths.tempRoot;
+  process.env.XDG_CACHE_HOME = runtimePaths.updaterCacheRoot;
+  app.setPath("home", runtimePaths.homeRoot);
+  app.setPath("appData", runtimePaths.appDataPathRoot);
+  app.setPath("userData", runtimePaths.userDataRoot);
+  app.setPath("sessionData", runtimePaths.sessionDataRoot);
+  app.setPath("logs", runtimePaths.electronLogsRoot);
+  app.setPath("crashDumps", runtimePaths.crashDumpsRoot);
+  app.setPath("temp", runtimePaths.tempRoot);
+  app.setPath("desktop", runtimePaths.desktopRoot);
+  app.setPath("documents", runtimePaths.documentsRoot);
+  app.setPath("downloads", runtimePaths.downloadsRoot);
+  app.setPath("music", runtimePaths.musicRoot);
+  app.setPath("pictures", runtimePaths.picturesRoot);
+  app.setPath("videos", runtimePaths.videosRoot);
 }
 
 load_dotenv_config({ quiet: true });
@@ -47,8 +87,7 @@ function configureAppIdentity(language?: string): void {
  *
  * Startup order matters here: IPC must be registered before the renderer can
  * send requests, preferences must load before logging/window setup, and update
- * checks are delayed slightly so the first paint is not competing with network
- * work.
+ * automatic updates begin immediately after the first launcher window is ready.
  */
 async function createApp(): Promise<void> {
   const preference = await preferenceManager.getPreference();
@@ -65,9 +104,7 @@ async function createApp(): Promise<void> {
   const mainWindow = await windowManager.createMainWindow();
 
   if (preference.autoCheckUpdates) {
-    setTimeout(() => {
-      void updateManager.checkForUpdatesAndNotify(mainWindow);
-    }, AUTO_UPDATE_CHECK_DELAY_MS);
+    void updateManager.checkForUpdatesAndInstall(mainWindow);
   }
 }
 
@@ -93,6 +130,8 @@ function expand_user_home_path(targetPath: string): string {
  */
 async function cleanupBeforeQuit(): Promise<void> {
   shortcutManager.unregisterAll();
+  await windowManager.flushLauncherWindowState();
+  await preferenceManager.flushPendingWrites();
   const shouldShowShutdownWindow =
     bottleExecutionManager.hasActiveWineProcesses() ||
     downloadManager.listActiveDownloadIds().length > 0;
@@ -108,6 +147,54 @@ async function cleanupBeforeQuit(): Promise<void> {
   ]);
 }
 
+/**
+ * Prepares the launcher for a manual or automatic update.
+ *
+ * The main renderer shows a blocking update dialog while this path checks
+ * launcher-owned work, persists state, and stops every tracked app/Bottle
+ * before the updater downloads or replaces the application bundle.
+ */
+async function prepareForUpdateInstall(): Promise<void> {
+  windowManager.sendUpdateInstallProgress({ stage: "checking-processes", progress: 5 });
+
+  const activeWineProcesses = bottleExecutionManager.hasActiveWineProcesses();
+  const activeDownloads = downloadManager.listActiveDownloadIds().length;
+  logManager.info("Main", "preparing app update", {
+    activeWineProcesses,
+    activeDownloads,
+  });
+
+  shortcutManager.unregisterAll();
+  windowManager.sendUpdateInstallProgress({ stage: "saving-state", progress: 12 });
+  await windowManager.flushLauncherWindowState();
+  await preferenceManager.flushPendingWrites();
+
+  windowManager.sendUpdateInstallProgress({ stage: "stopping-processes", progress: 20 });
+  await Promise.all([
+    discordPresenceManager.shutdown(),
+    downloadManager.stopAll(),
+    bottleExecutionManager.stopAllWineProcesses(),
+  ]);
+
+  windowManager.sendUpdateInstallProgress({ stage: "downloading", progress: 30 });
+}
+
+updateManager.setBeforeInstallHandler(prepareForUpdateInstall);
+updateManager.setInstallProgressHandler(async (payload) => {
+  windowManager.sendUpdateInstallProgress(payload);
+
+  // Give the renderer one paint at the final handoff stage before Squirrel
+  // closes Electron and replaces the application bundle.
+  if (payload.stage === "installing" && payload.progress >= 96) {
+    await new Promise((resolve) => setTimeout(resolve, UPDATE_INSTALL_HANDOFF_DELAY_MS));
+  }
+});
+
+function handleStartupFailure(error: unknown): void {
+  console.error("BDIH Launcher failed to start.", error);
+  app.exit(1);
+}
+
 app.whenReady().then(async () => {
   await createApp();
 
@@ -115,10 +202,10 @@ app.whenReady().then(async () => {
   // when the dock icon is clicked and no main window exists.
   app.on("activate", () => {
     if (!windowManager.getMainWindow()) {
-      void createApp();
+      void createApp().catch(handleStartupFailure);
     }
   });
-});
+}).catch(handleStartupFailure);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
@@ -129,7 +216,7 @@ app.on("window-all-closed", () => {
 // Electron's before-quit event is synchronous, so prevent the first quit and
 // resume it after async cleanup has completed.
 app.on("before-quit", (event) => {
-  if (isQuitCleanupComplete) {
+  if (isQuitCleanupComplete || updateManager.isInstallingUpdate()) {
     return;
   }
 

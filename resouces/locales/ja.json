@@ -25,7 +25,10 @@
         "createPrefix": "Prefixを作成",
         "close": "閉じる",
         "cancel": "キャンセル",
-        "delete": "削除"
+        "delete": "削除",
+        "copy": "コピー",
+        "copied": "コピー済み",
+        "openInFinder": "Finderで開く"
       }
     },
     "discordPresence": {
@@ -650,15 +653,27 @@
         "channelWarningTitle": "{{channel}} チャンネルに変更しますか？",
         "channelWarningDescription": "プレビュー版は不安定な場合があり、Stable へすぐ戻せない可能性があります。",
         "channelWarningBody": "新しいビルドで設定やデータ形式が変更される場合があります。変更前に重要な Bottle データをバックアップしてください。",
-        "channelWarningConfirm": "チャンネルを変更"
+        "channelWarningConfirm": "チャンネルを変更",
+        "runningGuard": {
+          "title": "実行中のアプリと Bottle を終了しますか？",
+          "description": "更新チャンネルを変更するには、BDIH Launcher から起動したアプリと Bottle セッションを終了する必要があります。",
+          "body": "保存していないゲームまたはアプリのデータが失われる可能性があります。すべて終了した後、元の操作を続行します。",
+          "confirm": "終了して続行",
+          "stopping": "終了中...",
+          "stopFailed": "実行中の項目をすべて終了できませんでした: {{error}}",
+          "unknownError": "不明なエラー"
+        }
       },
       "appUpdate": {
         "title": "アプリアップデート",
-        "description": "新しいバージョンを確認し、自動更新チェックを管理します。",
-        "autoCheck": "自動チェック",
+        "description": "有効にすると、起動時に新しいバージョンを確認し、自動でインストールして再起動します。",
+        "autoCheck": "自動アップデート",
         "check": "更新を確認",
         "downloading": "アップデートをダウンロード中",
-        "restartHint": "アップデートをダウンロードしました。適用するにはアプリを再起動してください。",
+        "actions": {
+          "later": "後で",
+          "updateNow": "アップデート"
+        },
         "version": "バージョン {{version}}",
         "dialog": {
           "disabled": {
@@ -671,7 +686,7 @@
           },
           "available": {
             "title": "更新があります",
-            "description": "新しいBDIH Launcherバージョンがあります。"
+            "description": "新しい BDIH Launcher バージョンがあります。アップデートを開始すると、BDIH Launcher から起動したアプリと Bottle セッションを確認して終了します。"
           },
           "not-available": {
             "title": "最新版です",
@@ -687,7 +702,23 @@
           },
           "error": {
             "title": "更新チェックに失敗しました",
-            "description": "BDIH Launcherは更新を確認できませんでした。"
+            "description": "BDIH Launcherは更新を確認できませんでした。",
+            "errorCode": "エラーコード",
+            "technicalDetails": "技術的なエラー内容",
+            "reasons": {
+              "connectionRefused": {
+                "title": "アップデートサーバーに接続できません",
+                "description": "アップデートサーバーに接続を拒否されました。インターネット接続とサーバーの状態を確認してから再試行してください。"
+              },
+              "network": {
+                "title": "ネットワーク接続に問題が発生しました",
+                "description": "インターネット接続とアップデートサーバーの状態を確認してから再試行してください。"
+              },
+              "unknown": {
+                "title": "更新の確認中にエラーが発生しました",
+                "description": "以下の技術的なエラー内容を確認してください。再発する場合は、ログと一緒にこの内容を共有してください。"
+              }
+            }
           }
         },
         "status": {
@@ -737,6 +768,22 @@
         "catalogTitle": "カタログを自動更新",
         "catalogDescription": "アプリ起動時にWineカタログを再読み込みします。"
       },
+      "windowStartupSize": {
+        "title": "起動時のウィンドウサイズ",
+        "description": "アプリ起動時に使用するランチャーのサイズと状態を選択します。",
+        "width": "幅",
+        "height": "高さ",
+        "customHint": "カスタムサイズは最小960 x 640で、現在のディスプレイ内に収まるよう適用されます。",
+        "lastHint": "前回終了時のサイズ、最大化、またはフルスクリーン状態を復元します。保存状態がない初回起動ではアプリの既定サイズを使用します。",
+        "modes": {
+          "default": { "label": "アプリの既定サイズ", "description": "1200 x 800で起動します。" },
+          "wide": { "label": "ワイド", "description": "1440 x 900で起動します。" },
+          "large": { "label": "大", "description": "1600 x 1000で起動します。" },
+          "maximized": { "label": "画面に合わせる", "description": "フルスクリーンに切り替えず、ウィンドウモードで作業領域を埋めます。" },
+          "custom": { "label": "カスタムサイズ", "description": "幅と高さを直接入力します。" },
+          "last": { "label": "終了前の最終サイズ", "description": "前回終了前のウィンドウ状態を復元します。" }
+        }
+      },
       "closeBehavior": {
         "title": "閉じるボタンの動作",
         "description": "ランチャーの閉じるボタンを押したときの動作を選択します。",
@@ -775,6 +822,18 @@
         "stillMissing": "Rosettaはまだ利用できません。ターミナルでのインストールを完了してから再確認してください。",
         "checkFailed": "Rosetta状態の確認に失敗しました。",
         "verified": "Rosettaを確認しました。ランチャーを開いています..."
+      }
+    },
+    "updateInstall": {
+      "title": "アプリをアップデート中",
+      "description": "実行中のアプリと Bottle セッションを安全に終了してからアップデートを適用します。",
+      "restartNotice": "完了するとアプリは自動的に再起動します。アップデート中はアプリを終了しないでください。",
+      "stages": {
+        "checkingProcesses": "BDIH Launcher から起動したアプリと Bottle セッションを確認中",
+        "savingState": "ランチャーの設定と状態を保存中",
+        "stoppingProcesses": "BDIH Launcher から起動したアプリと Bottle セッションを終了中",
+        "downloading": "アプリアップデートをダウンロード中",
+        "installing": "アップデートをインストールして再起動中"
       }
     },
     "terminal": {

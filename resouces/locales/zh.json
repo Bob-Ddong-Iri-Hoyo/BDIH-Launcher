@@ -25,7 +25,10 @@
         "createPrefix": "创建 Prefix",
         "close": "关闭",
         "cancel": "取消",
-        "delete": "删除"
+        "delete": "删除",
+        "copy": "复制",
+        "copied": "已复制",
+        "openInFinder": "在 Finder 中打开"
       }
     },
     "discordPresence": {
@@ -650,15 +653,27 @@
         "channelWarningTitle": "切换到 {{channel}} 频道？",
         "channelWarningDescription": "预览版本可能不稳定，并且可能无法立即退回 Stable。",
         "channelWarningBody": "新版本可能会更改设置或数据格式。切换前建议备份重要的 Bottle 数据。",
-        "channelWarningConfirm": "切换频道"
+        "channelWarningConfirm": "切换频道",
+        "runningGuard": {
+          "title": "要退出正在运行的应用和 Bottle 吗？",
+          "description": "更改更新频道前，必须先停止由 BDIH 启动器启动的应用和 Bottle 会话。",
+          "body": "未保存的游戏或应用数据可能会丢失。全部停止后将继续原操作。",
+          "confirm": "退出并继续",
+          "stopping": "正在停止...",
+          "stopFailed": "无法停止所有运行中的项目：{{error}}",
+          "unknownError": "未知错误"
+        }
       },
       "appUpdate": {
         "title": "应用更新",
-        "description": "检查新版本并管理自动更新检查。",
-        "autoCheck": "自动检查",
+        "description": "启用后，启动器会在启动时检查新版本、自动安装并重新启动。",
+        "autoCheck": "自动更新",
         "check": "检查更新",
         "downloading": "正在下载更新",
-        "restartHint": "更新已下载。请重启应用以完成更新。",
+        "actions": {
+          "later": "稍后",
+          "updateNow": "立即更新"
+        },
         "version": "版本 {{version}}",
         "dialog": {
           "disabled": {
@@ -671,7 +686,7 @@
           },
           "available": {
             "title": "有可用更新",
-            "description": "有更新的 BDIH 启动器版本可用。"
+            "description": "有更新的 BDIH 启动器版本可用。开始更新时，将检查并退出由 BDIH 启动器启动的应用和 Bottle 会话。"
           },
           "not-available": {
             "title": "已是最新版本",
@@ -687,7 +702,23 @@
           },
           "error": {
             "title": "更新检查失败",
-            "description": "BDIH 启动器无法检查更新。"
+            "description": "BDIH 启动器无法检查更新。",
+            "errorCode": "错误代码",
+            "technicalDetails": "技术错误详情",
+            "reasons": {
+              "connectionRefused": {
+                "title": "无法连接到更新服务器",
+                "description": "更新服务器拒绝了连接。请检查网络连接和服务器状态后重试。"
+              },
+              "network": {
+                "title": "网络连接出现问题",
+                "description": "请检查网络连接和更新服务器状态后重试。"
+              },
+              "unknown": {
+                "title": "检查更新时发生错误",
+                "description": "请查看下方的技术错误详情。如果问题再次发生，请将详情与日志一并提供。"
+              }
+            }
           }
         },
         "status": {
@@ -737,6 +768,22 @@
         "catalogTitle": "自动刷新目录",
         "catalogDescription": "应用启动时重新加载 Wine 目录。"
       },
+      "windowStartupSize": {
+        "title": "启动窗口大小",
+        "description": "选择应用启动时使用的启动器窗口大小和状态。",
+        "width": "宽度",
+        "height": "高度",
+        "customHint": "自定义大小最小为 960 x 640，并会限制在当前显示器范围内。",
+        "lastHint": "恢复上次退出前的大小、最大化或全屏状态。首次启动没有已保存状态时使用应用默认大小。",
+        "modes": {
+          "default": { "label": "应用默认大小", "description": "以 1200 x 800 启动。" },
+          "wide": { "label": "宽屏", "description": "以 1440 x 900 启动。" },
+          "large": { "label": "大", "description": "以 1600 x 1000 启动。" },
+          "maximized": { "label": "适应屏幕", "description": "不进入全屏模式，以窗口模式填满可用工作区。" },
+          "custom": { "label": "自定义大小", "description": "直接输入宽度和高度。" },
+          "last": { "label": "退出前最终大小", "description": "恢复上次退出前使用的窗口状态。" }
+        }
+      },
       "closeBehavior": {
         "title": "关闭按钮行为",
         "description": "选择按下启动器关闭按钮时的行为。",
@@ -775,6 +822,18 @@
         "stillMissing": "Rosetta 仍不可用。请完成终端安装后重新检查。",
         "checkFailed": "无法检查 Rosetta 状态。",
         "verified": "Rosetta 已验证。正在打开启动器..."
+      }
+    },
+    "updateInstall": {
+      "title": "正在更新应用",
+      "description": "安全关闭正在运行的应用和 Bottle 会话后，将应用此更新。",
+      "restartNotice": "更新完成后，应用将自动重启。更新期间请勿退出应用。",
+      "stages": {
+        "checkingProcesses": "正在检查由 BDIH 启动器启动的应用和 Bottle 会话",
+        "savingState": "正在保存启动器设置和状态",
+        "stoppingProcesses": "正在退出由 BDIH 启动器启动的应用和 Bottle 会话",
+        "downloading": "正在下载应用更新",
+        "installing": "正在安装更新并重启"
       }
     },
     "terminal": {

@@ -1,4 +1,5 @@
 import { jest } from "@jest/globals";
+import { readdir, writeFile } from "fs/promises";
 import path from "path";
 import {
   capture_manager_environment,
@@ -57,5 +58,38 @@ describe("PreferenceManager", () => {
 
     expect(savedPreference.bottlePrefixPath).toBe(nextBottlePrefixPath);
     expect(savedPreference.appLoggingLevel).toBe("debug");
+  });
+
+  it("serializes concurrent preference patches without losing either update", async () => {
+    await write_legacy_preference(environment);
+
+    const { PreferenceManager } = require("../../../src/Main/Manager/PreferenceManager") as typeof import("../../../src/Main/Manager/PreferenceManager");
+    const manager = new PreferenceManager();
+
+    await Promise.all([
+      manager.updatePreference({ appLoggingLevel: "debug" }),
+      manager.updatePreference({ themeMode: "dark" }),
+    ]);
+    await manager.flushPendingWrites();
+
+    const savedPreference = await read_json<Record<string, unknown>>(environment.devSettingsPath);
+
+    expect(savedPreference.appLoggingLevel).toBe("debug");
+    expect(savedPreference.themeMode).toBe("dark");
+  });
+
+  it("moves invalid settings aside and starts with defaults", async () => {
+    await writeFile(environment.devSettingsPath, "", "utf8");
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const { PreferenceManager } = require("../../../src/Main/Manager/PreferenceManager") as typeof import("../../../src/Main/Manager/PreferenceManager");
+    const manager = new PreferenceManager();
+    const preference = await manager.getPreference();
+    const entries = await readdir(environment.devResourceRoot);
+
+    expect(preference.language).toBe("ko");
+    expect(entries.some((entry) => entry.startsWith("settings.json.invalid-"))).toBe(true);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

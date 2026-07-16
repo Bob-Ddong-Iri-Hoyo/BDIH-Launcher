@@ -2354,9 +2354,21 @@ export class BottleExecutionManager {
   async stopAllWineProcesses(): Promise<void> {
     // App shutdown uses this broad cleanup path. ProcessManager stops child
     // processes first, then wineserver is asked to terminate each tracked prefix.
-    const prefixes = [...this.activeWinePrefixes.entries()];
+    const sessions = [...this.prefixSessionsByPrefixPath.values()].filter((session) => !session.ended);
+    const prefixContexts = new Map(this.activeWinePrefixes);
 
-    if (prefixes.length === 0) {
+    for (const session of sessions) {
+      if (!prefixContexts.has(session.prefixPath)) {
+        prefixContexts.set(session.prefixPath, {
+          bottleName: session.bottleName,
+          wineRuntimePath: session.wineRuntimePath,
+        });
+      }
+    }
+
+    const prefixes = [...prefixContexts.entries()];
+
+    if (prefixes.length === 0 && sessions.length === 0) {
       await processManager.stopAll();
       discordPresenceManager.clearAllActivities();
       return;
@@ -2376,6 +2388,12 @@ export class BottleExecutionManager {
         this.stopWinePrefix(bottlePath, context.wineRuntimePath),
       ),
     );
+    await Promise.all(
+      sessions.map((session) => session.waiter?.Stop().catch(() => undefined)),
+    );
+    for (const session of sessions) {
+      this.finishPrefixSession(session);
+    }
     this.activeWinePrefixes.clear();
     discordPresenceManager.clearAllActivities();
   }

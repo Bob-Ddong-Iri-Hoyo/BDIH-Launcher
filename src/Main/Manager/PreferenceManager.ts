@@ -1,5 +1,5 @@
-import { readConfigFile, readUserSettings, writeUserSettings } from "../FileIO/IO";
-import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LAUNCHER_PUBLIC_UPDATE_CHANNELS, LAUNCHER_SHORTCUT_ACTIONS, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutMap, LauncherUpdateChannel, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
+import { backupInvalidUserSettings, readConfigFile, readUserSettings, writeUserSettings } from "../FileIO/IO";
+import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LAUNCHER_PUBLIC_UPDATE_CHANNELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutMap, LauncherUpdateChannel, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
 import path from "path";
 import {
   get_default_data_root_path,
@@ -7,6 +7,7 @@ import {
   get_default_dxmt_cache_path,
   get_default_wine_install_path,
   get_legacy_settings_path,
+  constrain_update_test_data_path,
   is_dev_resource_environment,
   is_nightly_update_test_build,
   is_update_test_build,
@@ -40,6 +41,9 @@ export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   autoCheckUpdates: !is_update_test_build(),
   updateChannel: is_nightly_update_test_build() ? "nightly" : "stable",
   closeToTray: false,
+  windowStartupSizeMode: "default",
+  windowStartupCustomWidth: LAUNCHER_WINDOW_DEFAULT_SIZE.width,
+  windowStartupCustomHeight: LAUNCHER_WINDOW_DEFAULT_SIZE.height,
   themeMode: "system",
   appLoggingLevel: "info",
   debugFlagMode: "preset",
@@ -57,6 +61,7 @@ export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
  */
 export class PreferenceManager {
   private cache: LauncherPreference | null = null;
+  private pendingWrite: Promise<void> = Promise.resolve();
 
   async getPreference(forceReload = false): Promise<LauncherPreference> {
     // `forceReload` bypasses the in-memory cache when callers know settings may
@@ -70,18 +75,27 @@ export class PreferenceManager {
   }
 
   async savePreference(preference: LauncherPreference): Promise<void> {
-    const normalized = this.normalizePreference(preference);
-    await writeUserSettings(JSON.stringify(normalized, null, 2));
-    this.cache = normalized;
+    await this.enqueueWrite(async () => {
+      const normalized = this.normalizePreference(preference);
+      await writeUserSettings(JSON.stringify(normalized, null, 2));
+      this.cache = normalized;
+    });
   }
 
   async updatePreference(
     patch: Partial<LauncherPreference>,
   ): Promise<LauncherPreference> {
-    const current = await this.getPreference();
-    const next = this.normalizePreference({ ...current, ...patch });
-    await this.savePreference(next);
-    return next;
+    return this.enqueueWrite(async () => {
+      const current = this.cache ?? await this.loadPreference();
+      const next = this.normalizePreference({ ...current, ...patch });
+      await writeUserSettings(JSON.stringify(next, null, 2));
+      this.cache = next;
+      return next;
+    });
+  }
+
+  async flushPendingWrites(): Promise<void> {
+    await this.pendingWrite;
   }
 
   clearCache(): void {
@@ -100,6 +114,14 @@ export class PreferenceManager {
           return legacyPreference;
         }
 
+        return DEFAULT_LAUNCHER_PREFERENCE;
+      }
+
+      if (error instanceof SyntaxError) {
+        const backupPath = await backupInvalidUserSettings();
+        console.warn(
+          `Invalid launcher settings were moved aside${backupPath ? ` to ${backupPath}` : ""}. Using defaults.`,
+        );
         return DEFAULT_LAUNCHER_PREFERENCE;
       }
 
@@ -126,9 +148,17 @@ export class PreferenceManager {
 
   private normalizePreference(value: unknown): LauncherPreference {
     const record = this.isRecord(value) ? value : {};
-    const dataRootPath = this.stringOrDefault(
-      record.dataRootPath,
-      this.inferDataRootPath(record) ?? DEFAULT_DATA_ROOT_PATH,
+    const dataRootPath = constrain_update_test_data_path(
+      this.stringOrDefault(record.dataRootPath, this.inferDataRootPath(record) ?? DEFAULT_DATA_ROOT_PATH),
+      DEFAULT_DATA_ROOT_PATH,
+    );
+    const bottlePrefixPath = constrain_update_test_data_path(
+      this.stringOrDefault(record.bottlePrefixPath, get_default_bottle_prefix_path(dataRootPath)),
+      get_default_bottle_prefix_path(dataRootPath),
+    );
+    const gameInstallPath = constrain_update_test_data_path(
+      this.stringOrDefault(record.gameInstallPath, path.join(dataRootPath, "Games")),
+      path.join(dataRootPath, "Games"),
     );
 
     return {
@@ -136,14 +166,29 @@ export class PreferenceManager {
       accentColor: this.accentColorOrDefault(record.accentColor, "rose"),
       dataRootPath,
       wineInstallPath: get_default_wine_install_path(dataRootPath),
-      bottlePrefixPath: this.stringOrDefault(record.bottlePrefixPath, get_default_bottle_prefix_path(dataRootPath)),
+      bottlePrefixPath,
       dxmtCachePath: get_default_dxmt_cache_path(dataRootPath),
-      gameInstallPath: this.stringOrDefault(record.gameInstallPath, path.join(dataRootPath, "Games")),
+      gameInstallPath,
       autoCheckUpdates: this.booleanOrDefault(record.autoCheckUpdates, !is_update_test_build()),
       updateChannel: is_nightly_update_test_build()
         ? "nightly"
         : this.updateChannelOrDefault(record.updateChannel, "stable"),
       closeToTray: this.booleanOrDefault(record.closeToTray, false),
+      windowStartupSizeMode: this.windowStartupSizeModeOrDefault(record.windowStartupSizeMode, "default"),
+      windowStartupCustomWidth: this.integerOrDefault(
+        record.windowStartupCustomWidth,
+        LAUNCHER_WINDOW_DEFAULT_SIZE.width,
+        LAUNCHER_WINDOW_MIN_SIZE.width,
+      ),
+      windowStartupCustomHeight: this.integerOrDefault(
+        record.windowStartupCustomHeight,
+        LAUNCHER_WINDOW_DEFAULT_SIZE.height,
+        LAUNCHER_WINDOW_MIN_SIZE.height,
+      ),
+      lastWindowWidth: this.optionalInteger(record.lastWindowWidth, LAUNCHER_WINDOW_MIN_SIZE.width),
+      lastWindowHeight: this.optionalInteger(record.lastWindowHeight, LAUNCHER_WINDOW_MIN_SIZE.height),
+      lastWindowMaximized: this.booleanOrDefault(record.lastWindowMaximized, false),
+      lastWindowFullscreen: this.booleanOrDefault(record.lastWindowFullscreen, false),
       themeMode: this.themeModeOrDefault(record.themeMode, "system"),
       appLoggingLevel: this.loggingLevelOrDefault(record.appLoggingLevel, "info"),
       debugFlagMode: this.debugFlagModeOrDefault(record.debugFlagMode, "preset"),
@@ -157,12 +202,50 @@ export class PreferenceManager {
     return typeof value === "object" && value !== null;
   }
 
+  private enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pendingWrite.then(operation);
+
+    this.pendingWrite = result.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return result;
+  }
+
   private stringOrDefault(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
   }
 
   private booleanOrDefault(value: unknown, fallback: boolean): boolean {
     return typeof value === "boolean" ? value : fallback;
+  }
+
+  private integerOrDefault(value: unknown, fallback: number, minimum: number): number {
+    return typeof value === "number" && Number.isFinite(value)
+      ? Math.max(minimum, Math.round(value))
+      : fallback;
+  }
+
+  private optionalInteger(value: unknown, minimum: number): number | undefined {
+    return typeof value === "number" && Number.isFinite(value)
+      ? Math.max(minimum, Math.round(value))
+      : undefined;
+  }
+
+  private windowStartupSizeModeOrDefault(
+    value: unknown,
+    fallback: LauncherWindowStartupSizeMode,
+  ): LauncherWindowStartupSizeMode {
+    // Migrate the early implementation that used native full-screen mode.
+    if (value === "fullscreen") {
+      return "maximized";
+    }
+
+    return typeof value === "string"
+      && LAUNCHER_WINDOW_STARTUP_SIZE_MODES.includes(value as LauncherWindowStartupSizeMode)
+      ? (value as LauncherWindowStartupSizeMode)
+      : fallback;
   }
 
   private loggingLevelOrDefault(value: unknown, fallback: LauncherLogLevel): LauncherLogLevel {

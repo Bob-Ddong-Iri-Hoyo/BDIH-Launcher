@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../../style/index.css";
 import { BDIH_YOUTUBE_HANDLE, STEAM_GAME_LAUNCH_ARGUMENT } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
+import { AppUpdateInstallProgressPayload, AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
 import {
   bottle_name_to_slug,
   create_bottle_app_prefix_path,
@@ -13,6 +13,7 @@ import {
   launcher_from_bottle_app,
 } from "../../../Common/Util/BottlePath";
 import { Dialog } from "../../Component/Dialog";
+import { AppUpdateInstallDialog } from "../../Component/AppUpdateInstallDialog";
 import { RuntimeInstallFailureDialog } from "../../Component/RuntimeInstallFailureDialog";
 import type { LogEntry, LogSession, LogSourceOption } from "../../Component/LogViewer";
 import { RendererViewKey } from "../../Component/MainFrame";
@@ -52,6 +53,9 @@ interface PreferenceDraftSnapshot {
   shortcuts: LauncherShortcutMap;
   autoUpdateEnabled: boolean;
   closeToTray: boolean;
+  windowStartupSizeMode: LauncherWindowStartupSizeMode;
+  windowStartupCustomWidth: number;
+  windowStartupCustomHeight: number;
   dataRootPath: string;
   installPath: string;
   bottlePrefixPath: string;
@@ -158,6 +162,17 @@ function is_debug_flag_mode(value: unknown): value is DebugFlagMode {
 
 function is_renderer_theme_mode(value: unknown): value is RendererThemeMode {
   return typeof value === "string" && RENDERER_THEME_MODES.includes(value as RendererThemeMode);
+}
+
+function is_launcher_window_startup_size_mode(value: unknown): value is LauncherWindowStartupSizeMode {
+  return typeof value === "string"
+    && LAUNCHER_WINDOW_STARTUP_SIZE_MODES.includes(value as LauncherWindowStartupSizeMode);
+}
+
+function normalize_launcher_window_dimension(value: unknown, fallback: number, minimum: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(minimum, Math.round(value))
+    : fallback;
 }
 
 function normalize_shortcuts(value: unknown): LauncherShortcutMap {
@@ -833,6 +848,9 @@ function preference_snapshots_equal(left: PreferenceDraftSnapshot, right: Prefer
     left.wineDebugArgs.trim() === right.wineDebugArgs.trim() &&
     left.autoUpdateEnabled === right.autoUpdateEnabled &&
     left.closeToTray === right.closeToTray &&
+    left.windowStartupSizeMode === right.windowStartupSizeMode &&
+    left.windowStartupCustomWidth === right.windowStartupCustomWidth &&
+    left.windowStartupCustomHeight === right.windowStartupCustomHeight &&
     normalize_preference_path(left.dataRootPath) === normalize_preference_path(right.dataRootPath) &&
     normalize_preference_path(left.installPath) === normalize_preference_path(right.installPath) &&
     normalize_preference_path(left.bottlePrefixPath) === normalize_preference_path(right.bottlePrefixPath) &&
@@ -873,7 +891,11 @@ const App: React.FC = () => {
   const [appliedShortcuts, setAppliedShortcuts] = useState<LauncherShortcutMap>(DEFAULT_SHORTCUTS);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   const [closeToTray, setCloseToTray] = useState(false);
+  const [windowStartupSizeMode, setWindowStartupSizeMode] = useState<LauncherWindowStartupSizeMode>("default");
+  const [windowStartupCustomWidth, setWindowStartupCustomWidth] = useState(LAUNCHER_WINDOW_DEFAULT_SIZE.width);
+  const [windowStartupCustomHeight, setWindowStartupCustomHeight] = useState(LAUNCHER_WINDOW_DEFAULT_SIZE.height);
   const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatusPayload>();
+  const [appUpdateInstallProgress, setAppUpdateInstallProgress] = useState<AppUpdateInstallProgressPayload>();
   const [deletingBottleModal, setDeletingBottleModal] = useState<{
     name: string;
     progress: number;
@@ -896,6 +918,9 @@ const App: React.FC = () => {
     shortcuts: DEFAULT_SHORTCUTS,
     autoUpdateEnabled: true,
     closeToTray: false,
+    windowStartupSizeMode: "default",
+    windowStartupCustomWidth: LAUNCHER_WINDOW_DEFAULT_SIZE.width,
+    windowStartupCustomHeight: LAUNCHER_WINDOW_DEFAULT_SIZE.height,
     dataRootPath: DEFAULT_DATA_ROOT_PATH,
     installPath: DEFAULT_WINE_INSTALL_PATH,
     bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
@@ -956,6 +981,9 @@ const App: React.FC = () => {
     shortcuts,
     autoUpdateEnabled,
     closeToTray,
+    windowStartupSizeMode,
+    windowStartupCustomWidth,
+    windowStartupCustomHeight,
     dataRootPath,
     installPath,
     bottlePrefixPath,
@@ -967,6 +995,9 @@ const App: React.FC = () => {
     autoUpdateEnabled,
     bottlePrefixPath,
     closeToTray,
+    windowStartupCustomHeight,
+    windowStartupCustomWidth,
+    windowStartupSizeMode,
     dataRootPath,
     debugFlagMode,
     dxmtCachePath,
@@ -1036,6 +1067,9 @@ const App: React.FC = () => {
     setShortcuts(snapshot.shortcuts);
     setAutoUpdateEnabled(snapshot.autoUpdateEnabled);
     setCloseToTray(snapshot.closeToTray);
+    setWindowStartupSizeMode(snapshot.windowStartupSizeMode);
+    setWindowStartupCustomWidth(snapshot.windowStartupCustomWidth);
+    setWindowStartupCustomHeight(snapshot.windowStartupCustomHeight);
     setDataRootPath(snapshot.dataRootPath);
     setInstallPath(snapshot.installPath);
     setStoreInstallPath(snapshot.installPath);
@@ -1364,8 +1398,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     return window.BTIH_API?.on(IPC_CHANNELS.APP.UPDATE_STATUS.channelName, (_event, payload: AppUpdateStatusPayload) => {
+      if (payload.status === "error") {
+        setAppUpdateInstallProgress(undefined);
+      }
+
       setAppUpdateStatus(payload);
     });
+  }, []);
+
+  useEffect(() => {
+    return window.BTIH_API?.on(
+      IPC_CHANNELS.APP.UPDATE_INSTALL_PROGRESS.channelName,
+      (_event, payload: AppUpdateInstallProgressPayload) => {
+        setAppUpdateInstallProgress(payload);
+      },
+    );
   }, []);
 
   const selectedWineVersion = useMemo(
@@ -1461,6 +1508,22 @@ const App: React.FC = () => {
         setAutoUpdateEnabled(nextAutoCheckUpdates);
         const nextCloseToTray = typeof preference.closeToTray === "boolean" ? preference.closeToTray : false;
         setCloseToTray(nextCloseToTray);
+        const nextWindowStartupSizeMode = is_launcher_window_startup_size_mode(preference.windowStartupSizeMode)
+          ? preference.windowStartupSizeMode
+          : "default";
+        const nextWindowStartupCustomWidth = normalize_launcher_window_dimension(
+          preference.windowStartupCustomWidth,
+          LAUNCHER_WINDOW_DEFAULT_SIZE.width,
+          LAUNCHER_WINDOW_MIN_SIZE.width,
+        );
+        const nextWindowStartupCustomHeight = normalize_launcher_window_dimension(
+          preference.windowStartupCustomHeight,
+          LAUNCHER_WINDOW_DEFAULT_SIZE.height,
+          LAUNCHER_WINDOW_MIN_SIZE.height,
+        );
+        setWindowStartupSizeMode(nextWindowStartupSizeMode);
+        setWindowStartupCustomWidth(nextWindowStartupCustomWidth);
+        setWindowStartupCustomHeight(nextWindowStartupCustomHeight);
         const nextShortcuts = normalize_shortcuts(preference.shortcuts);
         setShortcuts(nextShortcuts);
         setAppliedShortcuts(nextShortcuts);
@@ -1480,6 +1543,9 @@ const App: React.FC = () => {
           shortcuts: nextShortcuts,
           autoUpdateEnabled: nextAutoCheckUpdates,
           closeToTray: nextCloseToTray,
+          windowStartupSizeMode: nextWindowStartupSizeMode,
+          windowStartupCustomWidth: nextWindowStartupCustomWidth,
+          windowStartupCustomHeight: nextWindowStartupCustomHeight,
         });
         setIsPreferenceLoaded(true);
       } catch {
@@ -1500,6 +1566,9 @@ const App: React.FC = () => {
           setShortcuts(DEFAULT_SHORTCUTS);
           setAppliedShortcuts(DEFAULT_SHORTCUTS);
           setAutoUpdateEnabled(true);
+          setWindowStartupSizeMode("default");
+          setWindowStartupCustomWidth(LAUNCHER_WINDOW_DEFAULT_SIZE.width);
+          setWindowStartupCustomHeight(LAUNCHER_WINDOW_DEFAULT_SIZE.height);
           setSavedPreferenceSnapshot({
             locale: resolve_initial_locale(),
             accentColor: resolve_initial_accent_color(),
@@ -1511,6 +1580,9 @@ const App: React.FC = () => {
             shortcuts: DEFAULT_SHORTCUTS,
             autoUpdateEnabled: true,
             closeToTray: false,
+            windowStartupSizeMode: "default",
+            windowStartupCustomWidth: LAUNCHER_WINDOW_DEFAULT_SIZE.width,
+            windowStartupCustomHeight: LAUNCHER_WINDOW_DEFAULT_SIZE.height,
             dataRootPath: DEFAULT_DATA_ROOT_PATH,
             installPath: DEFAULT_WINE_INSTALL_PATH,
             bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
@@ -1578,6 +1650,9 @@ const App: React.FC = () => {
       shortcuts,
       autoCheckUpdates: autoUpdateEnabled,
       closeToTray,
+      windowStartupSizeMode,
+      windowStartupCustomWidth,
+      windowStartupCustomHeight,
     }).then(() => {
       setSavedPreferenceSnapshot(currentPreferenceSnapshot);
       setAppliedShortcuts(shortcuts);
@@ -1592,6 +1667,10 @@ const App: React.FC = () => {
 
   const handle_check_for_updates = () => {
     window.BTIH_API?.send(IPC_CHANNELS.APP.UPDATE.channelName, undefined as never);
+  };
+
+  const handle_install_update = () => {
+    window.BTIH_API?.send(IPC_CHANNELS.APP.INSTALL_UPDATE.channelName, undefined as never);
   };
 
   const handle_shortcut_change = (action: LauncherShortcutAction, shortcut: string) => {
@@ -1727,6 +1806,9 @@ const App: React.FC = () => {
           shortcuts: DEFAULT_SHORTCUTS,
           autoUpdateEnabled: true,
           closeToTray: false,
+          windowStartupSizeMode: "default",
+          windowStartupCustomWidth: LAUNCHER_WINDOW_DEFAULT_SIZE.width,
+          windowStartupCustomHeight: LAUNCHER_WINDOW_DEFAULT_SIZE.height,
           dataRootPath: DEFAULT_DATA_ROOT_PATH,
           installPath: DEFAULT_WINE_INSTALL_PATH,
           bottlePrefixPath: DEFAULT_BOTTLE_PREFIX_PATH,
@@ -1739,6 +1821,9 @@ const App: React.FC = () => {
         setAccentColor(nextSnapshot.accentColor);
         setAppliedAccentColor(nextSnapshot.accentColor);
         setThemeMode(nextSnapshot.themeMode);
+        setWindowStartupSizeMode(nextSnapshot.windowStartupSizeMode);
+        setWindowStartupCustomWidth(nextSnapshot.windowStartupCustomWidth);
+        setWindowStartupCustomHeight(nextSnapshot.windowStartupCustomHeight);
         apply_renderer_theme_mode(nextSnapshot.themeMode);
         setAppLoggingLevel("off");
         setDebugFlagMode("preset");
@@ -2647,6 +2732,10 @@ const App: React.FC = () => {
       gameInstallPath={gameInstallPath}
       autoUpdateEnabled={autoUpdateEnabled}
       closeToTray={closeToTray}
+      hasUnsavedPreferenceChanges={hasUnsavedPreferenceChanges}
+      windowStartupSizeMode={windowStartupSizeMode}
+      windowStartupCustomWidth={windowStartupCustomWidth}
+      windowStartupCustomHeight={windowStartupCustomHeight}
       appUpdateStatus={appUpdateStatus}
       dataRootPath={dataRootPath}
       isDeveloperOnAir={isDeveloperOnAir}
@@ -2709,7 +2798,11 @@ const App: React.FC = () => {
       onShortcutChange={handle_shortcut_change}
       onAutoUpdateEnabledChange={setAutoUpdateEnabled}
       onCloseToTrayChange={setCloseToTray}
+      onWindowStartupSizeModeChange={setWindowStartupSizeMode}
+      onWindowStartupCustomWidthChange={setWindowStartupCustomWidth}
+      onWindowStartupCustomHeightChange={setWindowStartupCustomHeight}
       onCheckForUpdates={handle_check_for_updates}
+      onInstallUpdate={handle_install_update}
       onBottlePrefixPathChange={setBottlePrefixPath}
       onDxmtCachePathChange={setDxmtCachePath}
       onGameInstallPathChange={setGameInstallPath}
@@ -2776,6 +2869,7 @@ const App: React.FC = () => {
       failure={runtimeInstallFailure}
       onClose={clearRuntimeInstallFailure}
     />
+    <AppUpdateInstallDialog progress={appUpdateInstallProgress} />
     </>
   );
 };

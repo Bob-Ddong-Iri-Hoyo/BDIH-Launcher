@@ -125,7 +125,7 @@ jobs:
 
           const outputPath = process.env.GITHUB_OUTPUT;
           const releaseTagPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-          const stableTagPattern = /^v(\d+)\.(\d+)\.(\d+)$/;
+          const stableVersionPattern = /^\d+\.\d+\.\d+$/;
 
           function writeOutput(key, value) {
             fs.appendFileSync(outputPath, `${key}=${value}\n`);
@@ -136,6 +136,10 @@ jobs:
               .split(/\r?\n/)
               .map((line) => line.trim())
               .filter(Boolean);
+          }
+
+          function gitRaw(args) {
+            return childProcess.execFileSync("git", args, { encoding: "utf8" });
           }
 
           const sourceSha = process.env.SOURCE_SHA;
@@ -150,32 +154,14 @@ jobs:
             process.exit(0);
           }
 
-          const stableTags = git(["tag", "--merged", sourceSha])
-            .map((tag) => {
-              const match = tag.match(stableTagPattern);
+          const sourcePackage = JSON.parse(gitRaw(["show", `${sourceSha}:package.json`]));
+          const sourcePackageVersion = String(sourcePackage.version ?? "");
+          const baseVersion = sourcePackageVersion.replace(/-.*/, "");
 
-              if (!match) {
-                return undefined;
-              }
+          if (!stableVersionPattern.test(baseVersion)) {
+            throw new Error(`package.json version must resolve to x.y.z for nightly builds. Got: ${sourcePackageVersion}`);
+          }
 
-              return {
-                tag,
-                major: Number(match[1]),
-                minor: Number(match[2]),
-                patch: Number(match[3]),
-              };
-            })
-            .filter(Boolean)
-            .sort((left, right) =>
-              left.major - right.major ||
-              left.minor - right.minor ||
-              left.patch - right.patch,
-            );
-
-          const latestStable = stableTags[stableTags.length - 1];
-          const baseVersion = latestStable
-            ? `${latestStable.major}.${latestStable.minor}.${latestStable.patch + 1}`
-            : "0.0.1";
           const sourceShortSha = sourceSha.slice(0, 7);
           const nightlyVersion = `${baseVersion}-nightly.${process.env.NIGHTLY_DATE}.${process.env.GITHUB_RUN_NUMBER}.g${sourceShortSha}`;
 
@@ -187,7 +173,7 @@ jobs:
           writeOutput("base_version", baseVersion);
           writeOutput("nightly_version", nightlyVersion);
           writeOutput("nightly_tag", `v${nightlyVersion}`);
-          writeOutput("latest_stable_tag", latestStable?.tag ?? "");
+          writeOutput("source_package_version", sourcePackageVersion);
           NODE
 
       - name: Decide whether to publish

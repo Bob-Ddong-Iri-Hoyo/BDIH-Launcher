@@ -1,6 +1,6 @@
 {
   "name": "BDIH-Launcher",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Play Steam, HoyoVerse, and other games. custom Wine Launcher for MacOS",
   "main": "dist/main/main.js",
   "os": [
@@ -29,6 +29,10 @@
     "start": "electron .",
     "start:test": "node scripts/start-update-test.mjs",
     "start:test:nightly": "node scripts/start-update-test.mjs --channel nightly",
+    "install:test": "node scripts/start-update-test.mjs --install-only",
+    "install:test:nightly": "node scripts/start-update-test.mjs --channel nightly --install-only",
+    "reveal:test": "node scripts/start-update-test.mjs --reveal",
+    "reveal:test:nightly": "node scripts/start-update-test.mjs --channel nightly --reveal",
     "update:test:serve": "node scripts/serve-update-test.mjs",
     "start:allinone": "pnpm build && electron .",
     "storybook": "storybook dev -c ./src/Renderer/.storybook -p 6006",

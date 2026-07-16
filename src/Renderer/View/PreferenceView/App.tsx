@@ -1,11 +1,12 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "../../style/index.css";
-import { AppUpdateStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
+import { AppUpdateInstallProgressPayload, AppUpdateStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
 import { BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_HANDLE, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
 import { change_renderer_locale, is_supported_locale, resolve_initial_locale, SupportedLocale } from "../../I18n";
 import { AccentColor, apply_renderer_accent_color, is_accent_color, resolve_initial_accent_color } from "../../Theme";
 import { Box } from "../../Component/Primitives";
+import { AppUpdateInstallDialog } from "../../Component/AppUpdateInstallDialog";
 import { PreferencePathKey, PreferenceView } from "./PreferenceView";
 
 const DEVELOPER_YOUTUBE_HANDLE = BDIH_YOUTUBE_HANDLE;
@@ -150,6 +151,7 @@ const App: React.FC = () => {
   const [isDeveloperOnAir, setIsDeveloperOnAir] = React.useState(false);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = React.useState(true);
   const [appUpdateStatus, setAppUpdateStatus] = React.useState<AppUpdateStatusPayload>();
+  const [appUpdateInstallProgress, setAppUpdateInstallProgress] = React.useState<AppUpdateInstallProgressPayload>();
   const [savedPreferenceKey, setSavedPreferenceKey] = React.useState("");
   const currentPreferenceKey = React.useMemo(
     () =>
@@ -308,9 +310,22 @@ const App: React.FC = () => {
   }, []);
 
   React.useEffect(() => {
-    return window.BTIH_API?.on(IPC_CHANNELS.APP.UPDATE_STATUS.channelName, (_event, payload) => {
+    return window.BTIH_API?.on(IPC_CHANNELS.APP.UPDATE_STATUS.channelName, (_event, payload: AppUpdateStatusPayload) => {
+      if (payload.status === "error") {
+        setAppUpdateInstallProgress(undefined);
+      }
+
       setAppUpdateStatus(payload);
     });
+  }, []);
+
+  React.useEffect(() => {
+    return window.BTIH_API?.on(
+      IPC_CHANNELS.APP.UPDATE_INSTALL_PROGRESS.channelName,
+      (_event, payload: AppUpdateInstallProgressPayload) => {
+        setAppUpdateInstallProgress(payload);
+      },
+    );
   }, []);
 
   React.useEffect(() => {
@@ -372,6 +387,7 @@ const App: React.FC = () => {
     const currentPath = {
       dataRootPath,
       bottlePrefixPath,
+      gameInstallPath,
     }[pathKey];
 
     const result = (await window.BTIH_API?.invoke(IPC_CHANNELS.APP.SELECT_DIRECTORY.channelName, {
@@ -385,6 +401,11 @@ const App: React.FC = () => {
 
     if (pathKey === "bottlePrefixPath") {
       setBottlePrefixPath(result.path);
+      return;
+    }
+
+    if (pathKey === "gameInstallPath") {
+      setGameInstallPath(result.path);
       return;
     }
 
@@ -430,6 +451,10 @@ const App: React.FC = () => {
 
   const handle_check_for_updates = () => {
     window.BTIH_API?.send(IPC_CHANNELS.APP.UPDATE.channelName, undefined as never);
+  };
+
+  const handle_install_update = () => {
+    window.BTIH_API?.send(IPC_CHANNELS.APP.INSTALL_UPDATE.channelName, undefined as never);
   };
 
   const should_reset_deleted_target = (targets: LauncherDataDeleteTarget[], target: LauncherDataDeleteTarget) => {
@@ -487,7 +512,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <Box className="h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
+    <>
+      <Box className="h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
       <PreferenceView
         locale={locale}
         accentColor={accentColor}
@@ -501,6 +527,7 @@ const App: React.FC = () => {
         installPath={installPath}
         bottlePrefixPath={bottlePrefixPath}
         dxmtCachePath={dxmtCachePath}
+        gameInstallPath={gameInstallPath}
         autoUpdateEnabled={autoUpdateEnabled}
         closeToTray={closeToTray}
         appUpdateStatus={appUpdateStatus}
@@ -520,16 +547,20 @@ const App: React.FC = () => {
         onAutoUpdateEnabledChange={handle_auto_update_change}
         onCloseToTrayChange={setCloseToTray}
         onCheckForUpdates={handle_check_for_updates}
+        onInstallUpdate={handle_install_update}
         onDataRootPathChange={handle_data_root_path_change}
         onInstallPathChange={setInstallPath}
         onBottlePrefixPathChange={setBottlePrefixPath}
         onDxmtCachePathChange={setDxmtCachePath}
+        onGameInstallPathChange={setGameInstallPath}
         onBrowsePath={handle_browse_path}
         onResetPath={handle_reset_path}
         onDeleteLauncherData={handle_delete_launcher_data}
         onSave={handle_save_preference}
       />
-    </Box>
+      </Box>
+      <AppUpdateInstallDialog progress={appUpdateInstallProgress} />
+    </>
   );
 };
 

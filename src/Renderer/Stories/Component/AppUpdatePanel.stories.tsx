@@ -11,6 +11,7 @@ const meta: Meta<typeof AppUpdatePanel> = {
     autoUpdateEnabled: true,
     onAutoUpdateChange: () => undefined,
     onCheckForUpdates: () => undefined,
+    onInstallUpdate: () => undefined,
   },
 };
 
@@ -25,27 +26,20 @@ export const Idle: Story = {
   ),
 };
 
-export const Downloading: Story = {
-  args: {
-    status: {
-      status: "downloading",
-      message: "Downloading update.",
-      progress: 48,
+export const UpdateConfirmation: Story = {
+  name: "Update confirmation",
+  parameters: {
+    docs: {
+      description: {
+        story: "Click Check updates to review the Later and Update confirmation shown before process cleanup and download begin.",
+      },
     },
   },
-  render: (args) => (
-    <div className="w-[720px] bg-[#0b1020] p-8 text-slate-100">
-      <AppUpdatePanel {...args} />
-    </div>
-  ),
-};
-
-export const UpdateAvailable: Story = {
   args: {
     status: {
       status: "available",
       message: "Update is available.",
-      version: "1.1.0",
+      version: "1.2.0",
     },
   },
   render: (args) => (
@@ -62,6 +56,22 @@ export const Error: Story = {
       status: "error",
       message: "Update check failed.",
       error: "Failed to resolve update feed.",
+    },
+  },
+  render: (args) => (
+    <div className="w-[720px] bg-[#0b1020] p-8 text-slate-100">
+      <AppUpdatePanel {...args} />
+    </div>
+  ),
+};
+
+export const ConnectionRefused: Story = {
+  args: {
+    autoUpdateEnabled: false,
+    status: {
+      status: "error",
+      message: "Update check failed.",
+      error: "Error: net::ERR_CONNECTION_REFUSED\nUpdate URL: http://127.0.0.1:45678/nightly-mac.yml",
     },
   },
   render: (args) => (

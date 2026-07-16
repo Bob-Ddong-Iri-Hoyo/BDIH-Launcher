@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { AlertTriangle, FolderOpen, Info, Keyboard, MonitorCog, RotateCcw, Save, Trash2, Wine } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { BDIH_DISCORD_URL, BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateStatusPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_PUBLIC_UPDATE_CHANNELS, LauncherDataDeleteTarget, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherUpdateChannel, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
+import { AppUpdateStatusPayload, BottleExecutionStatePayload, BottleTaskResultPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_PUBLIC_UPDATE_CHANNELS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherUpdateChannel, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
 import { I18N_RESOURCES } from "../../I18n/Resources";
 import { AppUpdatePanel } from "../../Component/AppUpdatePanel";
 import { DeveloperLinkGroup } from "../../Component/DeveloperLinks";
@@ -17,6 +17,7 @@ import { ACCENT_COLOR_ITEMS, AccentColor, is_accent_color } from "../../Theme";
 
 type PreferenceCategory = "general" | "wine" | "shortcut" | "appInfo";
 export type PreferencePathKey = "dataRootPath" | "bottlePrefixPath" | "gameInstallPath";
+type PendingBottleStopAction = { kind: "channel"; channel: LauncherUpdateChannel };
 
 const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   launch: "Command + Return",
@@ -40,6 +41,9 @@ export interface PreferenceViewProps {
   shortcuts?: LauncherShortcutMap;
   autoUpdateEnabled?: boolean;
   closeToTray?: boolean;
+  windowStartupSizeMode?: LauncherWindowStartupSizeMode;
+  windowStartupCustomWidth?: number;
+  windowStartupCustomHeight?: number;
   appUpdateStatus?: AppUpdateStatusPayload;
   developerSiteUrl?: string;
   developerGitHubUrl?: string;
@@ -63,7 +67,11 @@ export interface PreferenceViewProps {
   onShortcutChange?: (action: LauncherShortcutAction, shortcut: string) => void;
   onAutoUpdateEnabledChange?: (enabled: boolean) => void;
   onCloseToTrayChange?: (enabled: boolean) => void;
+  onWindowStartupSizeModeChange?: (mode: LauncherWindowStartupSizeMode) => void;
+  onWindowStartupCustomWidthChange?: (width: number) => void;
+  onWindowStartupCustomHeightChange?: (height: number) => void;
   onCheckForUpdates?: () => void;
+  onInstallUpdate?: () => void;
   onBrowsePath?: (pathKey: PreferencePathKey) => void;
   onResetPath?: (pathKey: PreferencePathKey) => void;
   onDeleteLauncherData?: (targets: LauncherDataDeleteTarget[]) => Promise<DeleteLauncherDataResultPayload | undefined> | DeleteLauncherDataResultPayload | undefined;
@@ -108,6 +116,7 @@ function PathSettingRow({
   onChange,
   onBrowse,
   onReset,
+  onOpen,
 }: {
   id: string;
   title: string;
@@ -116,14 +125,30 @@ function PathSettingRow({
   onChange?: (value: string) => void;
   onBrowse?: () => void;
   onReset?: () => void;
+  onOpen?: () => void;
 }) {
   const { t } = useTranslation();
 
   return (
     <Box>
-      <FieldLabel className="block text-sm font-semibold text-slate-100" htmlFor={id}>
-        {title}
-      </FieldLabel>
+      <Box className="flex flex-wrap items-center gap-2">
+        <FieldLabel className="block text-sm font-semibold text-slate-100" htmlFor={id}>
+          {title}
+        </FieldLabel>
+        {onOpen ? (
+          <Button
+            type="button"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2 text-[11px] font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label={`${t("common.actions.openInFinder")}: ${title}`}
+            title={t("common.actions.openInFinder")}
+            disabled={!value.trim()}
+            onClick={onOpen}
+          >
+            <FolderOpen size={13} />
+            {t("common.actions.openInFinder")}
+          </Button>
+        ) : null}
+      </Box>
       <Text className="mt-1 text-xs leading-5 text-slate-500">{description}</Text>
       <Box className="mt-3 flex gap-2">
         <Box className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/10 bg-[#0b1020] px-3">
@@ -162,6 +187,22 @@ function create_data_root_child_path(dataRootPath: string, childName: string): s
   const trimmedRoot = dataRootPath.trim().replace(/\/+$/, "") || "~/Library/Application Support/BDIH Launcher";
 
   return `${trimmedRoot}/${childName}`;
+}
+
+function normalize_custom_window_dimension(value: string, fallback: number, minimum: number): number {
+  const parsedValue = Number.parseInt(value, 10);
+
+  return Number.isFinite(parsedValue) ? Math.max(minimum, parsedValue) : fallback;
+}
+
+function open_path_in_finder(targetPath: string): void {
+  const path = targetPath.trim();
+
+  if (!path) {
+    return;
+  }
+
+  void window.BTIH_API?.invoke(IPC_CHANNELS.APP.REVEAL_PATH.channelName, { path });
 }
 
 function shortcut_key_label_from_code(code: string): string {
@@ -390,6 +431,9 @@ export function PreferenceView({
   shortcuts = DEFAULT_SHORTCUTS,
   autoUpdateEnabled = true,
   closeToTray = false,
+  windowStartupSizeMode = "default",
+  windowStartupCustomWidth = LAUNCHER_WINDOW_DEFAULT_SIZE.width,
+  windowStartupCustomHeight = LAUNCHER_WINDOW_DEFAULT_SIZE.height,
   appUpdateStatus,
   developerSiteUrl = BDIH_SITE_URL,
   developerGitHubUrl = BDIH_GITHUB_URL,
@@ -411,7 +455,11 @@ export function PreferenceView({
   onShortcutChange,
   onAutoUpdateEnabledChange,
   onCloseToTrayChange,
+  onWindowStartupSizeModeChange,
+  onWindowStartupCustomWidthChange,
+  onWindowStartupCustomHeightChange,
   onCheckForUpdates,
+  onInstallUpdate,
   onBrowsePath,
   onResetPath,
   onDeleteLauncherData,
@@ -419,8 +467,8 @@ export function PreferenceView({
 }: PreferenceViewProps) {
   const { t, i18n } = useTranslation();
   const [activeCategory, setActiveCategory] = useState<PreferenceCategory>(initialCategory);
-  const [localHasChanges, setLocalHasChanges] = useState(false);
-  const hasChanges = initialHasChanges || localHasChanges;
+  const [, setLocalHasChanges] = useState(false);
+  const hasChanges = initialHasChanges;
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleteWorking, setIsDeleteWorking] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState(0);
@@ -431,6 +479,9 @@ export function PreferenceView({
   const [appInfoStatus, setAppInfoStatus] = useState<AppUpdateStatusPayload>();
   const [updateChannel, setUpdateChannel] = useState<LauncherUpdateChannel>("stable");
   const [pendingUpdateChannel, setPendingUpdateChannel] = useState<LauncherUpdateChannel>();
+  const [pendingBottleStopAction, setPendingBottleStopAction] = useState<PendingBottleStopAction>();
+  const [isStoppingBottleProcesses, setIsStoppingBottleProcesses] = useState(false);
+  const [stopBottleProcessesError, setStopBottleProcessesError] = useState<string>();
   const defaultBottlePrefixPath = useMemo(() => create_data_root_child_path(dataRootPath, "Bottles"), [dataRootPath]);
   const defaultGameInstallPath = useMemo(() => create_data_root_child_path(dataRootPath, "Games"), [dataRootPath]);
   const [isAdvancedStorageOpen, setIsAdvancedStorageOpen] = useState(() =>
@@ -474,6 +525,7 @@ export function PreferenceView({
       isMounted = false;
     };
   }, []);
+
   const currentLanguage = i18n.language.split("-")[0];
   const selectedLocale = locale ?? (is_supported_locale(currentLanguage) ? currentLanguage : "ko");
   const localeOptions = LOCALE_OPTIONS.map((supportedLocale) => ({
@@ -484,6 +536,11 @@ export function PreferenceView({
   const themeModeOptions = RENDERER_THEME_MODES.map((mode) => ({
     value: mode,
     label: t(`theme.mode.${mode}`),
+  }));
+  const windowStartupSizeOptions = LAUNCHER_WINDOW_STARTUP_SIZE_MODES.map((mode) => ({
+    value: mode,
+    label: t(`preferences.windowStartupSize.modes.${mode}.label`),
+    description: t(`preferences.windowStartupSize.modes.${mode}.description`),
   }));
   const accentColorOptions = ACCENT_COLOR_ITEMS.map((item) => ({
     value: item.id,
@@ -563,15 +620,78 @@ export function PreferenceView({
     setUpdateChannel(status?.channel ?? channel);
   }
 
+  async function has_active_bottle_execution() {
+    const state = await window.BTIH_API?.invoke(
+      IPC_CHANNELS.BOTTLE.GET_EXECUTION_STATE.channelName,
+      undefined as never,
+    ) as BottleExecutionStatePayload | undefined;
+
+    return state?.isRunning === true;
+  }
+
+  async function request_apply_update_channel(channel: LauncherUpdateChannel) {
+    setPendingUpdateChannel(undefined);
+
+    if (await has_active_bottle_execution()) {
+      setStopBottleProcessesError(undefined);
+      setPendingBottleStopAction({ kind: "channel", channel });
+      return;
+    }
+
+    await apply_update_channel(channel);
+  }
+
   function request_update_channel(channel: LauncherUpdateChannel) {
     if (channel === updateChannel) return;
 
     if (channel === "stable") {
-      void apply_update_channel(channel);
+      void request_apply_update_channel(channel);
       return;
     }
 
     setPendingUpdateChannel(channel);
+  }
+
+  function request_check_for_updates(): boolean {
+    onCheckForUpdates?.();
+    return true;
+  }
+
+  function cancel_bottle_stop_action() {
+    if (isStoppingBottleProcesses) return;
+
+    setStopBottleProcessesError(undefined);
+    setPendingBottleStopAction(undefined);
+  }
+
+  async function stop_bottle_processes_and_continue() {
+    const action = pendingBottleStopAction;
+    if (!action || isStoppingBottleProcesses) return;
+
+    setIsStoppingBottleProcesses(true);
+    setStopBottleProcessesError(undefined);
+
+    try {
+      const result = await window.BTIH_API?.invoke(
+        IPC_CHANNELS.BOTTLE.STOP_ALL_PROCESSES.channelName,
+        undefined as never,
+      ) as BottleTaskResultPayload | undefined;
+
+      if (!result?.ok) {
+        setStopBottleProcessesError(result?.error ?? t("preferences.appInfo.runningGuard.unknownError"));
+        return;
+      }
+
+      setPendingBottleStopAction(undefined);
+
+      if (action.kind === "channel") {
+        await apply_update_channel(action.channel);
+      }
+    } catch (error) {
+      setStopBottleProcessesError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsStoppingBottleProcesses(false);
+    }
   }
 
   function handleShortcutInvalidChange(action: LauncherShortcutAction, isInvalid: boolean) {
@@ -789,6 +909,93 @@ export function PreferenceView({
             </Box>
 
             <Box className="mt-5">
+              <SettingField
+                title={t("preferences.windowStartupSize.title")}
+                description={t("preferences.windowStartupSize.description")}
+              >
+                <SelectMenu
+                  value={windowStartupSizeMode}
+                  label={t("preferences.windowStartupSize.title")}
+                  options={windowStartupSizeOptions}
+                  onChange={(value) => {
+                    if (LAUNCHER_WINDOW_STARTUP_SIZE_MODES.includes(value as LauncherWindowStartupSizeMode)) {
+                      onWindowStartupSizeModeChange?.(value as LauncherWindowStartupSizeMode);
+                      markChanged();
+                    }
+                  }}
+                />
+
+                {windowStartupSizeMode === "custom" ? (
+                  <Box className="mt-3 rounded-lg border border-white/10 bg-[#0b1020] p-4">
+                    <Box className="grid gap-3 sm:grid-cols-2">
+                      <Box>
+                        <FieldLabel className="text-xs font-semibold text-slate-300" htmlFor="window-startup-width">
+                          {t("preferences.windowStartupSize.width")}
+                        </FieldLabel>
+                        <Input
+                          key={`window-startup-width-${windowStartupCustomWidth}`}
+                          id="window-startup-width"
+                          type="number"
+                          min={LAUNCHER_WINDOW_MIN_SIZE.width}
+                          defaultValue={windowStartupCustomWidth}
+                          className="mt-2 h-10 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-slate-100 outline-none focus:border-white/25"
+                          onBlur={(event) => {
+                            const nextWidth = normalize_custom_window_dimension(
+                              event.currentTarget.value,
+                              windowStartupCustomWidth,
+                              LAUNCHER_WINDOW_MIN_SIZE.width,
+                            );
+                            event.currentTarget.value = String(nextWidth);
+                            onWindowStartupCustomWidthChange?.(nextWidth);
+                            markChanged();
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") event.currentTarget.blur();
+                          }}
+                        />
+                      </Box>
+                      <Box>
+                        <FieldLabel className="text-xs font-semibold text-slate-300" htmlFor="window-startup-height">
+                          {t("preferences.windowStartupSize.height")}
+                        </FieldLabel>
+                        <Input
+                          key={`window-startup-height-${windowStartupCustomHeight}`}
+                          id="window-startup-height"
+                          type="number"
+                          min={LAUNCHER_WINDOW_MIN_SIZE.height}
+                          defaultValue={windowStartupCustomHeight}
+                          className="mt-2 h-10 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-slate-100 outline-none focus:border-white/25"
+                          onBlur={(event) => {
+                            const nextHeight = normalize_custom_window_dimension(
+                              event.currentTarget.value,
+                              windowStartupCustomHeight,
+                              LAUNCHER_WINDOW_MIN_SIZE.height,
+                            );
+                            event.currentTarget.value = String(nextHeight);
+                            onWindowStartupCustomHeightChange?.(nextHeight);
+                            markChanged();
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") event.currentTarget.blur();
+                          }}
+                        />
+                      </Box>
+                    </Box>
+                    <Text className="mt-3 text-xs leading-5 text-slate-500">
+                      {t("preferences.windowStartupSize.customHint")}
+                    </Text>
+                  </Box>
+                ) : null}
+
+                {windowStartupSizeMode === "last" ? (
+                  <Text className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-5 text-slate-400">
+                    {t("preferences.windowStartupSize.lastHint")}
+                  </Text>
+                ) : null}
+              </SettingField>
+            </Box>
+
+            <Box className="mt-5">
               <SettingField title={t("preferences.closeBehavior.title")} description={t("preferences.closeBehavior.description")}>
                 <Box className="grid gap-3 md:grid-cols-2">
                   <FieldLabel
@@ -922,6 +1129,7 @@ export function PreferenceView({
                     onResetPath?.("dataRootPath");
                     markChanged();
                   }}
+                  onOpen={() => open_path_in_finder(dataRootPath)}
                 />
                 <FieldLabel className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-[#0b1020] p-4 transition hover:bg-white/[0.04]">
                   <Input
@@ -984,6 +1192,7 @@ export function PreferenceView({
                     onGameInstallPathChange?.(defaultGameInstallPath);
                     markChanged();
                   }}
+                  onOpen={() => open_path_in_finder(gameInstallPath)}
                 />
               </Box>
             </PreferenceSection>
@@ -1152,7 +1361,8 @@ export function PreferenceView({
                   onAutoUpdateEnabledChange?.(enabled);
                   markChanged();
                 }}
-                onCheckForUpdates={onCheckForUpdates}
+                onCheckForUpdates={request_check_for_updates}
+                onInstallUpdate={onInstallUpdate}
               />
             </Box>
           </PreferenceSection>
@@ -1204,13 +1414,48 @@ export function PreferenceView({
             label: t("preferences.appInfo.channelWarningConfirm"),
             variant: "primary",
             onClick: () => {
-              if (pendingUpdateChannel) void apply_update_channel(pendingUpdateChannel);
+              if (pendingUpdateChannel) void request_apply_update_channel(pendingUpdateChannel);
             },
           },
         ]}
       >
         <Box className="rounded-lg border border-amber-400/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
           {t("preferences.appInfo.channelWarningBody")}
+        </Box>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingBottleStopAction)}
+        title={t("preferences.appInfo.runningGuard.title")}
+        description={t("preferences.appInfo.runningGuard.description")}
+        tone="warning"
+        icon={AlertTriangle}
+        placement="center"
+        widthClassName="max-w-lg"
+        closeOnBackdrop={!isStoppingBottleProcesses}
+        showCloseButton={!isStoppingBottleProcesses}
+        onClose={cancel_bottle_stop_action}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "secondary",
+            disabled: isStoppingBottleProcesses,
+            onClick: cancel_bottle_stop_action,
+          },
+          {
+            label: isStoppingBottleProcesses
+              ? t("preferences.appInfo.runningGuard.stopping")
+              : t("preferences.appInfo.runningGuard.confirm"),
+            variant: "primary",
+            disabled: isStoppingBottleProcesses,
+            onClick: () => void stop_bottle_processes_and_continue(),
+          },
+        ]}
+      >
+        <Box className="rounded-lg border border-amber-400/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+          {stopBottleProcessesError
+            ? t("preferences.appInfo.runningGuard.stopFailed", { error: stopBottleProcessesError })
+            : t("preferences.appInfo.runningGuard.body")}
         </Box>
       </Dialog>
 

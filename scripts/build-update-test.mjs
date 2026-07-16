@@ -2,8 +2,9 @@ import { spawn } from "node:child_process";
 import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
-const ROOT = process.cwd();
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEST_RELEASE_ROOT = path.join(ROOT, "tests", "Release");
 const TEST_FEED_ROOT = path.join(TEST_RELEASE_ROOT, "feed");
 const SUPPORTED_CHANNELS = new Set(["stable", "beta", "nightly"]);
@@ -75,8 +76,12 @@ async function main() {
   const productName = channel === "nightly"
     ? "BDIH Launcher Nightly Update Test"
     : "BDIH Launcher Update Test";
+  const storageProfile = channel === "nightly" ? "nightly" : "stable-beta";
   const buildOutput = path.join(TEST_RELEASE_ROOT, "builds", channel, version);
   const appPath = path.join(buildOutput, "mac-arm64", `${productName}.app`);
+  const installPath = path.join(TEST_RELEASE_ROOT, "apps", storageProfile, `${productName}.app`);
+  const stateRoot = path.join(TEST_RELEASE_ROOT, "state", storageProfile);
+  const updatePort = process.env.BDIH_UPDATE_TEST_PORT || "45678";
   const env = {
     ...process.env,
     BDIH_TEST_VERSION: version,
@@ -103,12 +108,16 @@ async function main() {
     channel,
     productName,
     appPath,
+    installPath,
+    stateRoot,
     buildOutput,
     feedRoot: TEST_FEED_ROOT,
+    updatePort,
   }, null, 2)}\n`;
   await Promise.all([
     writeFile(path.join(TEST_RELEASE_ROOT, "last-build.json"), buildRecord),
     writeFile(path.join(TEST_RELEASE_ROOT, `last-build-${channel}.json`), buildRecord),
+    writeFile(path.join(TEST_RELEASE_ROOT, `last-build-${storageProfile}.json`), buildRecord),
   ]);
 
   process.stdout.write(`\nTest build ready: ${appPath}\n`);

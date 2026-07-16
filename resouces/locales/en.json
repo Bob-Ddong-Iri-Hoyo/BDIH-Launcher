@@ -25,7 +25,10 @@
         "createPrefix": "Create prefix",
         "close": "Close",
         "cancel": "Cancel",
-        "delete": "Delete"
+        "delete": "Delete",
+        "copy": "Copy",
+        "copied": "Copied",
+        "openInFinder": "Open in Finder"
       }
     },
     "discordPresence": {
@@ -650,15 +653,27 @@
         "channelWarningTitle": "Switch to the {{channel}} channel?",
         "channelWarningDescription": "Preview builds may be unstable, and returning directly to Stable may not be possible.",
         "channelWarningBody": "New builds may change settings or data formats. Back up important Bottle data before switching channels.",
-        "channelWarningConfirm": "Switch channel"
+        "channelWarningConfirm": "Switch channel",
+        "runningGuard": {
+          "title": "Quit running apps and Bottles?",
+          "description": "Apps and Bottle sessions launched by BDIH Launcher must be stopped before changing the update channel.",
+          "body": "Unsaved game or app data may be lost. The original action will continue after everything stops.",
+          "confirm": "Quit and continue",
+          "stopping": "Stopping...",
+          "stopFailed": "Could not stop every running item: {{error}}",
+          "unknownError": "Unknown error"
+        }
       },
       "appUpdate": {
         "title": "App update",
-        "description": "Check for new versions and manage automatic update checks.",
-        "autoCheck": "Auto check",
+        "description": "When enabled, the launcher checks at startup, installs new versions automatically, and restarts.",
+        "autoCheck": "Automatic updates",
         "check": "Check updates",
         "downloading": "Downloading update",
-        "restartHint": "The update has been downloaded. Restart the app to apply it.",
+        "actions": {
+          "later": "Later",
+          "updateNow": "Update"
+        },
         "version": "Version {{version}}",
         "dialog": {
           "disabled": {
@@ -671,7 +686,7 @@
           },
           "available": {
             "title": "Update available",
-            "description": "A newer BDIH Launcher version is available."
+            "description": "A newer BDIH Launcher version is available. Starting the update will check and quit apps and Bottle sessions launched by BDIH Launcher."
           },
           "not-available": {
             "title": "You're up to date",
@@ -687,7 +702,23 @@
           },
           "error": {
             "title": "Update check failed",
-            "description": "BDIH Launcher could not check for updates."
+            "description": "BDIH Launcher could not check for updates.",
+            "errorCode": "Error code",
+            "technicalDetails": "Technical error details",
+            "reasons": {
+              "connectionRefused": {
+                "title": "Could not connect to the update server",
+                "description": "The update server refused the connection. Check your internet connection and the server status, then try again."
+              },
+              "network": {
+                "title": "A network connection problem occurred",
+                "description": "Check your internet connection and the update server status, then try again."
+              },
+              "unknown": {
+                "title": "An error occurred while checking for updates",
+                "description": "Review the technical details below. If the problem happens again, share these details together with the logs."
+              }
+            }
           }
         },
         "status": {
@@ -737,6 +768,22 @@
         "catalogTitle": "Auto-refresh catalog",
         "catalogDescription": "Reload the Wine catalog when the app starts."
       },
+      "windowStartupSize": {
+        "title": "Startup window size",
+        "description": "Choose the launcher window size and state used when the app starts.",
+        "width": "Width",
+        "height": "Height",
+        "customHint": "Custom sizes use a minimum of 960 x 640 and are limited to the current display.",
+        "lastHint": "Restores the size, maximized state, or full-screen state used before the previous exit. The app default is used when no previous state exists.",
+        "modes": {
+          "default": { "label": "App default", "description": "Start at 1200 x 800." },
+          "wide": { "label": "Wide", "description": "Start at 1440 x 900." },
+          "large": { "label": "Large", "description": "Start at 1600 x 1000." },
+          "maximized": { "label": "Fill screen", "description": "Fill the available screen while remaining in windowed mode." },
+          "custom": { "label": "Custom size", "description": "Enter the width and height directly." },
+          "last": { "label": "Last window size", "description": "Restore the state used before the previous exit." }
+        }
+      },
       "closeBehavior": {
         "title": "Close button behavior",
         "description": "Choose what happens when you press the launcher close button.",
@@ -775,6 +822,18 @@
         "stillMissing": "Rosetta is still not available. Finish the Terminal installation, then check again.",
         "checkFailed": "Failed to check Rosetta status.",
         "verified": "Rosetta verified. Opening launcher..."
+      }
+    },
+    "updateInstall": {
+      "title": "Updating the app",
+      "description": "Running apps and Bottle sessions will close safely before the update is applied.",
+      "restartNotice": "The app will restart automatically when the update finishes. Do not quit the app during the update.",
+      "stages": {
+        "checkingProcesses": "Checking apps and Bottle sessions launched by BDIH Launcher",
+        "savingState": "Saving launcher settings and state",
+        "stoppingProcesses": "Quitting apps and Bottle sessions launched by BDIH Launcher",
+        "downloading": "Downloading the app update",
+        "installing": "Installing the update and restarting"
       }
     },
     "terminal": {
