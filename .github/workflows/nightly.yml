@@ -142,6 +142,10 @@ jobs:
             return childProcess.execFileSync("git", args, { encoding: "utf8" });
           }
 
+          function escapeRegExp(value) {
+            return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          }
+
           const sourceSha = process.env.SOURCE_SHA;
           const tagsAtSource = git(["tag", "--points-at", sourceSha]);
           const releaseTagsAtSource = tagsAtSource.filter((tag) => releaseTagPattern.test(tag));
@@ -162,8 +166,27 @@ jobs:
             throw new Error(`package.json version must resolve to x.y.z for nightly builds. Got: ${sourcePackageVersion}`);
           }
 
+          const betaTagPattern = new RegExp(`^v${escapeRegExp(baseVersion)}-beta\\.(\\d+)$`);
+          const betaTags = git(["tag", "--merged", sourceSha])
+            .map((tag) => {
+              const match = tag.match(betaTagPattern);
+
+              if (!match) {
+                return undefined;
+              }
+
+              return {
+                tag,
+                betaNumber: Number(match[1]),
+              };
+            })
+            .filter(Boolean)
+            .sort((left, right) => left.betaNumber - right.betaNumber);
+          const latestBeta = betaTags[betaTags.length - 1];
+          const targetBetaNumber = (latestBeta?.betaNumber ?? 0) + 1;
+          const targetBetaTag = `v${baseVersion}-beta.${targetBetaNumber}`;
           const sourceShortSha = sourceSha.slice(0, 7);
-          const nightlyVersion = `${baseVersion}-nightly.${process.env.NIGHTLY_DATE}.${process.env.GITHUB_RUN_NUMBER}.g${sourceShortSha}`;
+          const nightlyVersion = `${baseVersion}-nightly.beta.${targetBetaNumber}.${process.env.NIGHTLY_DATE}.${process.env.GITHUB_RUN_NUMBER}.g${sourceShortSha}`;
 
           writeOutput("should_build", "true");
           writeOutput("source_sha", sourceSha);
@@ -174,6 +197,9 @@ jobs:
           writeOutput("nightly_version", nightlyVersion);
           writeOutput("nightly_tag", `v${nightlyVersion}`);
           writeOutput("source_package_version", sourcePackageVersion);
+          writeOutput("latest_beta_tag", latestBeta?.tag ?? "");
+          writeOutput("target_beta_number", String(targetBetaNumber));
+          writeOutput("target_beta_tag", targetBetaTag);
           NODE
 
       - name: Decide whether to publish
@@ -333,6 +359,7 @@ jobs:
           PUBLISH_REPOSITORY: ${{ steps.target.outputs.release_repository }}
           RELEASE_TYPE: prerelease
           UPDATE_CHANNEL: nightly
+          BDIH_RELEASE_CHANNEL: nightly
           BDIH_DISCORD_CLIENT_ID: ${{ vars.BDIH_DISCORD_CLIENT_ID || secrets.BDIH_DISCORD_CLIENT_ID }}
           BDIH_DISCORD_SHOW_IDLE: ${{ vars.BDIH_DISCORD_SHOW_IDLE || 'true' }}
           BDIH_DISCORD_LARGE_IMAGE_KEY: ${{ vars.BDIH_DISCORD_LARGE_IMAGE_KEY || 'bdih_logo' }}
@@ -353,6 +380,9 @@ jobs:
           RELEASE_REPOSITORY: ${{ steps.target.outputs.release_repository }}
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
           SNAPSHOT_CUTOFF_KST: ${{ steps.source.outputs.cutoff_kst }}
+          LATEST_BETA_TAG: ${{ steps.source.outputs.latest_beta_tag }}
+          TARGET_BETA_NUMBER: ${{ steps.source.outputs.target_beta_number }}
+          TARGET_BETA_TAG: ${{ steps.source.outputs.target_beta_tag }}
         run: |
           set -euo pipefail
 
@@ -388,6 +418,10 @@ jobs:
             sourceBranch: process.env.SOURCE_BRANCH,
             sourceCommit: process.env.SOURCE_SHA,
             snapshotCutoffKst: process.env.SNAPSHOT_CUTOFF_KST,
+            targetVersion: process.env.NIGHTLY_VERSION?.replace(/-.*/, ""),
+            latestBetaTag: process.env.LATEST_BETA_TAG || null,
+            targetBetaNumber: Number(process.env.TARGET_BETA_NUMBER),
+            targetBetaTag: process.env.TARGET_BETA_TAG,
           };
 
           fs.writeFileSync("nightly-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
@@ -425,6 +459,9 @@ jobs:
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
           SOURCE_SHORT_SHA: ${{ steps.source.outputs.source_short_sha }}
           SNAPSHOT_CUTOFF_KST: ${{ steps.source.outputs.cutoff_kst }}
+          LATEST_BETA_TAG: ${{ steps.source.outputs.latest_beta_tag }}
+          TARGET_BETA_NUMBER: ${{ steps.source.outputs.target_beta_number }}
+          TARGET_BETA_TAG: ${{ steps.source.outputs.target_beta_tag }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -439,6 +476,10 @@ jobs:
             sourceBranch: process.env.SOURCE_BRANCH,
             sourceCommit: process.env.SOURCE_SHA,
             snapshotCutoffKst: process.env.SNAPSHOT_CUTOFF_KST,
+            targetVersion: process.env.NIGHTLY_VERSION?.replace(/-.*/, ""),
+            latestBetaTag: process.env.LATEST_BETA_TAG || null,
+            targetBetaNumber: Number(process.env.TARGET_BETA_NUMBER),
+            targetBetaTag: process.env.TARGET_BETA_TAG,
           };
 
           fs.writeFileSync("release/nightly-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
@@ -451,6 +492,8 @@ jobs:
               `Source branch: ${metadata.sourceBranch}`,
               `Source commit: ${metadata.sourceCommit}`,
               `Snapshot cutoff: ${metadata.snapshotCutoffKst}`,
+              `Target beta: ${metadata.targetBetaTag}`,
+              `Latest beta: ${metadata.latestBetaTag ?? "none"}`,
               "",
             ].join("\n"),
           );
@@ -466,7 +509,7 @@ jobs:
           gh release create "$NIGHTLY_TAG" "${assets[@]}" \
             --repo "$RELEASE_REPOSITORY" \
             --target "$TARGET_NIGHTLY_BRANCH" \
-            --title "BDIH Launcher Nightly $NIGHTLY_DATE ($SOURCE_SHORT_SHA)" \
+            --title "BDIH Launcher Nightly $NIGHTLY_DATE for ${TARGET_BETA_TAG#v} ($SOURCE_SHORT_SHA)" \
             --notes-file release-notes.md \
             --prerelease
 

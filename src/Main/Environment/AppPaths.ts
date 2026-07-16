@@ -5,8 +5,10 @@ import path from "path";
 
 const TEST_RESOURCE_DIR = "tmp_test_resource";
 const CURRENT_APP_DATA_DIR_NAME = "BDIH Launcher";
+const NIGHTLY_APP_DATA_DIR_NAME = "BDIH Launcher Nightly";
 const UPDATE_TEST_MARKER_FILE_NAME = "bdih-update-test.json";
 const NIGHTLY_UPDATE_TEST_MARKER_FILE_NAME = "bdih-nightly-update-test.json";
+const NIGHTLY_BUILD_MARKER_FILE_NAME = "bdih-nightly-build.json";
 const UPDATE_TEST_RELEASE_DIR_NAME = "Release";
 const UPDATE_TEST_PARENT_DIR_NAME = "tests";
 const UPDATE_TEST_STATE_DIR_NAME = "state";
@@ -22,6 +24,7 @@ const ENV_APP_DATA_ROOT = "BDIH_APP_DATA_ROOT";
 const ENV_LEGACY_APP_DATA_ROOT = "BDIH_LEGACY_APP_DATA_ROOT";
 const ENV_UPDATE_TEST_BUILD = "BDIH_UPDATE_TEST_BUILD";
 const ENV_UPDATE_TEST_ROOT = "BDIH_UPDATE_TEST_ROOT";
+const ENV_RELEASE_CHANNEL = "BDIH_RELEASE_CHANNEL";
 
 export interface UpdateTestRuntimePaths {
   releaseRoot: string;
@@ -95,6 +98,20 @@ export function is_nightly_update_test_build(): boolean {
   return is_packaged_environment()
     && typeof process.resourcesPath === "string"
     && existsSync(path.join(process.resourcesPath, NIGHTLY_UPDATE_TEST_MARKER_FILE_NAME));
+}
+
+export function is_nightly_launcher_build(): boolean {
+  if (is_nightly_update_test_build()) {
+    return true;
+  }
+
+  if (process.env[ENV_RELEASE_CHANNEL]?.trim().toLowerCase() === "nightly") {
+    return true;
+  }
+
+  return is_packaged_environment()
+    && typeof process.resourcesPath === "string"
+    && existsSync(path.join(process.resourcesPath, NIGHTLY_BUILD_MARKER_FILE_NAME));
 }
 
 function env_path(name: string): string | undefined {
@@ -187,7 +204,9 @@ function get_packaged_settings_dir(): string {
     return get_update_test_runtime_paths().settingsDir;
   }
 
-  return env_path(ENV_SETTINGS_DIR) ?? path.join(os.homedir(), ".bdih-launcher");
+  const settingsDirName = is_nightly_launcher_build() ? ".bdih-launcher-nightly" : ".bdih-launcher";
+
+  return env_path(ENV_SETTINGS_DIR) ?? path.join(os.homedir(), settingsDirName);
 }
 
 function get_packaged_app_data_root(): string {
@@ -195,7 +214,12 @@ function get_packaged_app_data_root(): string {
     return get_update_test_runtime_paths().appDataRoot;
   }
 
-  return env_path(ENV_APP_DATA_ROOT) ?? path.join(os.homedir(), "Library", "Application Support", CURRENT_APP_DATA_DIR_NAME);
+  return env_path(ENV_APP_DATA_ROOT) ?? path.join(
+    os.homedir(),
+    "Library",
+    "Application Support",
+    is_nightly_launcher_build() ? NIGHTLY_APP_DATA_DIR_NAME : CURRENT_APP_DATA_DIR_NAME,
+  );
 }
 
 function get_dev_prefixed_root(): string {
@@ -235,6 +259,10 @@ export function get_legacy_app_data_roots(): string[] {
 
   if (override) {
     return [override];
+  }
+
+  if (is_nightly_launcher_build()) {
+    return [get_packaged_app_data_root()];
   }
 
   return unique_paths([

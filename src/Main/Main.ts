@@ -2,7 +2,7 @@ import { app } from "electron";
 import { config as load_dotenv_config } from "dotenv";
 import { mkdirSync } from "fs";
 import path from "path";
-import { get_update_test_runtime_paths, is_update_test_build } from "./Environment/AppPaths";
+import { get_update_test_runtime_paths, is_nightly_launcher_build, is_update_test_build } from "./Environment/AppPaths";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
 import { bottleExecutionManager } from "./Manager/BottleExecutionManager";
@@ -20,6 +20,7 @@ let isQuitCleanupComplete = false;
 let quitCleanupPromise: Promise<void> | null = null;
 const UPDATE_INSTALL_HANDOFF_DELAY_MS = 350;
 const IS_UPDATE_TEST_BUILD = is_update_test_build();
+const IS_NIGHTLY_BUILD = is_nightly_launcher_build();
 
 if (IS_UPDATE_TEST_BUILD) {
   const runtimePaths = get_update_test_runtime_paths();
@@ -74,7 +75,7 @@ load_dotenv_config({ quiet: true });
  */
 function configureAppIdentity(language?: string): void {
   if (!IS_UPDATE_TEST_BUILD) {
-    apply_localized_app_name(language);
+    apply_localized_app_name(language, IS_NIGHTLY_BUILD);
   }
 
   if (process.platform === "darwin") {

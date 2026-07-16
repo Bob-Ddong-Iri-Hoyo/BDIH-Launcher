@@ -9,7 +9,7 @@ import {
   get_legacy_settings_path,
   constrain_update_test_data_path,
   is_dev_resource_environment,
-  is_nightly_update_test_build,
+  is_nightly_launcher_build,
   is_update_test_build,
 } from "../Environment/AppPaths";
 
@@ -39,7 +39,7 @@ export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
   gameInstallPath: path.join(DEFAULT_DATA_ROOT_PATH, "Games"),
   autoCheckUpdates: !is_update_test_build(),
-  updateChannel: is_nightly_update_test_build() ? "nightly" : "stable",
+  updateChannel: is_nightly_launcher_build() ? "nightly" : "stable",
   closeToTray: false,
   windowStartupSizeMode: "default",
   windowStartupCustomWidth: LAUNCHER_WINDOW_DEFAULT_SIZE.width,
@@ -170,7 +170,7 @@ export class PreferenceManager {
       dxmtCachePath: get_default_dxmt_cache_path(dataRootPath),
       gameInstallPath,
       autoCheckUpdates: this.booleanOrDefault(record.autoCheckUpdates, !is_update_test_build()),
-      updateChannel: is_nightly_update_test_build()
+      updateChannel: is_nightly_launcher_build()
         ? "nightly"
         : this.updateChannelOrDefault(record.updateChannel, "stable"),
       closeToTray: this.booleanOrDefault(record.closeToTray, false),
