@@ -12,7 +12,7 @@ window title. It has its own identity and storage:
 | Resource | Update test value |
 | --- | --- |
 | Product name | `BDIH Launcher Update Test` |
-| Bundle ID | `com.fabyday.bdih-launcher.update-test` |
+| Bundle ID | `day.faby.bdih-launcher.update-test` |
 | Finder app | `tests/Release/apps/stable-beta/BDIH Launcher Update Test.app` |
 | App data | `tests/Release/state/stable-beta/data` |
 | Settings | `tests/Release/state/stable-beta/settings/settings.json` |
@@ -26,7 +26,7 @@ Nightly uses an additional isolated identity:
 | Resource | Nightly update test value |
 | --- | --- |
 | Product name | `BDIH Launcher Nightly Update Test` |
-| Bundle ID | `com.fabyday.bdih-launcher.nightly.update-test` |
+| Bundle ID | `day.faby.bdih-launcher.nightly.update-test` |
 | Finder app | `tests/Release/apps/nightly/BDIH Launcher Nightly Update Test.app` |
 | App data | `tests/Release/state/nightly/data` |
 | Settings | `tests/Release/state/nightly/settings/settings.json` |

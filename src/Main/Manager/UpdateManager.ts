@@ -1,5 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import { autoUpdater } from "electron-updater";
+import { readFile, rm } from "fs/promises";
+import path from "path";
 import {
   AppUpdateInstallProgressPayload,
   AppUpdateStatusPayload,
@@ -9,7 +11,7 @@ import {
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
 import { send_to_web_contents } from "../Util/SafeWebContents";
-import { is_nightly_launcher_build } from "../Environment/AppPaths";
+import { is_nightly_launcher_build, is_update_test_build } from "../Environment/AppPaths";
 
 interface UpdateInfoLike {
   version?: string;
@@ -32,6 +34,7 @@ export class UpdateManager {
   private installProgressHandler: ((payload: AppUpdateInstallProgressPayload) => Promise<void> | void) | null = null;
   private installFailureHandler: (() => Promise<void> | void) | null = null;
   private installFailureNotified = false;
+  private cachedUpdateCleanupComplete = false;
   private window: BrowserWindow | null = null;
   private activeChannel: LauncherUpdateChannel = "stable";
   private lastStatus: AppUpdateStatusPayload = { status: "idle" };
@@ -125,6 +128,7 @@ export class UpdateManager {
   }
 
   async checkForUpdates(window?: BrowserWindow): Promise<void> {
+    await this.cleanupIncompatibleNightlyUpdateCache();
     this.init(window);
     await this.configureUpdateChannel();
 
@@ -246,6 +250,62 @@ export class UpdateManager {
       message: "Update checks are disabled outside packaged builds.",
     });
     return false;
+  }
+
+  private async cleanupIncompatibleNightlyUpdateCache(): Promise<void> {
+    if (this.cachedUpdateCleanupComplete) {
+      return;
+    }
+
+    this.cachedUpdateCleanupComplete = true;
+
+    if (!is_nightly_launcher_build() || is_update_test_build()) {
+      return;
+    }
+
+    const cacheRoot = app.getPath("cache");
+    const pendingDirectory = path.join(cacheRoot, "bdih-launcher-nightly-updater", "pending");
+    const updateInfoPath = path.join(pendingDirectory, "update-info.json");
+    let cachedFileName = "";
+
+    try {
+      const updateInfo = JSON.parse(await readFile(updateInfoPath, "utf8")) as { fileName?: unknown };
+      cachedFileName = typeof updateInfo.fileName === "string" ? updateInfo.fileName : "";
+
+      if (cachedFileName.startsWith("BDIH-Launcher-Nightly-")) {
+        return;
+      }
+    } catch (error) {
+      if (
+        typeof error === "object"
+        && error !== null
+        && "code" in error
+        && error.code === "ENOENT"
+      ) {
+        return;
+      }
+
+      this.logger.warn("cache", "Nightly update cache metadata is invalid and will be cleared.", error);
+    }
+
+    try {
+      await Promise.all([
+        rm(pendingDirectory, { recursive: true, force: true }),
+        rm(path.join(cacheRoot, "day.faby.bdih-launcher.nightly.ShipIt"), {
+          recursive: true,
+          force: true,
+        }),
+        rm(path.join(cacheRoot, "com.fabyday.bdih-launcher.nightly.ShipIt"), {
+          recursive: true,
+          force: true,
+        }),
+      ]);
+      this.logger.warn("cache", "Cleared an incompatible pre-Nightly-identity update cache.", {
+        cachedFileName,
+      });
+    } catch (error) {
+      this.logger.warn("cache", "Failed to clear an incompatible Nightly update cache.", error);
+    }
   }
 
   private emitStatus(payload: AppUpdateStatusPayload): void {

@@ -1,6 +1,11 @@
 import path from "path";
+import { readFileSync } from "fs";
 import HtmlWebpackPlugin from "html-webpack-plugin";
 import webpack, { Configuration } from "webpack";
+
+const bootstrapSplashImage = `data:image/jpeg;base64,${readFileSync(
+  path.resolve(__dirname, "../../resouces/app/splash/app-start/first-paint.jpg"),
+).toString("base64")}`;
 
 const commonConfig: Configuration = {
   mode: "development",
@@ -65,21 +70,25 @@ const commonConfig: Configuration = {
       filename: "MainView.html",
       template: "./src/Renderer/Template/index.html",
       chunks: ["MainView"],
+      templateParameters: { bootstrapSplashImage },
     }),
     new HtmlWebpackPlugin({
       filename: "SplashView.html",
       template: "./src/Renderer/Template/index.html",
       chunks: ["SplashView"],
+      templateParameters: { bootstrapSplashImage },
     }),
     new HtmlWebpackPlugin({
       filename: "PreferenceView.html",
       template: "./src/Renderer/Template/index.html",
       chunks: ["PreferenceView"],
+      templateParameters: { bootstrapSplashImage: "" },
     }),
     new HtmlWebpackPlugin({
       filename: "TerminalView.html",
       template: "./src/Renderer/Template/index.html",
       chunks: ["TerminalView"],
+      templateParameters: { bootstrapSplashImage: "" },
     }),
   ],
 };

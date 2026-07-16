@@ -9,8 +9,8 @@ const productName = isNightly
   ? "BDIH Launcher Nightly Update Test"
   : "BDIH Launcher Update Test";
 const appId = isNightly
-  ? "com.fabyday.bdih-launcher.nightly.update-test"
-  : "com.fabyday.bdih-launcher.update-test";
+  ? "day.faby.bdih-launcher.nightly.update-test"
+  : "day.faby.bdih-launcher.update-test";
 const output = process.env.BDIH_TEST_OUTPUT_DIR
   ? path.resolve(process.env.BDIH_TEST_OUTPUT_DIR)
   : path.resolve(__dirname, "tests", "Release", "builds", "stable", version);

@@ -105,7 +105,9 @@ async function createApp(): Promise<void> {
   const mainWindow = await windowManager.createMainWindow();
 
   if (preference.autoCheckUpdates) {
-    void updateManager.checkForUpdatesAndInstall(mainWindow);
+    // Startup checks only discover updates. Downloading and installation must
+    // remain behind the renderer's explicit user-confirmation flow.
+    void updateManager.checkForUpdates(mainWindow);
   }
 }
 

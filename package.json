@@ -55,7 +55,7 @@
   "author": "fabyday",
   "license": "MIT",
   "build": {
-    "appId": "com.fabyday.bdih-launcher",
+    "appId": "day.faby.bdih-launcher",
     "productName": "BDIH-Launcher",
     "directories": {
       "output": "release"

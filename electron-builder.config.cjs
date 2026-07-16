@@ -6,7 +6,7 @@ const releaseType = process.env.RELEASE_TYPE || "release";
 const releaseChannel = process.env.BDIH_RELEASE_CHANNEL || channel;
 const isNightly = releaseChannel === "nightly";
 const productName = isNightly ? "BDIH-Launcher Nightly" : "BDIH-Launcher";
-const appId = isNightly ? "com.fabyday.bdih-launcher.nightly" : "com.fabyday.bdih-launcher";
+const appId = isNightly ? "day.faby.bdih-launcher.nightly" : "day.faby.bdih-launcher";
 
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
