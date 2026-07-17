@@ -468,6 +468,9 @@
       "bottleEditCancel": "キャンセル",
       "bottleEditApply": "適用",
       "bottleEditHint": "ボトルをドラッグして、よく使う位置へ移動できます。",
+      "appEdit": "並べ替え",
+      "appEditing": "並べ替え中",
+      "appEditHint": "アプリをドラッグして、このボトル内での表示位置を変更できます。",
       "bottleSearchEmpty": "検索条件に一致するボトルはありません。",
       "bottleSize": {
         "title": "ボトルカードのサイズ",

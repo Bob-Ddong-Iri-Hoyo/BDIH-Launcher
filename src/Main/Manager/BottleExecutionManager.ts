@@ -3031,6 +3031,7 @@ export class BottleExecutionManager {
           appId,
           pid,
         });
+        this.reconcileSteamGameRegistration(session, started[1]);
         this.sendPrefixSessionUpdate(session, true);
       }
       return;
@@ -3050,6 +3051,48 @@ export class BottleExecutionManager {
     if (removed) {
       this.removeSteamTrackedGame(session, `steam:${removed[1]}`);
     }
+  }
+
+  private reconcileSteamGameRegistration(session: PrefixSession, steamAppId: string): void {
+    const bottlePath = infer_bottle_root_from_launcher_prefix_path(session.prefixPath, "steam");
+
+    void bottleManager.reconcileSteamGameLaunch({
+      bottleId: session.bottleId,
+      bottlePath,
+      steamAppId,
+    }).then((result) => {
+      if (!result.registered) {
+        this.logger.warn("Steam game process was not found in the bottle manifest scan", {
+          bottleId: session.bottleId,
+          bottlePath,
+          appId: result.appId,
+        });
+        return;
+      }
+
+      if (!result.changed) {
+        return;
+      }
+
+      this.logger.info("Steam game registration restored from process activity", {
+        bottleId: session.bottleId,
+        bottlePath,
+        appId: result.appId,
+      });
+
+      // The first session update can race the manifest rescan. Send a second
+      // update after persistence so the renderer reloads the restored icon.
+      if (!session.ended) {
+        this.sendPrefixSessionUpdate(session, true);
+      }
+    }).catch((error) => {
+      this.logger.warn("Failed to reconcile Steam game registration", {
+        bottleId: session.bottleId,
+        bottlePath,
+        steamAppId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   private removeSteamTrackedGame(session: PrefixSession, appId: string): void {

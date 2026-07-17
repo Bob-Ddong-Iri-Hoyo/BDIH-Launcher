@@ -131,6 +131,104 @@ describe("BottleManager", () => {
     );
   });
 
+  it("preserves a user-selected app order across save and prefix rescans", async () => {
+    await write_legacy_preference(environment);
+    const bottlePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "app-order", {
+      wineVersionId: "wine-fixture-10",
+    });
+    const steamAppId = "776";
+
+    await create_steam_fixture(bottlePath, steamAppId, "Ordered Fixture Quest");
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+    const initialResult = await manager.getBottleList(true);
+    const bottle = initialResult.bottles.find((candidate) => candidate.id === "fixture:app-order");
+
+    expect(bottle).toBeDefined();
+    const appsById = new Map(bottle?.apps.map((app) => [app.id, app]));
+    const reorderedApps = [`steam:${steamAppId}`, "steam"]
+      .map((appId) => appsById.get(appId))
+      .filter((app): app is NonNullable<typeof app> => Boolean(app));
+    const savedResult = await manager.saveBottleList({
+      bottles: [{
+        ...bottle!,
+        apps: reorderedApps,
+      }],
+    });
+
+    expect(savedResult.bottles
+      .find((candidate) => candidate.id === "fixture:app-order")
+      ?.apps.map((app) => app.id)).toEqual([`steam:${steamAppId}`, "steam"]);
+
+    const reloadedManager = new BottleManager();
+    const reloadedResult = await reloadedManager.getBottleList(true);
+
+    expect(reloadedResult.bottles
+      .find((candidate) => candidate.id === "fixture:app-order")
+      ?.apps.map((app) => app.id)).toEqual([`steam:${steamAppId}`, "steam"]);
+  });
+
+  it("restores a list-hidden Steam game when Steam launches it again", async () => {
+    await write_legacy_preference(environment);
+    const bottlePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "steam-game-restore", {
+      wineVersionId: "wine-fixture-10",
+    });
+    const steamAppId = "781";
+    const appId = `steam:${steamAppId}`;
+
+    await create_steam_fixture(bottlePath, steamAppId, "Restored Fixture Quest");
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+
+    await manager.getBottleList(true);
+    await manager.deleteBottleApp({
+      bottleId: "fixture:steam-game-restore",
+      bottlePath,
+      appId,
+      mode: "list",
+    });
+
+    const hiddenResult = await manager.getBottleList(true);
+    const hiddenBottle = hiddenResult.bottles.find((candidate) => candidate.id === "fixture:steam-game-restore");
+
+    expect(hiddenBottle?.hiddenAppIds).toContain(appId);
+    expect(hiddenBottle?.apps.map((app) => app.id)).not.toContain(appId);
+
+    await expect(manager.reconcileSteamGameLaunch({
+      bottleId: "fixture:steam-game-restore",
+      bottlePath,
+      steamAppId,
+    })).resolves.toEqual({
+      appId,
+      registered: true,
+      changed: true,
+    });
+
+    const restoredResult = await manager.getBottleList(true);
+    const restoredBottle = restoredResult.bottles.find((candidate) => candidate.id === "fixture:steam-game-restore");
+
+    expect(restoredBottle?.hiddenAppIds).not.toContain(appId);
+    expect(restoredBottle?.apps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: appId,
+        name: "Restored Fixture Quest",
+        steamAppId,
+        executableArgs: ["-applaunch", steamAppId],
+      }),
+    ]));
+    await expect(manager.reconcileSteamGameLaunch({
+      bottleId: "fixture:steam-game-restore",
+      bottlePath,
+      steamAppId,
+    })).resolves.toEqual({
+      appId,
+      registered: true,
+      changed: false,
+    });
+  });
+
   it("discovers Steam games from a shared G: library", async () => {
     const sharedGamesRoot = path.join(environment.root, "shared-games");
     await write_legacy_preference(environment, {

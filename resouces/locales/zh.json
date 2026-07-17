@@ -468,6 +468,9 @@
       "bottleEditCancel": "取消",
       "bottleEditApply": "应用",
       "bottleEditHint": "拖动 Bottle，将常用项目放到所需位置。",
+      "appEdit": "调整顺序",
+      "appEditing": "正在调整顺序",
+      "appEditHint": "拖动应用可更改其在此 Bottle 中的显示位置。",
       "bottleSearchEmpty": "没有符合搜索条件的 Bottle。",
       "bottleSize": {
         "title": "Bottle 卡片大小",

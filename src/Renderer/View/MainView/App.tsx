@@ -1984,6 +1984,43 @@ const App: React.FC = () => {
     });
   };
 
+  const handle_reorder_bottle_apps = async (bottleId: string, orderedAppIds: string[]) => {
+    const updatedAt = new Date().toISOString();
+    const reorder = (currentBottles: Bottle[]) => currentBottles.map((bottle) => {
+      if (bottle.id !== bottleId) {
+        return bottle;
+      }
+
+      const appsById = new Map(bottle.apps.map((app) => [app.id, app]));
+      const orderedIdSet = new Set(orderedAppIds);
+      const orderedApps = orderedAppIds
+        .map((appId) => appsById.get(appId))
+        .filter((app): app is Bottle["apps"][number] => Boolean(app));
+
+      return {
+        ...bottle,
+        apps: [
+          ...orderedApps,
+          ...bottle.apps.filter((app) => !orderedIdSet.has(app.id)),
+        ],
+        updatedAt,
+      };
+    });
+    const nextBottles = reorder(bottlesRef.current);
+
+    bottlesRef.current = nextBottles;
+    setBottles(nextBottles);
+    await persist_bottles(nextBottles);
+
+    // Preserve process/session updates that may arrive while the save request
+    // is in flight, but apply the selected app order to the latest state.
+    setBottles((currentBottles) => {
+      const reorderedBottles = reorder(currentBottles);
+      bottlesRef.current = reorderedBottles;
+      return reorderedBottles;
+    });
+  };
+
   const handle_download_bottle_launcher_installer = async (bottleId: string, launcher: BottleLauncherKind) => {
     const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
 
@@ -2804,6 +2841,7 @@ const App: React.FC = () => {
       onStopBottleApp={(bottleId, appId) => void handle_stop_bottle_app(bottleId, appId)}
       onDeleteBottleApp={handle_delete_bottle_app}
       onDeleteBottleAppFiles={(bottleId, appId) => void handle_delete_bottle_app_files(bottleId, appId)}
+      onReorderBottleApps={handle_reorder_bottle_apps}
       onRegisterBottleExecutable={handle_register_bottle_executable}
       onUpdateBottlePrefixes={handle_update_bottle_prefixes}
       onDeleteBottlePrefix={handle_delete_bottle_prefix}

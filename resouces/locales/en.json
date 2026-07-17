@@ -468,6 +468,9 @@
       "bottleEditCancel": "Cancel",
       "bottleEditApply": "Apply",
       "bottleEditHint": "Drag bottles to place frequently used ones where you want them.",
+      "appEdit": "Reorder",
+      "appEditing": "Reordering",
+      "appEditHint": "Drag apps to change where they appear inside this bottle.",
       "bottleSearchEmpty": "No bottles match this search.",
       "bottleSize": {
         "title": "Bottle card size",

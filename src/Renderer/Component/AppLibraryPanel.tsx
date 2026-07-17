@@ -1,5 +1,22 @@
 import React from "react";
-import { FileText, Play, Plus, Settings, Square, Trash2 } from "lucide-react";
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Check, FileText, GripVertical, Play, Plus, Settings, Square, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { IPC_CHANNELS } from "../../Common/Types/IPC";
 import type { BottleLaunchOptionsPayload, BottlePrefixMetadataPayload, LauncherLogEntryPayload, LauncherLogSnapshotPayload } from "../../Common/Types/IPC";
@@ -11,8 +28,89 @@ import { Dialog } from "./Dialog";
 import { DirectExecutableActionForm } from "./DirectExecutableActionForm";
 import { ImageButton } from "./ImageButton";
 import { LaunchOptionsDialog } from "./LaunchOptionsDialog";
-import { Box, Button, CodeBlock, Inline, Stack, Text } from "./Primitives";
+import { Box, Button, CodeBlock, IconSlot, Inline, Stack, Text } from "./Primitives";
 import { StatusBadge } from "./StatusBadge";
+
+function SortableBottleApp({
+  app,
+  appLogoSrc,
+  selectedWineVersionId,
+  isEditing,
+  isApplyingOrder,
+  editingActionLabel,
+  onLaunch,
+  onContextMenu,
+}: {
+  app: Bottle["apps"][number];
+  appLogoSrc: string;
+  selectedWineVersionId: string;
+  isEditing: boolean;
+  isApplyingOrder: boolean;
+  editingActionLabel: string;
+  onLaunch: () => void;
+  onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
+  const { t } = useTranslation();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: app.id,
+    disabled: !isEditing || isApplyingOrder,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 20 : undefined,
+      }}
+      className={`relative h-full w-full ${isDragging ? "opacity-55" : ""}`}
+    >
+      <ImageButton
+        preset="desktop"
+        src={app.iconSrc || appLogoSrc}
+        name={app.name}
+        subtitle={app.launchError ? `${t("main.appContext.launchFailed")}: ${app.launchError}` : `${app.subtitle} · ${app.lastPlayedKey ? t(app.lastPlayedKey) : app.lastPlayed}`}
+        isActive={app.wineVersionId === selectedWineVersionId}
+        isRunning={Boolean(app.processId)}
+        isLaunching={isEditing ? false : Boolean(app.isLaunching)}
+        hasError={Boolean(app.launchError)}
+        actionLabel={isEditing
+          ? editingActionLabel
+          : app.status === "needs-prefix"
+            ? t("common.actions.createPrefix")
+            : app.isLaunching
+              ? t("main.appContext.launching")
+              : t("common.actions.run")}
+        className={isEditing
+          ? "accent-selection cursor-grab active:cursor-grabbing"
+          : ""}
+        dragHandleProps={isEditing ? { ...attributes, ...listeners } : undefined}
+        onClick={isEditing ? undefined : onLaunch}
+        onContextMenu={(event) => {
+          if (isEditing) {
+            event.preventDefault();
+            return;
+          }
+
+          onContextMenu(event);
+        }}
+      />
+      {isEditing ? (
+        <IconSlot className="pointer-events-none absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/70 text-slate-200 shadow-lg">
+          <GripVertical size={14} />
+        </IconSlot>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Bottle-scoped application grid.
@@ -30,6 +128,7 @@ export function AppLibraryPanel({
   onStopBottleApp,
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
+  onReorderBottleApps,
   onRegisterBottleExecutable,
   onUpdateBottlePrefixes,
   onDeleteBottlePrefix,
@@ -43,6 +142,7 @@ export function AppLibraryPanel({
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
+  onReorderBottleApps?: (bottleId: string, orderedAppIds: string[]) => Promise<void> | void;
   onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
@@ -56,6 +156,10 @@ export function AppLibraryPanel({
   const [selectedLogAppId, setSelectedLogAppId] = React.useState<string | null>(null);
   const [selectedLaunchOptionsAppId, setSelectedLaunchOptionsAppId] = React.useState<string | null>(null);
   const [isManualAddOpen, setIsManualAddOpen] = React.useState(false);
+  const [isEditingOrder, setIsEditingOrder] = React.useState(false);
+  const [isApplyingOrder, setIsApplyingOrder] = React.useState(false);
+  const [draftAppOrder, setDraftAppOrder] = React.useState<string[]>(() => bottle.apps.map((app) => app.id));
+  const draftAppOrderRef = React.useRef(draftAppOrder);
   const [confirmAction, setConfirmAction] = React.useState<{
     type: "stop" | "remove" | "delete";
     appId: string;
@@ -63,6 +167,16 @@ export function AppLibraryPanel({
   const [appLogText, setAppLogText] = React.useState("");
   const [isAppLogLoading, setIsAppLogLoading] = React.useState(false);
   const appLogPanelRef = React.useRef<HTMLPreElement>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
   const manualAddRunner = useDirectExecutableRunner({
     bottle,
     launcherOptionsManifest,
@@ -74,6 +188,43 @@ export function AppLibraryPanel({
   const selectedLogApp = bottle.apps.find((app) => app.id === selectedLogAppId);
   const selectedLaunchOptionsApp = bottle.apps.find((app) => app.id === selectedLaunchOptionsAppId);
   const confirmApp = bottle.apps.find((app) => app.id === confirmAction?.appId);
+  const orderedApps = React.useMemo(() => {
+    if (!isEditingOrder) {
+      return bottle.apps;
+    }
+
+    const appsById = new Map(bottle.apps.map((app) => [app.id, app]));
+    return draftAppOrder
+      .map((appId) => appsById.get(appId))
+      .filter((app): app is Bottle["apps"][number] => Boolean(app));
+  }, [bottle.apps, draftAppOrder, isEditingOrder]);
+
+  React.useEffect(() => {
+    const nextOrder = bottle.apps.map((app) => app.id);
+    draftAppOrderRef.current = nextOrder;
+    setDraftAppOrder(nextOrder);
+    setIsEditingOrder(false);
+    setIsApplyingOrder(false);
+  }, [bottle.id]);
+
+  React.useEffect(() => {
+    const appIds = bottle.apps.map((app) => app.id);
+    const appIdSet = new Set(appIds);
+    const nextOrder = [
+      ...draftAppOrderRef.current.filter((appId) => appIdSet.has(appId)),
+      ...appIds.filter((appId) => !draftAppOrderRef.current.includes(appId)),
+    ];
+
+    if (
+      nextOrder.length === draftAppOrderRef.current.length &&
+      nextOrder.every((appId, index) => appId === draftAppOrderRef.current[index])
+    ) {
+      return;
+    }
+
+    draftAppOrderRef.current = nextOrder;
+    setDraftAppOrder(nextOrder);
+  }, [bottle.apps]);
 
   React.useEffect(() => {
     if (selectedLaunchOptionsAppId && !selectedLaunchOptionsApp) {
@@ -266,6 +417,56 @@ export function AppLibraryPanel({
     });
   }
 
+  function begin_app_order_edit() {
+    const nextOrder = bottle.apps.map((app) => app.id);
+    draftAppOrderRef.current = nextOrder;
+    setDraftAppOrder(nextOrder);
+    setContextMenuState(null);
+    setIsEditingOrder(true);
+  }
+
+  function cancel_app_order_edit() {
+    const originalOrder = bottle.apps.map((app) => app.id);
+    draftAppOrderRef.current = originalOrder;
+    setDraftAppOrder(originalOrder);
+    setIsEditingOrder(false);
+  }
+
+  async function apply_app_order() {
+    if (isApplyingOrder) {
+      return;
+    }
+
+    setIsApplyingOrder(true);
+
+    try {
+      await onReorderBottleApps?.(bottle.id, draftAppOrderRef.current);
+      setIsEditingOrder(false);
+    } catch (error) {
+      console.error("Failed to persist bottle app order:", error);
+    } finally {
+      setIsApplyingOrder(false);
+    }
+  }
+
+  function finish_app_drag({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const currentOrder = draftAppOrderRef.current;
+    const sourceIndex = currentOrder.indexOf(String(active.id));
+    const targetIndex = currentOrder.indexOf(String(over.id));
+
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return;
+    }
+
+    const nextOrder = arrayMove(currentOrder, sourceIndex, targetIndex);
+    draftAppOrderRef.current = nextOrder;
+    setDraftAppOrder(nextOrder);
+  }
+
   return (
     <>
       <Box as="section" className="min-h-[18rem] rounded-xl border border-white/10 bg-white/[0.035] p-4">
@@ -278,45 +479,98 @@ export function AppLibraryPanel({
               {t("main.bottleApps", { count: bottle.apps.length })}
             </Text>
           </Stack>
-          <Button
-            type="button"
-            variant="glass"
-            size="sm"
-            icon={<Plus size={14} />}
-            onClick={() => setIsManualAddOpen(true)}
-          >
-            {t("main.runner.addManualApp")}
-          </Button>
+          <Inline className="flex-wrap items-center justify-end gap-2">
+            {isEditingOrder ? (
+              <Stack className="w-36 gap-1">
+                <Button
+                  type="button"
+                  aria-pressed="true"
+                  disabled
+                  className="accent-selection inline-flex h-8 w-full cursor-default items-center justify-center gap-2 rounded-lg border px-3 text-xs font-semibold text-white disabled:opacity-100"
+                >
+                  <GripVertical size={14} />
+                  {t("main.appEditing")}
+                </Button>
+                <Inline className="gap-1">
+                  <Button
+                    type="button"
+                    onClick={cancel_app_order_edit}
+                    disabled={isApplyingOrder}
+                    className="inline-flex h-7 flex-1 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-2 text-[11px] font-semibold text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                  >
+                    {t("main.bottleEditCancel")}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void apply_app_order()}
+                    disabled={isApplyingOrder}
+                    className="accent-primary inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-md px-2 text-[11px] font-semibold disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <Check size={12} />
+                    {t("main.bottleEditApply")}
+                  </Button>
+                </Inline>
+              </Stack>
+            ) : (
+              <Button
+                type="button"
+                variant="glass"
+                size="sm"
+                icon={<GripVertical size={14} />}
+                disabled={bottle.apps.length < 2}
+                onClick={begin_app_order_edit}
+              >
+                {t("main.appEdit")}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="glass"
+              size="sm"
+              icon={<Plus size={14} />}
+              disabled={isEditingOrder}
+              onClick={() => setIsManualAddOpen(true)}
+            >
+              {t("main.runner.addManualApp")}
+            </Button>
+          </Inline>
         </Inline>
+        {isEditingOrder ? (
+          <Text className="mb-4 rounded-lg border border-[rgb(var(--accent-rgb)/0.25)] bg-[rgb(var(--accent-rgb)/0.08)] px-3 py-2 text-xs text-[rgb(var(--accent-soft-text-rgb))]">
+            {t("main.appEditHint")}
+          </Text>
+        ) : null}
         {bottle.apps.length === 0 ? (
           <Box className="flex min-h-44 items-center justify-center rounded-xl border border-dashed border-white/10 bg-[#0b1020] px-6 text-center text-sm leading-6 text-slate-500">
             {t("main.bottleAppsEmpty")}
           </Box>
         ) : (
-          <Box className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] justify-items-center gap-x-5 gap-y-6">
-            {bottle.apps.map((app) => (
-              <ImageButton
-                key={app.id}
-                preset="desktop"
-                src={app.iconSrc || appLogoSrc}
-                name={app.name}
-                subtitle={app.launchError ? `${t("main.appContext.launchFailed")}: ${app.launchError}` : `${app.subtitle} · ${app.lastPlayedKey ? t(app.lastPlayedKey) : app.lastPlayed}`}
-                isActive={app.wineVersionId === selectedWineVersionId}
-                isRunning={Boolean(app.processId)}
-                isLaunching={Boolean(app.isLaunching)}
-                hasError={Boolean(app.launchError)}
-                actionLabel={
-                  app.status === "needs-prefix"
-                    ? t("common.actions.createPrefix")
-                    : app.isLaunching
-                      ? t("main.appContext.launching")
-                      : t("common.actions.run")
-                }
-                onClick={() => onLaunchBottleApp?.(bottle.id, app.id)}
-                onContextMenu={(event) => open_app_context_menu(event, app.id)}
-              />
-            ))}
-          </Box>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={finish_app_drag}
+          >
+            <SortableContext
+              items={orderedApps.map((app) => app.id)}
+              strategy={rectSortingStrategy}
+            >
+              <Box className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] justify-items-center gap-x-5 gap-y-6">
+                {orderedApps.map((app) => (
+                  <SortableBottleApp
+                    key={app.id}
+                    app={app}
+                    appLogoSrc={appLogoSrc}
+                    selectedWineVersionId={selectedWineVersionId}
+                    isEditing={isEditingOrder}
+                    isApplyingOrder={isApplyingOrder}
+                    editingActionLabel={t("main.appEditing")}
+                    onLaunch={() => onLaunchBottleApp?.(bottle.id, app.id)}
+                    onContextMenu={(event) => open_app_context_menu(event, app.id)}
+                  />
+                ))}
+              </Box>
+            </SortableContext>
+          </DndContext>
         )}
         <ContextMenu
           open={Boolean(contextMenuState && contextApp)}

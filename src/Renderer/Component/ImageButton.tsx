@@ -47,6 +47,7 @@ export interface ImageButtonProps {
   isLaunching?: boolean;
   hasError?: boolean;
   className?: string;
+  dragHandleProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
   onClick?: () => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
@@ -75,6 +76,7 @@ export function ImageButton({
   isLaunching = false,
   hasError = false,
   className = "",
+  dragHandleProps,
   onClick,
   onMouseEnter,
   onMouseLeave,
@@ -97,6 +99,7 @@ export function ImageButton({
 
   return (
     <Button
+      {...dragHandleProps}
       variant="ghost"
       size="md"
       disabled={isLaunching}

@@ -1112,6 +1112,7 @@ export function BottleDetailPanel({
   onStopBottleApp,
   onDeleteBottleApp,
   onDeleteBottleAppFiles,
+  onReorderBottleApps,
   onRegisterBottleExecutable,
   onUpdateBottlePrefixes,
   onDeleteBottlePrefix,
@@ -1138,6 +1139,7 @@ export function BottleDetailPanel({
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleAppFiles?: (bottleId: string, appId: string) => void;
+  onReorderBottleApps?: (bottleId: string, orderedAppIds: string[]) => Promise<void> | void;
   onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
@@ -1231,6 +1233,7 @@ export function BottleDetailPanel({
         onStopBottleApp={onStopBottleApp}
         onDeleteBottleApp={onDeleteBottleApp}
         onDeleteBottleAppFiles={onDeleteBottleAppFiles}
+        onReorderBottleApps={onReorderBottleApps}
         onRegisterBottleExecutable={onRegisterBottleExecutable}
         onUpdateBottlePrefixes={onUpdateBottlePrefixes}
         onDeleteBottlePrefix={onDeleteBottlePrefix}

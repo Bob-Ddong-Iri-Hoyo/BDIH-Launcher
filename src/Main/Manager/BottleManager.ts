@@ -91,6 +91,12 @@ interface SteamInstallDetection {
   prefixPath: string;
 }
 
+export interface SteamGameLaunchReconciliationResult {
+  appId: string;
+  registered: boolean;
+  changed: boolean;
+}
+
 /**
  * Maintains bottle metadata across three sources:
  *
@@ -242,6 +248,86 @@ export class BottleManager {
     this.cache = this.cache ? upsertBottle(this.cache) : bottles;
     await this.writeRegistryBottles(bottles, deletedBottleKeys);
     await write_prefix_metadata(updatedBottle);
+  }
+
+  async reconcileSteamGameLaunch(payload: {
+    bottleId: string;
+    bottlePath: string;
+    steamAppId: string;
+  }): Promise<SteamGameLaunchReconciliationResult> {
+    const steamAppId = payload.steamAppId.trim();
+    const appId = canonical_bottle_app_id(`steam:${steamAppId}`);
+
+    if (!/^\d+$/.test(steamAppId)) {
+      return {
+        appId,
+        registered: false,
+        changed: false,
+      };
+    }
+
+    const bottlePath = path.resolve(expand_user_home_path(payload.bottlePath));
+    let registry = await this.loadRegistryState();
+    let bottle = find_bottle_by_identity(registry.bottles, payload.bottleId, bottlePath);
+
+    // A process session can start before the first renderer-side bottle load.
+    // Populate the registry from prefix metadata/scanning before deciding that
+    // the Steam game has no owning bottle.
+    if (!bottle) {
+      await this.getBottleList(true);
+      registry = await this.loadRegistryState();
+      bottle = find_bottle_by_identity(registry.bottles, payload.bottleId, bottlePath);
+    }
+
+    if (!bottle) {
+      return {
+        appId,
+        registered: false,
+        changed: false,
+      };
+    }
+
+    const targetBottleId = bottle.id;
+    const wasRegistered = bottle.apps.some((app) => app.id === appId);
+    const wasHidden = bottle.hiddenAppIds?.includes(appId) ?? false;
+
+    if (wasRegistered && !wasHidden) {
+      return {
+        appId,
+        registered: true,
+        changed: false,
+      };
+    }
+
+    // Starting a game from Steam is an authoritative discovery signal. A
+    // list-only deletion must therefore stop suppressing that AppID, after
+    // which the normal manifest scanner can rebuild its name, args and icon.
+    const unhiddenBottles = registry.bottles.map((candidateBottle) => {
+      if (!bottle_matches_identity(candidateBottle, targetBottleId, bottlePath)) {
+        return candidateBottle;
+      }
+
+      return {
+        ...candidateBottle,
+        hiddenAppIds: candidateBottle.hiddenAppIds?.filter((hiddenAppId) => hiddenAppId !== appId),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    const bottles = await this.buildBottleList([], {
+      ...registry,
+      bottles: unhiddenBottles,
+    });
+    const reconciledBottle = find_bottle_by_identity(bottles, targetBottleId, bottlePath);
+    const registered = reconciledBottle?.apps.some((app) => app.id === appId) ?? false;
+
+    this.cache = bottles;
+    await this.writeRegistryBottles(bottles, registry.deletedBottleKeys);
+
+    return {
+      appId,
+      registered,
+      changed: wasHidden || (!wasRegistered && registered),
+    };
   }
 
   async updateBottleLauncherTask(payload: {
@@ -956,6 +1042,23 @@ function bottle_has_any_identity_key(
   return bottle_identity_keys(bottle).some((key) => keys.has(key));
 }
 
+function find_bottle_by_identity(
+  bottles: BottleMetadataPayload[],
+  bottleId: string,
+  bottlePath: string,
+): BottleMetadataPayload | undefined {
+  return bottles.find((bottle) => bottle_matches_identity(bottle, bottleId, bottlePath));
+}
+
+function bottle_matches_identity(
+  bottle: BottleMetadataPayload,
+  bottleId: string,
+  bottlePath: string,
+): boolean {
+  return bottle.id === bottleId ||
+    path.resolve(expand_user_home_path(bottle.path)) === path.resolve(expand_user_home_path(bottlePath));
+}
+
 function bottle_identity_keys(bottle: BottleMetadataPayload): string[] {
   return [
     bottle.id ? `id:${bottle.id}` : "",
@@ -1073,7 +1176,14 @@ function merge_bottles(
 
   const mergedBottles = registryBottles.map((bottle) => {
     const previous = scannedByIdentity.get(bottle.id) ?? scannedByIdentity.get(bottle_path_key(bottle.path));
-    const next = previous ? { ...previous, ...bottle, apps: merge_apps(previous.apps, bottle.apps) } : bottle;
+    const next = previous ? {
+      ...previous,
+      ...bottle,
+      apps: reorder_apps_by_preferred_ids(
+        merge_apps(previous.apps, bottle.apps),
+        bottle.apps.map((app) => app.id),
+      ),
+    } : bottle;
 
     if (previous) {
       usedScannedBottleKeys.add(previous.id);
@@ -2252,6 +2362,21 @@ function merge_apps(
   }
 
   return [...apps.values()];
+}
+
+function reorder_apps_by_preferred_ids(
+  apps: InstalledBottleAppPayload[],
+  preferredAppIds: string[],
+): InstalledBottleAppPayload[] {
+  const appsById = new Map(apps.map((app) => [app.id, app]));
+  const preferredIdSet = new Set(preferredAppIds);
+
+  return [
+    ...preferredAppIds
+      .map((appId) => appsById.get(appId))
+      .filter((app): app is InstalledBottleAppPayload => Boolean(app)),
+    ...apps.filter((app) => !preferredIdSet.has(app.id)),
+  ];
 }
 
 async function write_prefix_metadata(bottle: BottleMetadataPayload): Promise<void> {
