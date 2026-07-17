@@ -10,7 +10,10 @@ import { HOYOPLAY_EXECUTION_PROVIDER } from "../Data/Hoyoverse/hoyoplay";
 import { STARRAIL_EXECUTION_PROVIDER } from "../Data/Hoyoverse/starrail";
 import { ZZZ_EXECUTION_PROVIDER } from "../Data/Hoyoverse/zenless-zone-zero";
 import { STEAM_EXECUTION_PROVIDER } from "../Data/Steam";
-import type { ExecutionStrategyDefinition } from "./ExecutionStrategy";
+import type {
+  ExecutionStrategyDefinition,
+  LauncherInstallStrategyDefinition,
+} from "./ExecutionStrategy";
 
 export interface CurrentRunExecutionClassification {
   hoyoGame?: HoyoGameKind;
@@ -24,7 +27,7 @@ export interface CurrentRunExecutionClassification {
  */
 export function resolve_launcher_install_strategy(
   request: InstallBottleLauncherPayload,
-): ExecutionStrategyDefinition<InstallBottleLauncherPayload> {
+): LauncherInstallStrategyDefinition {
   return request.launcher === "steam"
     ? STEAM_EXECUTION_PROVIDER.strategies.install
     : HOYOPLAY_EXECUTION_PROVIDER.strategies.install;

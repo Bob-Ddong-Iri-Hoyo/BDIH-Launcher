@@ -6,6 +6,8 @@ export type ExecutionWineTool = "wine64" | "wineboot" | "wineserver";
 
 export type ExecutionRuntimeDependency = "dxmt" | "jadeite";
 
+export type ExecutionSupervisor = "steam-session" | "hoyoplay-overseer";
+
 interface ExecutionRequirementBase {
   id: string;
   label: string;
@@ -38,6 +40,10 @@ export type ExecutionRequirement =
   | (ExecutionRequirementBase & {
       kind: "runtime-dependency";
       dependency: ExecutionRuntimeDependency;
+    })
+  | (ExecutionRequirementBase & {
+      kind: "supervisor";
+      supervisor: ExecutionSupervisor;
     });
 
 export type ExecutionAvailabilityIssueCode =
@@ -48,6 +54,7 @@ export type ExecutionAvailabilityIssueCode =
   | "wine-launch-option-missing"
   | "wine-family-unsupported"
   | "runtime-dependency-missing"
+  | "supervisor-missing"
   | "strategy-unavailable";
 
 export interface ExecutionAvailabilityIssue {

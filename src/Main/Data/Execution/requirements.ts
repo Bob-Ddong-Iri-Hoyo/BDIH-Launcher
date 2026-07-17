@@ -1,5 +1,6 @@
 import type {
   ExecutionRequirement,
+  ExecutionSupervisor,
   ExecutionWineTool,
 } from "../../../Common/Types/Execution";
 
@@ -53,5 +54,17 @@ export function jadeite_strategy_requirement(): ExecutionRequirement {
     dependency: "jadeite",
     label: "Jadeite runtime",
     remediation: "Install Jadeite before launching Honkai: Star Rail.",
+  };
+}
+
+export function supervisor_strategy_requirement(
+  supervisor: ExecutionSupervisor,
+): ExecutionRequirement {
+  return {
+    id: `supervisor.${supervisor}`,
+    kind: "supervisor",
+    supervisor,
+    label: `${supervisor} execution supervisor`,
+    remediation: "Reinstall or update the launcher so this execution supervisor is available.",
   };
 }

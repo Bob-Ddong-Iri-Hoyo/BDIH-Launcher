@@ -2,6 +2,7 @@ import type { BottleExecutionAvailabilityPayload } from "../../Common/Types/IPC"
 import type {
   ExecutionRequirement,
   ExecutionRuntimeDependency,
+  ExecutionSupervisor,
   ExecutionWineTool,
 } from "../../Common/Types/Execution";
 import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
@@ -36,6 +37,10 @@ export interface ExecutionCapabilityInspector<Request> {
   inspectDependency(
     request: Request,
     dependency: ExecutionRuntimeDependency,
+  ): Promise<ExecutionCapabilityState> | ExecutionCapabilityState;
+  inspectSupervisor(
+    request: Request,
+    supervisor: ExecutionSupervisor,
   ): Promise<ExecutionCapabilityState> | ExecutionCapabilityState;
 }
 
@@ -122,6 +127,13 @@ async function create_capability_probe<Request extends BottleExecutionAvailabili
       )
       .map((requirement) => requirement.dependency),
   );
+  const requiredSupervisors = unique_values(
+    requirements
+      .filter((requirement): requirement is Extract<ExecutionRequirement, { kind: "supervisor" }> =>
+        requirement.kind === "supervisor",
+      )
+      .map((requirement) => requirement.supervisor),
+  );
   const runtime = await safely_inspect_capability(() =>
     inspector.inspectWineRuntime(request),
   );
@@ -136,6 +148,14 @@ async function create_capability_probe<Request extends BottleExecutionAvailabili
       dependency,
       await safely_inspect_capability(() =>
         inspector.inspectDependency(request, dependency),
+      ),
+    ] as const),
+  );
+  const supervisorEntries = await Promise.all(
+    requiredSupervisors.map(async (supervisor) => [
+      supervisor,
+      await safely_inspect_capability(() =>
+        inspector.inspectSupervisor(request, supervisor),
       ),
     ] as const),
   );
@@ -156,6 +176,7 @@ async function create_capability_probe<Request extends BottleExecutionAvailabili
       manifest,
     },
     dependencies: Object.fromEntries(dependencyEntries),
+    supervisors: Object.fromEntries(supervisorEntries),
   };
 }
 

@@ -7,6 +7,11 @@ import type {
   ExecutionAvailabilityCheckContext,
   ExecutionStrategyAvailabilityPolicy,
 } from "./ExecutionAvailability";
+import type { InstallBottleLauncherPayload } from "../../Common/Types/IPC";
+import type {
+  LauncherInstallExecutionPlan,
+  LauncherInstallPlanContext,
+} from "./LauncherInstallPlan";
 
 /**
  * Base definition inherited by application-owned Strategies.
@@ -34,4 +39,12 @@ export interface ExecutionProviderDefinition<
 > {
   profile: Profile;
   strategies: Strategies;
+}
+
+export abstract class LauncherInstallStrategyDefinition
+extends ExecutionStrategyDefinition<InstallBottleLauncherPayload> {
+  abstract describe(
+    context: LauncherInstallPlanContext,
+    request: InstallBottleLauncherPayload,
+  ): LauncherInstallExecutionPlan;
 }

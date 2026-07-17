@@ -151,6 +151,43 @@ describe("Execution Strategy availability", () => {
     ]);
   });
 
+  it("reports a missing execution supervisor", async () => {
+    const policy: ExecutionStrategyAvailabilityPolicy<{ bottleId: string }> = {
+      ...BASE_POLICY,
+      strategyId: "hoyoplay.install",
+      operation: "install",
+      requirements: [
+        ...BASE_REQUIREMENTS,
+        {
+          id: "supervisor.hoyoplay-overseer",
+          kind: "supervisor",
+          supervisor: "hoyoplay-overseer",
+          label: "HoYoPlay overseer",
+        },
+      ],
+    };
+    const probe = create_probe();
+
+    probe.supervisors["hoyoplay-overseer"] = {
+      available: false,
+      error: "HoYoPlay overseer is not registered.",
+    };
+
+    const result = await assess_execution_strategy_availability(
+      policy,
+      { bottleId: "bottle-1" },
+      probe,
+    );
+
+    expect(result.available).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: "supervisor-missing",
+        message: "HoYoPlay overseer is not registered.",
+      }),
+    ]);
+  });
+
   it("allows a Strategy to append a custom availability issue", async () => {
     const customIssue: ExecutionAvailabilityIssue = {
       code: "strategy-unavailable",
@@ -251,6 +288,7 @@ describe("Execution Strategy availability", () => {
         }),
         readWineManifest: () => undefined,
         inspectDependency: () => ({ available: true }),
+        inspectSupervisor: () => ({ available: true }),
       },
       emit: (event) => events.push(event),
     });
@@ -289,6 +327,7 @@ function create_probe(options?: {
       manifest: options?.manifest,
     },
     dependencies: {},
+    supervisors: {},
   };
 }
 

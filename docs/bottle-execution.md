@@ -8,11 +8,12 @@ The target architecture in this document is a design direction. Unless a
 section explicitly says otherwise, the interfaces shown below are not yet
 implemented.
 
-An initial compatibility layer is implemented for Strategy availability
-checks. It evaluates declarative Wine and dependency requirements before the
-existing `BottleExecutionManager` execution body runs, and emits typed
-availability events. Actual process execution still uses the existing manager
-until the later migration phases are completed.
+An initial compatibility layer is implemented for Strategy availability and
+launcher installation plans. It evaluates declarative Wine, dependency, and
+supervisor requirements before execution and emits typed availability events.
+Steam and HoYoPlay installation Strategies now build side-effect-free plans
+through a capability-scoped Context. `BottleExecutionManager` executes those
+plans while the remaining launch routes continue their staged migration.
 
 Application-owned definitions live below `src/Main/Data`, next to their
 Profiles. `Main/Execution` contains only shared contracts, evaluation, event
@@ -94,9 +95,9 @@ Runtime Profiles moved useful static data out of the execution manager:
 This is the correct responsibility for a Profile. Profiles describe what an
 application and its runtime look like. They should remain data-oriented.
 
-Profiles do not currently own the lifecycle behavior around an executable. The
-manager still decides when an installer is complete, how a process becomes a
-launcher session, what ends a session, and when metadata should be refreshed.
+Profiles do not own lifecycle behavior around an executable. Provider
+Strategies own the declarative lifecycle policy; the manager executes it and
+still owns process, filesystem, IPC, and metadata side effects.
 
 ### Current launcher installation flow
 
@@ -112,17 +113,33 @@ The dedicated launcher installation path currently performs all of the
 following in `BottleExecutionManager`:
 
 1. Resolve or download the launcher installer.
-2. Prepare the launcher-specific Wine prefix.
-3. Start the installer executable.
-4. Create a prefix session.
-5. Poll the prefix for the expected launcher executable.
-6. Keep polling through a short grace period when the installer exits cleanly;
+2. Resolve DXMT and, for Steam, prepare a Bottle-local Wine runtime clone before
+   the first `wineboot`.
+3. Prepare the launcher-specific Wine prefix, including matching x64
+   `system32` and x86 `syswow64` DXMT files.
+4. Start the Steam installer with the same Bottle-local Wine runtime so Steam
+   surviving the installer inherits DXMT immediately. HoYoPlay instead uses its
+   base launcher runtime and must enter the supervised HoYoPlay route before a
+   game is launched in its game-specific prefix.
+5. Create a prefix session.
+6. Poll the prefix for the expected launcher executable.
+7. Keep polling through a short grace period when the installer exits cleanly;
    stop immediately on failure, or when the grace period or global timeout
    expires.
-7. Update launcher task state and optionally force a Bottle metadata refresh.
+8. Update launcher task state and optionally force a Bottle metadata refresh.
 
-The flow assumes that the parent installer process is a useful lifecycle
-boundary. That assumption is not valid for every launcher.
+The active `LauncherInstallExecutionPlan` is built by application-owned
+Strategies through `LauncherInstallPlanContext`. Context commands construct
+opaque descriptors and perform no filesystem or process work. The plan covers
+runtime binding, prefix ownership, completion detection, post-install
+transition, and supervisor selection.
+
+Steam declares a process-tree DXMT binding and an `adopt-existing` transition
+with the `steam-session` supervisor. HoYoPlay declares base Wine and a
+`stop-and-relaunch` transition to `hoyoplay.supervised-launch` with the
+`hoyoplay-overseer` supervisor. The HoYoPlay install preflight therefore checks
+`wineserver`, the HoYo routing/network manifest groups, and supervisor
+registration before the installer starts.
 
 ## Original Steam handoff behavior and regression
 

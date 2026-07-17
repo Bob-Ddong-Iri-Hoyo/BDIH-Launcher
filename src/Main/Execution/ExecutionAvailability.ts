@@ -3,6 +3,7 @@ import type {
   ExecutionOperation,
   ExecutionRequirement,
   ExecutionRuntimeDependency,
+  ExecutionSupervisor,
   ExecutionWineTool,
 } from "../../Common/Types/Execution";
 import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
@@ -22,6 +23,7 @@ export interface ExecutionCapabilityProbe {
     manifest?: WineLauncherOptionsManifest;
   };
   dependencies: Partial<Record<ExecutionRuntimeDependency, ExecutionCapabilityState>>;
+  supervisors: Partial<Record<ExecutionSupervisor, ExecutionCapabilityState>>;
 }
 
 export interface ExecutionAvailabilityCheckContext<Request> {
@@ -102,7 +104,11 @@ function assess_requirement(
 
   // A missing runtime is the root cause for every Wine-owned capability. Do
   // not flood the UI with one follow-up issue per missing tool or manifest key.
-  if (!probe.wine.runtime.available && requirement.kind !== "runtime-dependency") {
+  if (
+    !probe.wine.runtime.available
+    && requirement.kind !== "runtime-dependency"
+    && requirement.kind !== "supervisor"
+  ) {
     return [];
   }
 
@@ -173,6 +179,19 @@ function assess_requirement(
           requirement,
           "wine-family-unsupported",
           `Unsupported Wine runtime family. Required one of: ${requirement.anyOf.join(", ")}.`,
+      )];
+  }
+
+  if (requirement.kind === "supervisor") {
+    const state = probe.supervisors[requirement.supervisor];
+
+    return state?.available
+      ? []
+      : [create_issue(
+          requirement,
+          "supervisor-missing",
+          state?.error
+            ?? `${requirement.label} is not registered in this launcher build.`,
         )];
   }
 

@@ -64,6 +64,19 @@ import {
   type BottleExecutionAvailabilityRequest,
   type ExecutionCapabilityInspector,
 } from "../Execution/ExecutionAvailabilityCoordinator";
+import {
+  DXMT_PREFIX_REQUIRED_WINDOWS_FILES,
+  is_prefix_dxmt_runtime_ready,
+  prepare_prefix_dxmt_runtime_files,
+} from "../Execution/DxmtPrefixRuntime";
+import {
+  assert_launcher_install_plan_matches_request,
+  create_launcher_install_plan_context,
+  is_launcher_supervisor_registered,
+  type LauncherInstallExecutionPlan,
+  type LauncherRuntimeBindingDescriptor,
+  type LauncherSupervisorDescriptor,
+} from "../Execution/LauncherInstallPlan";
 
 const LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS = 10 * 60 * 1000;
 const LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS = 1000;
@@ -74,7 +87,6 @@ const STEAM_GAME_PROCESS_LOG_POLL_MS = 750;
 const HOYO_STEAM_STUB_WIN_PATH = "C:\\windows\\system32\\steam.exe";
 const DXMT_RUNTIME_CACHE_DIR_NAME = ".cache/dxmt";
 const DXMT_SHADER_CACHE_DIR_NAME = ".cache/dxmt-shaders";
-const DXMT_PREFIX_REQUIRED_WINDOWS_FILES = ["d3d10core.dll", "d3d11.dll", "dxgi.dll", "winemetal.dll"];
 
 interface PrefixSession {
   bottleId: string;
@@ -136,6 +148,7 @@ export class BottleExecutionManager {
   async setupPrefix(
     request: SetupBottlePrefixPayload & { launcher?: BottleLauncherKind },
     sender?: WebContents,
+    runtimeBinding?: LauncherRuntimeBindingDescriptor,
   ): Promise<BottleTaskResultPayload> {
     // Prefix setup is the canonical creation path for a bottle. It creates the
     // WINEPREFIX, runs wineboot, records recipe metadata, and emits progress that
@@ -145,11 +158,6 @@ export class BottleExecutionManager {
     try {
       resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wineboot");
       const shouldPrepareDxmt = should_prepare_dxmt_runtime(request);
-
-      if (shouldPrepareDxmt) {
-        validate_dxmt_runtime(request.dxmtVersionId, request.dxmtPackagePath);
-      }
-      this.trackWinePrefix(request);
       mkdirSync(bottlePath, { recursive: true });
       this.sendStatus(sender, {
         bottleId: request.bottleId,
@@ -159,8 +167,18 @@ export class BottleExecutionManager {
         message: `${request.bottleName} prefix directory created.`,
       });
 
-      await this.runWineTool(
+      const preparedRuntime = await prepare_dxmt_enabled_prefix_runtime(
         request,
+        bottlePath,
+        this.logger,
+        { cloneWineRuntime: runtimeBinding?.kind === "dxmt-wine" },
+      );
+      const effectiveRequest = preparedRuntime.request;
+
+      this.trackWinePrefix(effectiveRequest);
+
+      await this.runWineTool(
+        effectiveRequest,
         "wineboot",
         ["-u"],
         "setup",
@@ -172,7 +190,7 @@ export class BottleExecutionManager {
 
       ensure_shared_games_drive(bottlePath, await preferenceManager.getPreference(), this.logger);
 
-      if (shouldPrepareDxmt) {
+      if (shouldPrepareDxmt && preparedRuntime.dxmtRuntimePath) {
         this.sendStatus(sender, {
           bottleId: request.bottleId,
           launcher: request.launcher,
@@ -181,15 +199,8 @@ export class BottleExecutionManager {
           message: "Preparing DXMT files for this Wine prefix.",
         });
 
-        const dxmtRuntimePath = await resolve_dxmt_runtime_dir(
-          request.dxmtPackagePath,
-          request.dxmtVersionId,
-          infer_hoyo_bottle_root_path(bottlePath),
-          this.logger,
-        );
-
         prepare_prefix_dxmt_runtime_files({
-          dxmtRuntimePath,
+          dxmtRuntimePath: preparedRuntime.dxmtRuntimePath,
           prefixPath: bottlePath,
         });
       }
@@ -363,9 +374,10 @@ export class BottleExecutionManager {
     sender?: WebContents,
   ): Promise<BottleTaskResultPayload> {
     try {
+      const strategy = resolve_launcher_install_strategy(request);
       const availability = await this.checkStrategyAvailability(
         request,
-        resolve_launcher_install_strategy(request),
+        strategy,
         sender,
       );
 
@@ -384,6 +396,13 @@ export class BottleExecutionManager {
           error: availability.message ?? `${request.launcher} installation is unavailable.`,
         };
       }
+
+      const installPlan = strategy.describe(
+        create_launcher_install_plan_context(),
+        request,
+      );
+
+      assert_launcher_install_plan_matches_request(installPlan, request);
 
       const bottlePath = expand_user_home_path(request.bottlePath);
       const installer = get_launcher_installer(request.launcher);
@@ -459,7 +478,11 @@ export class BottleExecutionManager {
       }
 
       if (!is_wine_prefix_ready(bottlePath)) {
-        const setupResult = await this.setupPrefix(request, sender);
+        const setupResult = await this.setupPrefix(
+          request,
+          sender,
+          installPlan.runtime,
+        );
 
         if (!setupResult.ok) {
           throw new Error(setupResult.error || "Bottle prefix setup failed.");
@@ -476,17 +499,32 @@ export class BottleExecutionManager {
         message: `${installer.label} installer is starting in Wine.`,
       });
 
-      const installerProcess = await this.launchInstallerExecutable(request, installerPath, installer.label, sender);
-      const waitResult = await this.waitForInstalledLauncherExecutable(request, installer.label, sender, installerProcess.done);
+      const installerProcess = await this.launchInstallerExecutable(
+        request,
+        installerPath,
+        installer.label,
+        installPlan,
+        sender,
+      );
+      const waitResult = await this.waitForInstalledLauncherExecutable(
+        request,
+        installer.label,
+        installPlan,
+        sender,
+        installerProcess.done,
+      );
       const detectedExecutablePath = waitResult.detectedPath;
       const finalStage = detectedExecutablePath ? "ready" : "downloaded";
       const finalMessage = detectedExecutablePath
-        ? `${installer.label} executable detected. App metadata will refresh shortly.`
+        ? installPlan.transition.kind === "stop-and-relaunch"
+          ? `${installer.label} installed and restarted with ${installPlan.transition.supervisor.kind}.`
+          : `${installer.label} executable detected. App metadata will refresh shortly.`
         : waitResult.message ?? `${installer.label} installer launched, but the launcher executable was not detected yet.`;
 
       if (detectedExecutablePath) {
-        this.handoffLauncherInstallerSession(
-          installerProcess.prefixSessionProcessId,
+        await this.applyLauncherInstallTransition(
+          installPlan,
+          installerProcess,
           request,
           installer.label,
           detectedExecutablePath,
@@ -2223,6 +2261,7 @@ export class BottleExecutionManager {
     request: InstallBottleLauncherPayload,
     executablePath: string,
     installerLabel: string,
+    installPlan: LauncherInstallExecutionPlan,
     sender?: WebContents,
   ): Promise<LauncherInstallerProcess> {
     const bottlePath = expand_user_home_path(request.bottlePath);
@@ -2239,40 +2278,54 @@ export class BottleExecutionManager {
     });
     const preference = await preferenceManager.getPreference();
     ensure_shared_games_drive(bottlePath, preference, appLogger);
-    const command = resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wine64");
+    const preparedRuntime = await prepare_dxmt_enabled_prefix_runtime(
+      request,
+      bottlePath,
+      appLogger,
+      { cloneWineRuntime: installPlan.runtime.kind === "dxmt-wine" },
+    );
+    const runtimeRequest = preparedRuntime.request;
+
+    if (preparedRuntime.dxmtRuntimePath) {
+      prepare_prefix_dxmt_runtime_files({
+        dxmtRuntimePath: preparedRuntime.dxmtRuntimePath,
+        prefixPath: bottlePath,
+      });
+    }
+
+    const command = resolve_required_wine_tool(
+      runtimeRequest.wineVersionId,
+      runtimeRequest.wineRuntimePath,
+      "wine64",
+    );
     const processId = `bottle:${request.bottleId}:installer:${request.launcher}:${Date.now().toString(36)}`;
-    const launcherOptionsManifest = request.launcherOptionsManifest ?? read_wine_launcher_options_manifest(request.wineRuntimePath);
+    const launcherOptionsManifest = request.launcherOptionsManifest
+      ?? read_wine_launcher_options_manifest(runtimeRequest.wineRuntimePath);
     const env = create_wine_environment(
       bottlePath,
       preference.debugFlagMode,
       preference.loggingLevel,
       preference.wineDebugArgs,
-      request.wineRuntimePath,
+      runtimeRequest.wineRuntimePath,
       launcherOptionsManifest,
     );
 
-    if (request.launcher === "steam") {
-      delete env.WINE_STEAMWEBHELPER_ARGS;
-      delete env.DXMT_CONFIG;
-      delete env.DXMT_CONFIG_FILE;
-      delete env.DXMT_ENABLE_NVEXT;
-      delete env.DXMT_LOG_LEVEL;
-      delete env.DXMT_LOG_PATH;
-      delete env.WINEMSYNC;
+    for (const environmentName of installPlan.installer.unsetEnvironment) {
+      delete env[environmentName];
     }
 
-    if (request.launcher === "hoyoplay") {
+    if (installPlan.installer.launchOptionsPreset) {
       apply_launch_options_to_env(
         env,
         filter_launch_options_by_manifest(
           resolve_launch_options_for_app(
             {
-              id: "hoyoplay",
-              name: "HoYoPlay",
+              id: installPlan.launcher,
+              name: installerLabel,
               source: "launcher",
               executablePath,
             },
-            { presetId: "hoyoplay" },
+            { presetId: installPlan.installer.launchOptionsPreset },
           ),
           launcherOptionsManifest,
         ) ?? {},
@@ -2282,6 +2335,9 @@ export class BottleExecutionManager {
     appLogger.info("launcher installer environment prepared", {
       launcher: request.launcher,
       wineVersionId: request.wineVersionId,
+      wineRuntimePath: runtimeRequest.wineRuntimePath,
+      wineCommand: command,
+      dxmtRuntimePath: preparedRuntime.dxmtRuntimePath,
       hasLauncherOptionsManifest: Boolean(launcherOptionsManifest),
       appliedLaunchEnv: pick_launch_option_env(env),
     });
@@ -2295,7 +2351,7 @@ export class BottleExecutionManager {
       onError: (data) => appLogger.warn("stderr", data.trim()),
     });
     const prefixSessionProcessId = this.startPrefixSession(
-      request,
+      runtimeRequest,
       {
         appId: `installer:${request.launcher}`,
         appName,
@@ -2343,11 +2399,109 @@ export class BottleExecutionManager {
     };
   }
 
+  private async applyLauncherInstallTransition(
+    installPlan: LauncherInstallExecutionPlan,
+    installerProcess: LauncherInstallerProcess,
+    request: InstallBottleLauncherPayload,
+    launcherName: string,
+    executablePath: string,
+    sender?: WebContents,
+  ): Promise<void> {
+    const transition = installPlan.transition;
+
+    if (transition.kind === "adopt-existing") {
+      this.handoffLauncherInstallerSession(
+        installerProcess.prefixSessionProcessId,
+        request,
+        launcherName,
+        executablePath,
+        transition.supervisor,
+        sender,
+      );
+      return;
+    }
+
+    if (transition.kind === "finish-only") {
+      this.finishPrefixSessionByProcessId(installerProcess.prefixSessionProcessId);
+      return;
+    }
+
+    if (
+      transition.nextStrategyId !== "hoyoplay.supervised-launch"
+      || transition.supervisor.kind !== "hoyoplay-overseer"
+      || !transition.supervisor.routeGamePrefixes
+    ) {
+      throw new Error(`${installPlan.strategyId} declared an unsupported post-install transition.`);
+    }
+
+    this.sendStatus(sender, {
+      bottleId: request.bottleId,
+      launcher: request.launcher,
+      stage: "install",
+      progress: 97,
+      message: `${launcherName} installation completed. Restarting with ${transition.supervisor.kind}.`,
+    });
+
+    const installerSession = this.prefixSessionsByProcessId.get(
+      installerProcess.prefixSessionProcessId,
+    );
+    const prefixPath = installerSession?.prefixPath
+      ?? expand_user_home_path(request.bottlePath);
+    const wineRuntimePath = installerSession?.wineRuntimePath
+      ?? request.wineRuntimePath;
+
+    await this.stopWinePrefix(prefixPath, wineRuntimePath);
+    this.finishPrefixSessionByProcessId(installerProcess.prefixSessionProcessId);
+    await Promise.race([
+      installerProcess.done.then(() => undefined, () => undefined),
+      delay(2000),
+    ]);
+
+    const launchResult = await this.runExecutable(
+      {
+        bottleId: request.bottleId,
+        bottleName: request.bottleName,
+        bottlePath: request.bottlePath,
+        wineVersionId: request.wineVersionId,
+        wineRuntimePath: request.wineRuntimePath,
+        dxmtVersionId: request.dxmtVersionId,
+        dxmtPackagePath: request.dxmtPackagePath,
+        jadeiteVersionId: request.jadeiteVersionId,
+        jadeiteRuntimePath: request.jadeiteRuntimePath,
+        launcherOptionsManifest: request.launcherOptionsManifest,
+        appId: request.launcher,
+        appName: launcherName,
+        executablePath,
+        launchOptions: { presetId: "hoyoplay" },
+        executionMode: "app",
+      },
+      sender,
+    );
+
+    if (!launchResult.ok) {
+      throw new Error(
+        launchResult.error
+          ?? `${launcherName} could not restart with ${transition.nextStrategyId}.`,
+      );
+    }
+
+    this.logger.info("launcher install transition completed", {
+      bottleId: request.bottleId,
+      launcher: request.launcher,
+      strategyId: installPlan.strategyId,
+      transition: transition.kind,
+      nextStrategyId: transition.nextStrategyId,
+      supervisor: transition.supervisor.kind,
+      processId: launchResult.processId,
+    });
+  }
+
   private handoffLauncherInstallerSession(
     processId: string,
     request: InstallBottleLauncherPayload,
     launcherName: string,
     executablePath: string,
+    supervisor: LauncherSupervisorDescriptor,
     sender?: WebContents,
   ): void {
     const session = this.prefixSessionsByProcessId.get(processId);
@@ -2372,7 +2526,7 @@ export class BottleExecutionManager {
     session.executionMode = "app";
     session.steamLauncherOwnerAppId = undefined;
 
-    if (request.launcher === "steam") {
+    if (supervisor.kind === "steam-session" && supervisor.watchGameProcessLog) {
       const processLogPath = steam_game_process_log_path(session.prefixPath, executablePath);
 
       if (processLogPath) {
@@ -2400,11 +2554,12 @@ export class BottleExecutionManager {
   private async waitForInstalledLauncherExecutable(
     request: InstallBottleLauncherPayload,
     installerLabel: string,
+    installPlan: LauncherInstallExecutionPlan,
     sender?: WebContents,
     installerDone?: Promise<number>,
   ): Promise<LauncherExecutableWaitResult> {
     const bottlePath = expand_user_home_path(request.bottlePath);
-    const launcherProfile = get_launcher_runtime_profile(request.launcher);
+    const launcherProfile = get_launcher_runtime_profile(installPlan.completion.launcher);
     const startedAt = Date.now();
     let lastProgressUpdate = 0;
     let lastFallbackScanAt = 0;
@@ -2423,6 +2578,11 @@ export class BottleExecutionManager {
 
     while (Date.now() - startedAt < LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS) {
       const now = Date.now();
+      const installerExitedSuccessfully = Boolean(
+        installerExit
+        && !installerExit.error
+        && installerExit.code === 0
+      );
       const includeFallback = now - lastFallbackScanAt >= 5000;
       const detectedPath = launcherProfile
         ? await find_runtime_profile_executable(bottlePath, launcherProfile, { includeFallback })
@@ -2432,7 +2592,14 @@ export class BottleExecutionManager {
         lastFallbackScanAt = now;
       }
 
-      if (detectedPath && await is_stable_launcher_executable(detectedPath, LAUNCHER_EXECUTABLE_STABLE_MS)) {
+      if (
+        detectedPath
+        && await is_stable_launcher_executable(detectedPath, LAUNCHER_EXECUTABLE_STABLE_MS)
+        && (
+          !installPlan.completion.requireInstallerExitBeforeTransition
+          || installerExitedSuccessfully
+        )
+      ) {
         this.sendStatus(sender, {
           bottleId: request.bottleId,
           launcher: request.launcher,
@@ -3245,6 +3412,17 @@ const current_execution_capability_inspector: ExecutionCapabilityInspector<Execu
       ).rootPath,
     );
   },
+  inspectSupervisor(_request, supervisor) {
+    const available = is_launcher_supervisor_registered(supervisor);
+
+    return {
+      available,
+      value: available ? supervisor : undefined,
+      error: available
+        ? undefined
+        : `Execution supervisor is not registered: ${supervisor}.`,
+    };
+  },
 };
 
 function probe_execution_capability(
@@ -3809,6 +3987,59 @@ function find_existing_bottle_prefix_paths(bottlePath: string): string[] {
     .filter(is_wine_prefix_ready);
 }
 
+interface PreparedDxmtPrefixRuntime<Request extends SetupBottlePrefixPayload> {
+  request: Request;
+  dxmtRuntimePath?: string;
+}
+
+async function prepare_dxmt_enabled_prefix_runtime<Request extends SetupBottlePrefixPayload>(
+  request: Request,
+  prefixPath: string,
+  logger: ReturnType<typeof logManager.createLogger>,
+  options: { cloneWineRuntime?: boolean } = { cloneWineRuntime: true },
+): Promise<PreparedDxmtPrefixRuntime<Request>> {
+  if (!should_prepare_dxmt_runtime(request)) {
+    return { request };
+  }
+
+  validate_dxmt_runtime(request.dxmtVersionId, request.dxmtPackagePath);
+
+  const dxmtRuntimePath = await resolve_dxmt_runtime_dir(
+    request.dxmtPackagePath,
+    request.dxmtVersionId,
+    infer_hoyo_bottle_root_path(prefixPath),
+    logger,
+  );
+
+  if (options.cloneWineRuntime === false) {
+    return {
+      request,
+      dxmtRuntimePath,
+    };
+  }
+
+  const baseWineCommand = resolve_required_wine_tool(
+    request.wineVersionId,
+    request.wineRuntimePath,
+    "wine64",
+  );
+  const wineRuntimePath = await prepare_bottle_builtin_dxmt_wine_runtime({
+    request,
+    bottlePath: prefixPath,
+    wineCommand: baseWineCommand,
+    dxmtRuntimePath,
+    logger,
+  });
+
+  return {
+    request: {
+      ...request,
+      wineRuntimePath,
+    },
+    dxmtRuntimePath,
+  };
+}
+
 async function ensure_prefix_dxmt_runtime_files(
   request: RunBottleExecutablePayload,
   prefixPath: string,
@@ -3841,7 +4072,7 @@ async function ensure_prefix_dxmt_runtime_files(
 }
 
 async function prepare_bottle_builtin_dxmt_wine_runtime(options: {
-  request: ApplyBottleRecipePayload;
+  request: SetupBottlePrefixPayload;
   bottlePath: string;
   wineCommand: string;
   dxmtRuntimePath: string;
@@ -4120,57 +4351,6 @@ function prepare_builtin_dxmt_wine_runtime_files(options: {
   );
 }
 
-function prepare_prefix_dxmt_runtime_files(options: {
-  dxmtRuntimePath: string;
-  prefixPath: string;
-}): void {
-  const system32Path = path.join(options.prefixPath, "drive_c", "windows", "system32");
-  const syswow64Path = path.join(options.prefixPath, "drive_c", "windows", "syswow64");
-  const x64RuntimePath = path.join(options.dxmtRuntimePath, "x86_64-windows");
-  const x86RuntimePath = path.join(options.dxmtRuntimePath, "i386-windows");
-  const x64FileNames = [...new Set([
-    ...DXMT_PREFIX_REQUIRED_WINDOWS_FILES,
-    ...safe_readdir(x64RuntimePath).filter(is_dxmt_windows_runtime_file),
-  ])];
-  const x86FileNames = safe_readdir(x86RuntimePath).filter(is_dxmt_windows_runtime_file);
-
-  mkdirSync(system32Path, { recursive: true });
-  mkdirSync(syswow64Path, { recursive: true });
-
-  for (const name of x64FileNames) {
-    const sourcePath = path.join(x64RuntimePath, name);
-    const targetPath = path.join(system32Path, name);
-
-    if (DXMT_PREFIX_REQUIRED_WINDOWS_FILES.includes(name)) {
-      copy_required_file(sourcePath, targetPath, `DXMT ${name}`);
-    } else {
-      copy_optional_file(sourcePath, targetPath);
-    }
-  }
-
-  for (const name of x86FileNames) {
-    copy_optional_file(
-      path.join(x86RuntimePath, name),
-      path.join(syswow64Path, name),
-    );
-  }
-}
-
-function is_prefix_dxmt_runtime_ready(prefixPath: string, dxmtRuntimePath: string): boolean {
-  return DXMT_PREFIX_REQUIRED_WINDOWS_FILES.every((name) => {
-    const sourcePath = path.join(dxmtRuntimePath, "x86_64-windows", name);
-    const targetPath = path.join(prefixPath, "drive_c", "windows", "system32", name);
-
-    return existsSync(sourcePath) &&
-      existsSync(targetPath) &&
-      runtime_file_content_matches(sourcePath, targetPath);
-  });
-}
-
-function is_dxmt_windows_runtime_file(name: string): boolean {
-  return name.toLowerCase().endsWith(".dll");
-}
-
 function runtime_file_signature(targetPath: string): string | undefined {
   try {
     const stat = statSync(targetPath);
@@ -4178,18 +4358,6 @@ function runtime_file_signature(targetPath: string): string | undefined {
     return `${stat.size}:${Math.trunc(stat.mtimeMs)}`;
   } catch {
     return undefined;
-  }
-}
-
-function runtime_file_content_matches(leftPath: string, rightPath: string): boolean {
-  try {
-    const leftStat = statSync(leftPath);
-    const rightStat = statSync(rightPath);
-
-    return leftStat.size === rightStat.size &&
-      readFileSync(leftPath).equals(readFileSync(rightPath));
-  } catch {
-    return false;
   }
 }
 
