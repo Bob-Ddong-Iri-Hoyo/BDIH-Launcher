@@ -374,12 +374,13 @@
       },
       "installers": {
         "title": "Launcher installers",
-        "description": "The first click only downloads the official Windows installer. Prefix and Wine setup happen when you run the installer.",
+        "description": "Download the official installer or select a launcher EXE you already have.",
         "modalTitle": "Launcher installers",
-        "modalDescription": "Download the installer first, then click again after the download to run it with Wine.",
+        "modalDescription": "After the download finishes, Download changes to Install. Direct run starts the same installation flow with your selected EXE.",
         "openAction": "Open launcher installers",
         "install": "Download installer",
-        "runInstaller": "Run installer",
+        "runInstaller": "Install",
+        "selectExecutable": "Direct run",
         "installSteam": "Download / run Steam installer",
         "installHoyoplay": "Download / run HoYoPlay installer",
         "installing": "Preparing installer...",
@@ -407,8 +408,6 @@
         }
       },
       "runner": {
-        "title": "Run executable",
-        "description": "Run a local Windows executable directly with this bottle prefix.",
         "addManualApp": "Add app manually",
         "addManualAppDescription": "Register an executable in this bottle when automatic app detection misses it.",
         "pathPlaceholder": "C:\\Program Files\\App\\app.exe or /Users/me/Downloads/setup.exe",
@@ -456,12 +455,10 @@
         "installerModeActiveDescription": "The installer itself will not be added. Installed apps are discovered from the selected prefix after installation ends.",
         "installerStarted": "Installer started. Waiting for installation to finish.",
         "pathRequired": "Enter an executable path first.",
-        "wineRuntimeMissing": "Wine runtime is not installed or extracted: {{versionId}}",
         "starting": "Starting executable...",
         "started": "Executable started in this bottle.",
         "registered": "Executable was added to this bottle.",
         "failed": "Failed to start executable.",
-        "run": "Run in bottle",
         "register": "Add to apps"
       },
       "searchReady": "Search bottles",

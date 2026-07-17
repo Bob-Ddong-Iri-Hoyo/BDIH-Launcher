@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { mkdir, rm } from "fs/promises";
+import { mkdir, rm, symlink, writeFile } from "fs/promises";
 import path from "path";
 import {
   capture_manager_environment,
@@ -126,6 +126,53 @@ describe("BottleManager", () => {
           id: "steam:777",
           name: "Fixture Quest",
           executableArgs: ["-applaunch", "777"],
+        }),
+      ]),
+    );
+  });
+
+  it("discovers Steam games from a shared G: library", async () => {
+    const sharedGamesRoot = path.join(environment.root, "shared-games");
+    await write_legacy_preference(environment, {
+      gameInstallPath: sharedGamesRoot,
+    });
+    const bottlePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "steam-shared-games", {
+      wineVersionId: "wine-fixture-10",
+    });
+    const steamRoot = path.join(bottlePath, "drive_c", "Program Files (x86)", "Steam");
+    const steamAppsPath = path.join(steamRoot, "steamapps");
+    const sharedSteamAppsPath = path.join(sharedGamesRoot, "SteamLibrary", "steamapps");
+    const dosdevicesPath = path.join(bottlePath, "dosdevices");
+    const appId = "778";
+
+    await mkdir(steamAppsPath, { recursive: true });
+    await mkdir(sharedSteamAppsPath, { recursive: true });
+    await mkdir(dosdevicesPath, { recursive: true });
+    await writeFile(path.join(steamRoot, "steam.exe"), "", "utf8");
+    await writeFile(
+      path.join(steamAppsPath, "libraryfolders.vdf"),
+      `"libraryfolders"\n{\n  "1"\n  {\n    "path" "G:\\\\SteamLibrary"\n  }\n}\n`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(sharedSteamAppsPath, `appmanifest_${appId}.acf`),
+      `"AppState"\n{\n  "appid" "${appId}"\n  "name" "Shared Fixture Quest"\n}\n`,
+      "utf8",
+    );
+    await symlink(sharedGamesRoot, path.join(dosdevicesPath, "g:"));
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+    const result = await manager.getBottleList(true);
+    const bottle = result.bottles.find((candidate) => candidate.id === "fixture:steam-shared-games");
+
+    expect(bottle?.apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `steam:${appId}`,
+          name: "Shared Fixture Quest",
+          executableArgs: ["-applaunch", appId],
+          steamManifestPath: path.join(sharedSteamAppsPath, `appmanifest_${appId}.acf`),
         }),
       ]),
     );

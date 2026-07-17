@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../../style/index.css";
 import { BDIH_YOUTUBE_HANDLE, STEAM_GAME_LAUNCH_ARGUMENT } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateInstallProgressPayload, AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
+import { AppUpdateInstallProgressPayload, AppUpdateStatusPayload, BottleExecutionAvailabilityPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
 import {
   bottle_name_to_slug,
   create_bottle_app_prefix_path,
@@ -863,15 +863,6 @@ function normalize_preference_path(targetPath: string): string {
   return targetPath.trim().replace(/\/+$/, "");
 }
 
-function is_unsupported_wine_runtime_error(message: string): boolean {
-  const normalizedMessage = message.toLowerCase();
-
-  return normalizedMessage.includes("unsupported wine runtime")
-    || normalizedMessage.includes("hoyo zzz route")
-    || normalizedMessage.includes("share/protonextras")
-    || normalizedMessage.includes("lib/wine directories");
-}
-
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<RendererViewKey>("dashboard");
   const [locale, setLocale] = useState<SupportedLocale>(() => resolve_initial_locale());
@@ -1219,6 +1210,68 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const unsubscribe = window.BTIH_API?.on(
+      IPC_CHANNELS.BOTTLE.EXECUTION_AVAILABILITY_UPDATE.channelName,
+      (_event, payload: BottleExecutionAvailabilityPayload) => {
+        if (payload.status !== "unavailable") {
+          return;
+        }
+
+        const message = payload.message
+          ?? (
+            payload.issues.map((issue) => issue.message).join("\n")
+            || "The selected execution Strategy is unavailable."
+          );
+
+        if (
+          payload.providerId.startsWith("hoyo")
+          && payload.issues.some((issue) =>
+            issue.code === "wine-manifest-missing"
+            || issue.code === "wine-manifest-group-missing",
+          )
+        ) {
+          setUnsupportedWineModal({
+            appName: bottlesRef.current
+              .find((bottle) => bottle.id === payload.bottleId)
+              ?.apps.find((app) => app.id === payload.appId)?.name
+              ?? payload.appId
+              ?? payload.providerId,
+            wineVersionId: payload.wineVersionId,
+            details: payload.issues.map((issue) => issue.message).join("\n"),
+          });
+        }
+
+        if (!payload.appId) {
+          return;
+        }
+
+        launchingAppsRef.current.delete(`${payload.bottleId}:${payload.appId}`);
+        update_bottles((currentBottles) =>
+          currentBottles.map((bottle) =>
+            bottle.id === payload.bottleId
+              ? {
+                  ...bottle,
+                  apps: bottle.apps.map((app) =>
+                    app.id === payload.appId
+                      ? {
+                          ...app,
+                          processId: undefined,
+                          isLaunching: false,
+                          launchError: message,
+                        }
+                      : app,
+                  ),
+                }
+              : bottle,
+          ),
+        );
+      },
+    );
+
+    return () => unsubscribe?.();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.BTIH_API?.on(
       IPC_CHANNELS.BOTTLE.PREFIX_SESSION_UPDATE.channelName,
       (_event, payload: BottlePrefixSessionPayload) => {
         if (payload.isRunning) {
@@ -1244,6 +1297,10 @@ const App: React.FC = () => {
         const currentBottles = bottlesRef.current;
         const matchingBottle = currentBottles.find((bottle) => bottle.id === payload.bottleId);
         const matchingApp = matchingBottle?.apps.find((app) => app.id === payload.appId);
+        const knownAppIds = new Set(matchingBottle?.apps.map((app) => app.id) ?? []);
+        const hasUnknownSessionApp = [...app_ids_from_prefix_session(payload)].some((appId) =>
+          !appId.startsWith("installer:") && !knownAppIds.has(appId),
+        );
         for (const app of matchingBottle?.apps ?? []) {
           if (app_matches_prefix_session(app, payload)) {
             launchingAppsRef.current.delete(`${payload.bottleId}:${app.id}`);
@@ -1255,7 +1312,7 @@ const App: React.FC = () => {
               payload.isRunning &&
               payload.appId &&
               matchingBottle &&
-              (!matchingApp || !matchingApp.iconSrc),
+              (!matchingApp || !matchingApp.iconSrc || hasUnknownSessionApp),
             );
 
         setBottles((currentBottles) =>
@@ -1958,7 +2015,11 @@ const App: React.FC = () => {
     }
   };
 
-  const handle_install_bottle_launcher = async (bottleId: string, launcher: BottleLauncherKind) => {
+  const handle_install_bottle_launcher = async (
+    bottleId: string,
+    launcher: BottleLauncherKind,
+    installerPath?: string,
+  ) => {
     const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
 
     if (!bottle) {
@@ -1982,6 +2043,7 @@ const App: React.FC = () => {
       dxmtVersionId: shouldUseDxmt ? bottle.dxmtVersionId : undefined,
       dxmtPackagePath,
       launcher,
+      installerPath,
     });
 
     if (!result?.ok || !result.refreshBottles) {
@@ -2002,6 +2064,31 @@ const App: React.FC = () => {
         activePrefixSessionsRef.current.values(),
       ));
     }
+  };
+
+  const handle_install_bottle_launcher_executable = async (
+    bottleId: string,
+    launcher: BottleLauncherKind,
+  ) => {
+    const launcherName = launcher === "steam" ? "Steam" : "HoYoPlay";
+    const selectedFile = (await window.BTIH_API?.invoke(
+      IPC_CHANNELS.APP.SELECT_FILE.channelName,
+      {
+        title: `${launcherName} installer EXE 선택`,
+        filters: [
+          {
+            name: "Windows executable",
+            extensions: ["exe"],
+          },
+        ],
+      },
+    )) as SelectFileResultPayload | undefined;
+
+    if (selectedFile?.canceled || !selectedFile?.path) {
+      return;
+    }
+
+    await handle_install_bottle_launcher(bottleId, launcher, selectedFile.path);
   };
 
   const handle_launch_bottle_app = async (bottleId: string, appId: string, executableArgs?: string[]) => {
@@ -2042,65 +2129,12 @@ const App: React.FC = () => {
     const wineVersion = wineVersions.find((version) => version.id === bottle.wineVersionId);
     const wineRuntimePath = bottle.wineRuntimePath ?? wineVersion?.path;
     const shouldPassDxmt = Boolean(bottle.dxmtVersionId);
-    const shouldRequireDxmtBeforeLaunch = app.id !== "hoyoplay" && shouldPassDxmt;
     const dxmtPackagePath = shouldPassDxmt
       ? bottle.dxmtPackagePath ?? dxmtVersions.find((version) => version.id === bottle.dxmtVersionId)?.path
       : undefined;
     const jadeiteRuntimePath = bottle.jadeiteVersionId
       ? jadeiteVersions.find((version) => version.id === bottle.jadeiteVersionId)?.path
       : undefined;
-
-    if (!wineRuntimePath) {
-      const launchError = `Wine runtime is not installed or extracted: ${bottle.wineVersionId}`;
-
-      launchingAppsRef.current.delete(launchKey);
-      update_bottles((currentBottles) =>
-        currentBottles.map((currentBottle) =>
-          currentBottle.id === bottleId
-            ? {
-                ...currentBottle,
-                apps: currentBottle.apps.map((currentApp) =>
-                  currentApp.id === appId
-                    ? {
-                        ...currentApp,
-                        processId: undefined,
-                        isLaunching: false,
-                        launchError,
-                      }
-                    : currentApp,
-                ),
-              }
-            : currentBottle,
-        ),
-      );
-      return;
-    }
-
-    if (shouldRequireDxmtBeforeLaunch && bottle.dxmtVersionId && !dxmtPackagePath) {
-      const launchError = `DXMT runtime is not downloaded: ${bottle.dxmtVersionId}`;
-
-      launchingAppsRef.current.delete(launchKey);
-      update_bottles((currentBottles) =>
-        currentBottles.map((currentBottle) =>
-          currentBottle.id === bottleId
-            ? {
-                ...currentBottle,
-                apps: currentBottle.apps.map((currentApp) =>
-                  currentApp.id === appId
-                    ? {
-                        ...currentApp,
-                        processId: undefined,
-                        isLaunching: false,
-                        launchError,
-                      }
-                    : currentApp,
-                ),
-              }
-            : currentBottle,
-        ),
-      );
-      return;
-    }
 
     // Launch only after pending metadata writes finish. Otherwise a process
     // refresh can reload the previous app options and overwrite a just-saved
@@ -2139,14 +2173,6 @@ const App: React.FC = () => {
       const launchError = result?.error || "Failed to start Wine process.";
 
       launchingAppsRef.current.delete(launchKey);
-      if (is_unsupported_wine_runtime_error(launchError)) {
-        setUnsupportedWineModal({
-          appName: app.name,
-          wineVersionId: bottle.wineVersionId,
-          details: launchError,
-        });
-      }
-
       update_bottles((currentBottles) =>
         currentBottles.map((currentBottle) =>
           currentBottle.id === bottleId
@@ -2773,6 +2799,7 @@ const App: React.FC = () => {
       onSelectBottlePrefixPath={handle_select_bottle_prefix_path}
       onDownloadBottleLauncherInstaller={(bottleId, launcher) => void handle_download_bottle_launcher_installer(bottleId, launcher)}
       onInstallBottleLauncher={(bottleId, launcher) => void handle_install_bottle_launcher(bottleId, launcher)}
+      onInstallBottleLauncherExecutable={(bottleId, launcher) => void handle_install_bottle_launcher_executable(bottleId, launcher)}
       onLaunchBottleApp={(bottleId, appId) => void handle_launch_bottle_app(bottleId, appId)}
       onStopBottleApp={(bottleId, appId) => void handle_stop_bottle_app(bottleId, appId)}
       onDeleteBottleApp={handle_delete_bottle_app}

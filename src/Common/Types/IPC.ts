@@ -1,4 +1,9 @@
 import type { WineLauncherOptionsManifest } from "./Wine";
+import type {
+  ExecutionAvailabilityIssue,
+  ExecutionAvailabilityStatus,
+  ExecutionOperation,
+} from "./Execution";
 
 export type IpcDirection =
   | "RENDERER_TO_MAIN"
@@ -411,6 +416,21 @@ export interface BottlePrefixSessionPayload {
   error?: string;
 }
 
+export interface BottleExecutionAvailabilityPayload {
+  checkId: string;
+  bottleId: string;
+  appId?: string;
+  providerId: string;
+  strategyId: string;
+  operation: ExecutionOperation;
+  status: ExecutionAvailabilityStatus;
+  wineVersionId: string;
+  wineRuntimePath?: string;
+  checkedAt: string;
+  message?: string;
+  issues: ExecutionAvailabilityIssue[];
+}
+
 export type BottleLaunchOptionPresetId =
   | "auto"
   | "steam"
@@ -471,9 +491,13 @@ export interface SetupBottlePrefixPayload {
 
 export interface InstallBottleLauncherPayload extends SetupBottlePrefixPayload {
   launcher: BottleLauncherKind;
+  installerPath?: string;
 }
 
-export type DownloadBottleLauncherInstallerPayload = InstallBottleLauncherPayload;
+export type DownloadBottleLauncherInstallerPayload = Omit<
+  InstallBottleLauncherPayload,
+  "installerPath"
+>;
 export interface ApplyBottleRecipePayload extends SetupBottlePrefixPayload {
   validateOnly?: boolean;
 }
@@ -550,12 +574,14 @@ export interface RunBottleExecutableResultPayload {
   ok: boolean;
   processId?: string;
   refreshBottles?: boolean;
+  availability?: BottleExecutionAvailabilityPayload;
   error?: string;
 }
 
 export interface BottleTaskResultPayload {
   ok: boolean;
   refreshBottles?: boolean;
+  availability?: BottleExecutionAvailabilityPayload;
   error?: string;
 }
 
@@ -621,6 +647,7 @@ export interface BottleChannelSchema {
   readonly DOWNLOAD_LAUNCHER_INSTALLER: IpcChannelUnit<DownloadBottleLauncherInstallerPayload>;
   readonly INSTALL_LAUNCHER: IpcChannelUnit<InstallBottleLauncherPayload>;
   readonly STATUS_UPDATE: IpcChannelUnit<BottleTaskStatusPayload>;
+  readonly EXECUTION_AVAILABILITY_UPDATE: IpcChannelUnit<BottleExecutionAvailabilityPayload>;
   readonly PROCESS_EXIT: IpcChannelUnit<BottleProcessExitPayload>;
   readonly PREFIX_SESSION_UPDATE: IpcChannelUnit<BottlePrefixSessionPayload>;
 }
@@ -822,6 +849,12 @@ export const BOTTLE = {
     method: "on",
     direction: "MAIN_TO_RENDERER",
     payload: {} as BottleTaskStatusPayload,
+  },
+  EXECUTION_AVAILABILITY_UPDATE: {
+    channelName: "bottle:execution-availability-update",
+    method: "on",
+    direction: "MAIN_TO_RENDERER",
+    payload: {} as BottleExecutionAvailabilityPayload,
   },
   PROCESS_EXIT: {
     channelName: "bottle:process-exit",

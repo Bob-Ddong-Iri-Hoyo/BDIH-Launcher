@@ -4,21 +4,13 @@ import type {
   RuntimeLauncherProfile,
   RuntimeLaunchOptionKey,
 } from "../../Common/Types/DataProtoType";
-import { GENSHIN_HOYO_GAME_PROFILE } from "./Hoyoverse/Genshin";
-import { HOYOPLAY_LAUNCHER_PROFILE } from "./Hoyoverse/Hoyoplay";
-import { STARRAIL_HOYO_GAME_PROFILE } from "./Hoyoverse/Starrail";
-import { ZZZ_HOYO_GAME_PROFILE } from "./Hoyoverse/ZenlessZoneZero";
-import { STEAM_LAUNCHER_PROFILE } from "./Steam/Steam";
+import { GENSHIN_HOYO_GAME_PROFILE } from "./Hoyoverse/genshin/profile";
+import { HOYOPLAY_LAUNCHER_PROFILE } from "./Hoyoverse/hoyoplay/profile";
+import { STARRAIL_HOYO_GAME_PROFILE } from "./Hoyoverse/starrail/profile";
+import { ZZZ_HOYO_GAME_PROFILE } from "./Hoyoverse/zenless-zone-zero/profile";
+import { STEAM_LAUNCHER_PROFILE } from "./Steam/profile";
 
 export type AppRuntimeProfile = RuntimeGameProfile | RuntimeLauncherProfile;
-
-export const APP_RUNTIME_PROFILES = [
-  GENSHIN_HOYO_GAME_PROFILE,
-  STARRAIL_HOYO_GAME_PROFILE,
-  ZZZ_HOYO_GAME_PROFILE,
-  HOYOPLAY_LAUNCHER_PROFILE,
-  STEAM_LAUNCHER_PROFILE,
-] as const satisfies readonly AppRuntimeProfile[];
 
 const LAUNCHER_RUNTIME_PROFILES = [
   HOYOPLAY_LAUNCHER_PROFILE,

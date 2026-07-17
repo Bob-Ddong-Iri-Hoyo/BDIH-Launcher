@@ -7,6 +7,7 @@ import path from "path";
 import { HOYOPLAY_WINDOWS_INSTALLER_URL, STEAM_WEBHELPER_ARGUMENTS, STEAM_WINDOWS_INSTALLER_URL } from "../../Common/Constant/RuntimeSources";
 import {
   ApplyBottleRecipePayload,
+  BottleExecutionAvailabilityPayload,
   BottleLaunchOptionsPayload,
   BottleLauncherKind,
   BottlePrefixSessionPayload,
@@ -50,10 +51,24 @@ import { get_hoyo_game_profile, type HoyoGameProfile } from "../Data/Hoyoverse/H
 import { get_launcher_runtime_profile } from "../Data/GameProfile";
 import { find_runtime_profile_executable } from "../Util/RuntimeExecutableDiscovery";
 import { send_to_web_contents } from "../Util/SafeWebContents";
+import {
+  type ExecutionCapabilityState,
+  type ExecutionStrategyAvailabilityPolicy,
+} from "../Execution/ExecutionAvailability";
+import {
+  resolve_launcher_install_strategy,
+  resolve_run_executable_strategy,
+} from "../Execution/ExecutionStrategyResolver";
+import {
+  check_bottle_execution_availability,
+  type BottleExecutionAvailabilityRequest,
+  type ExecutionCapabilityInspector,
+} from "../Execution/ExecutionAvailabilityCoordinator";
 
 const LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS = 10 * 60 * 1000;
 const LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS = 1000;
 const LAUNCHER_EXECUTABLE_STABLE_MS = 2000;
+const LAUNCHER_EXECUTABLE_POST_INSTALLER_EXIT_GRACE_MS = 30_000;
 const PREFIX_SESSION_WATCH_DELAY_MS = 500;
 const STEAM_GAME_PROCESS_LOG_POLL_MS = 750;
 const HOYO_STEAM_STUB_WIN_PATH = "C:\\windows\\system32\\steam.exe";
@@ -348,60 +363,99 @@ export class BottleExecutionManager {
     sender?: WebContents,
   ): Promise<BottleTaskResultPayload> {
     try {
-      const bottlePath = expand_user_home_path(request.bottlePath);
-      const installer = get_launcher_installer(request.launcher);
-      const { installerDir, installerPath, installerMetadataPath } = get_launcher_installer_cache_paths(request.bottlePath, request.launcher);
-
-      mkdirSync(installerDir, { recursive: true });
-      copy_legacy_launcher_installer_if_present(bottlePath, installerPath, installer.fileName);
-      this.sendStatus(sender, {
-        bottleId: request.bottleId,
-        launcher: request.launcher,
-        stage: "download",
-        progress: 1,
-        message: `${installer.label} download started.`,
-      });
-
-      const downloadPlan = await resolve_installer_download_plan(
-        request.launcher,
-        installer.url,
-        installerPath,
-        installerMetadataPath,
+      const availability = await this.checkStrategyAvailability(
+        request,
+        resolve_launcher_install_strategy(request),
+        sender,
       );
 
-      if (downloadPlan.shouldDownload) {
-        if (existsSync(installerPath)) {
-          rmSync(installerPath, { force: true });
-        }
-
-        await this.downloadInstaller(
-          request.bottleId,
-          request.launcher,
-          installer.url,
-          installerDir,
-          installer.fileName,
-          sender,
-        );
-        write_installer_metadata(installerMetadataPath, {
-          url: installer.url,
-          remoteSignature: downloadPlan.remoteSignature,
-          downloadedAt: new Date().toISOString(),
+      if (availability.status === "unavailable") {
+        this.sendStatus(sender, {
+          bottleId: request.bottleId,
+          launcher: request.launcher,
+          stage: "error",
+          progress: 0,
+          message: availability.message,
         });
+
+        return {
+          ok: false,
+          availability,
+          error: availability.message ?? `${request.launcher} installation is unavailable.`,
+        };
+      }
+
+      const bottlePath = expand_user_home_path(request.bottlePath);
+      const installer = get_launcher_installer(request.launcher);
+      const manualInstallerPath = resolve_manual_launcher_installer_path(request.installerPath);
+      const {
+        installerDir,
+        installerPath: downloadedInstallerPath,
+        installerMetadataPath,
+      } = get_launcher_installer_cache_paths(request.bottlePath, request.launcher);
+      let installerPath = manualInstallerPath;
+
+      if (installerPath) {
         this.sendStatus(sender, {
           bottleId: request.bottleId,
           launcher: request.launcher,
           stage: "install",
           progress: 8,
-          message: `${installer.label} installer downloaded. Starting in Wine.`,
+          message: `${installer.label} manual installer selected. Starting in Wine.`,
         });
       } else {
+        installerPath = downloadedInstallerPath;
+        mkdirSync(installerDir, { recursive: true });
+        copy_legacy_launcher_installer_if_present(bottlePath, installerPath, installer.fileName);
         this.sendStatus(sender, {
           bottleId: request.bottleId,
           launcher: request.launcher,
-          stage: "install",
-          progress: 8,
-          message: `${installer.label} installer is ready. Starting in Wine.`,
+          stage: "download",
+          progress: 1,
+          message: `${installer.label} download started.`,
         });
+
+        const downloadPlan = await resolve_installer_download_plan(
+          request.launcher,
+          installer.url,
+          installerPath,
+          installerMetadataPath,
+        );
+
+        if (downloadPlan.shouldDownload) {
+          if (existsSync(installerPath)) {
+            rmSync(installerPath, { force: true });
+          }
+
+          await this.downloadInstaller(
+            request.bottleId,
+            request.launcher,
+            installer.url,
+            installerDir,
+            installer.fileName,
+            sender,
+          );
+          write_installer_metadata(installerMetadataPath, {
+            url: installer.url,
+            remoteSignature: downloadPlan.remoteSignature,
+            downloadedAt: new Date().toISOString(),
+          });
+          this.sendStatus(sender, {
+            bottleId: request.bottleId,
+            launcher: request.launcher,
+            stage: "install",
+            progress: 8,
+            message: `${installer.label} installer downloaded. Starting in Wine.`,
+          });
+        } else {
+          this.sendStatus(sender, {
+            bottleId: request.bottleId,
+            launcher: request.launcher,
+            stage: "install",
+            progress: 8,
+            message: `${installer.label} installer is ready. Starting in Wine.`,
+          });
+        }
       }
 
       if (!is_wine_prefix_ready(bottlePath)) {
@@ -430,7 +484,15 @@ export class BottleExecutionManager {
         ? `${installer.label} executable detected. App metadata will refresh shortly.`
         : waitResult.message ?? `${installer.label} installer launched, but the launcher executable was not detected yet.`;
 
-      if (!detectedExecutablePath) {
+      if (detectedExecutablePath) {
+        this.handoffLauncherInstallerSession(
+          installerProcess.prefixSessionProcessId,
+          request,
+          installer.label,
+          detectedExecutablePath,
+          sender,
+        );
+      } else {
         this.finishPrefixSessionByProcessId(installerProcess.prefixSessionProcessId, waitResult.error);
       }
 
@@ -568,6 +630,32 @@ export class BottleExecutionManager {
       };
     }
 
+    const appName = request.appName?.trim() || app_name_from_executable_path(executablePath);
+    const hoyoGame = request.executionMode === "installer"
+      ? undefined
+      : hoyo_game_from_run_request(request, appName, executablePath);
+    const availability = await this.checkStrategyAvailability(
+      request,
+      resolve_run_executable_strategy(request, {
+        hoyoGame,
+        useHoyoOverseer: !hoyoGame
+          && request.executionMode !== "installer"
+          && should_use_hoyo_overseer_launch(request, executablePath),
+        launcher: request.executionMode === "installer"
+          ? undefined
+          : launcher_from_run_request(request, executablePath),
+      }),
+      sender,
+    );
+
+    if (availability.status === "unavailable") {
+      return {
+        ok: false,
+        availability,
+        error: availability.message ?? "The selected execution Strategy is unavailable.",
+      };
+    }
+
     const bottlePath = expand_user_home_path(request.bottlePath);
     let wineCommand: string;
 
@@ -609,7 +697,6 @@ export class BottleExecutionManager {
       this.trackWinePrefix(request);
     }
 
-    const appName = request.appName?.trim() || app_name_from_executable_path(executablePath);
     const launcherOptionsManifest = request.launcherOptionsManifest ?? read_wine_launcher_options_manifest(request.wineRuntimePath);
     const launchOptions = isInstallerMode
       ? {}
@@ -676,7 +763,7 @@ export class BottleExecutionManager {
           : this.runHoyoGenshinExecutable(strategyContext, sender);
     }
 
-    if (!isInstallerMode && should_use_hoyo_overseer_launch(request, appName, executablePath)) {
+    if (!isInstallerMode && should_use_hoyo_overseer_launch(request, executablePath)) {
       return this.runHoyoOverseer(
         {
           request,
@@ -2212,6 +2299,7 @@ export class BottleExecutionManager {
       {
         appId: `installer:${request.launcher}`,
         appName,
+        executionMode: "installer",
       },
       sender,
     );
@@ -2255,6 +2343,60 @@ export class BottleExecutionManager {
     };
   }
 
+  private handoffLauncherInstallerSession(
+    processId: string,
+    request: InstallBottleLauncherPayload,
+    launcherName: string,
+    executablePath: string,
+    sender?: WebContents,
+  ): void {
+    const session = this.prefixSessionsByProcessId.get(processId);
+
+    if (!session || session.ended) {
+      this.logger.warn("launcher installer session ended before handoff", {
+        processId,
+        bottleId: request.bottleId,
+        launcher: request.launcher,
+        executablePath,
+      });
+      return;
+    }
+
+    session.sender = sender ?? session.sender;
+    session.launcher = request.launcher;
+    session.appId = request.launcher;
+    session.appIds = session.appIds ?? new Set<string>();
+    session.appIds.delete(`installer:${request.launcher}`);
+    session.appIds.add(request.launcher);
+    session.appName = launcherName;
+    session.executionMode = "app";
+    session.steamLauncherOwnerAppId = undefined;
+
+    if (request.launcher === "steam") {
+      const processLogPath = steam_game_process_log_path(session.prefixPath, executablePath);
+
+      if (processLogPath) {
+        this.startSteamGameProcessWatcher(session, processLogPath);
+      }
+    }
+
+    this.sendPrefixSessionUpdate(session, true);
+    this.logger.info("launcher installer session handed off", {
+      processId,
+      bottleId: request.bottleId,
+      launcher: request.launcher,
+      executablePath,
+    });
+    discordPresenceManager.setBottleActivity({
+      processId,
+      bottleName: session.bottleName,
+      launcher: request.launcher,
+      appId: request.launcher,
+      appName: launcherName,
+      startedAt: session.startedAt,
+    });
+  }
+
   private async waitForInstalledLauncherExecutable(
     request: InstallBottleLauncherPayload,
     installerLabel: string,
@@ -2266,13 +2408,16 @@ export class BottleExecutionManager {
     const startedAt = Date.now();
     let lastProgressUpdate = 0;
     let lastFallbackScanAt = 0;
-    let installerExit: { code?: number; error?: string } | undefined;
+    let installerExit: { code?: number; error?: string; exitedAt: number } | undefined;
     const installerDoneState = installerDone?.then(
       (code) => {
-        installerExit = { code };
+        installerExit = { code, exitedAt: Date.now() };
       },
       (error) => {
-        installerExit = { error: error instanceof Error ? error.message : String(error) };
+        installerExit = {
+          error: error instanceof Error ? error.message : String(error),
+          exitedAt: Date.now(),
+        };
       },
     );
 
@@ -2298,7 +2443,15 @@ export class BottleExecutionManager {
         return { detectedPath };
       }
 
-      if (installerExit) {
+      const installerFailed = Boolean(
+        installerExit?.error || (installerExit?.code !== undefined && installerExit.code !== 0),
+      );
+      const installerExitGraceExpired = Boolean(
+        installerExit
+        && now - installerExit.exitedAt >= LAUNCHER_EXECUTABLE_POST_INSTALLER_EXIT_GRACE_MS,
+      );
+
+      if (installerExit && (installerFailed || installerExitGraceExpired)) {
         const message = installerExit.error
           ? `${installerLabel} installer closed with error: ${installerExit.error}`
           : installerExit.code && installerExit.code !== 0
@@ -2332,10 +2485,14 @@ export class BottleExecutionManager {
         });
       }
 
-      await Promise.race([
-        delay(LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS),
-        installerDoneState ?? delay(LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS),
-      ]);
+      if (installerExit) {
+        await delay(LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS);
+      } else {
+        await Promise.race([
+          delay(LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS),
+          installerDoneState ?? delay(LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS),
+        ]);
+      }
     }
 
     this.sendStatus(sender, {
@@ -2987,6 +3144,125 @@ export class BottleExecutionManager {
     payload: BottleTaskStatusPayload,
   ): void {
     send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.STATUS_UPDATE.channelName, payload);
+  }
+
+  private async checkStrategyAvailability<Request extends ExecutionAvailabilityRequest>(
+    request: Request,
+    policy: ExecutionStrategyAvailabilityPolicy<Request>,
+    sender?: WebContents,
+  ): Promise<BottleExecutionAvailabilityPayload> {
+    const payload = await check_bottle_execution_availability({
+      request,
+      policy,
+      inspector: current_execution_capability_inspector,
+      emit: (event) => this.sendAvailability(sender, event),
+    });
+
+    if (payload.status === "available") {
+      this.logger.debug("execution Strategy is available", {
+        bottleId: request.bottleId,
+        appId: request.appId,
+        providerId: policy.providerId,
+        strategyId: policy.strategyId,
+        wineVersionId: request.wineVersionId,
+      });
+    } else {
+      this.logger.warn("execution Strategy is unavailable", {
+        bottleId: request.bottleId,
+        appId: request.appId,
+        providerId: policy.providerId,
+        strategyId: policy.strategyId,
+        wineVersionId: request.wineVersionId,
+        issues: payload.issues,
+      });
+    }
+
+    return payload;
+  }
+
+  private sendAvailability(
+    sender: WebContents | undefined,
+    payload: BottleExecutionAvailabilityPayload,
+  ): void {
+    send_to_web_contents(
+      sender,
+      IPC_CHANNELS.BOTTLE.EXECUTION_AVAILABILITY_UPDATE.channelName,
+      payload,
+    );
+  }
+}
+
+type ExecutionAvailabilityRequest = SetupBottlePrefixPayload & BottleExecutionAvailabilityRequest;
+
+const current_execution_capability_inspector: ExecutionCapabilityInspector<ExecutionAvailabilityRequest> = {
+  inspectWineRuntime(request) {
+    const runtimePath = request.wineRuntimePath
+      ? expand_user_home_path(request.wineRuntimePath)
+      : undefined;
+    const available = Boolean(runtimePath && existsSync(runtimePath));
+
+    return {
+      available,
+      value: runtimePath,
+      error: available
+        ? undefined
+        : `Wine runtime is not installed or extracted: ${request.wineVersionId}. Install this Wine version before launching.`,
+    };
+  },
+  inspectWineTool(request, tool) {
+    return probe_execution_capability(() => {
+      if (!request.wineRuntimePath) {
+        throw new Error(
+          `Wine runtime is not installed or extracted: ${request.wineVersionId}. Install this Wine version before launching.`,
+        );
+      }
+
+      return tool === "wineserver"
+        ? resolve_wine_tool(request.wineRuntimePath, tool)
+        : resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, tool);
+    });
+  },
+  readWineManifest(request) {
+    return request.launcherOptionsManifest
+      ?? read_wine_launcher_options_manifest(request.wineRuntimePath);
+  },
+  async inspectDependency(request, dependency) {
+    if (dependency === "dxmt") {
+      return probe_execution_capability(() => {
+        validate_dxmt_runtime(request.dxmtVersionId, request.dxmtPackagePath);
+        return request.dxmtPackagePath
+          ? expand_user_home_path(request.dxmtPackagePath)
+          : request.dxmtVersionId;
+      });
+    }
+
+    const preference = await preferenceManager.getPreference();
+
+    return probe_execution_capability(() =>
+      resolve_jadeite_runtime(
+        expand_user_home_path(preference.dataRootPath),
+        request.jadeiteRuntimePath,
+      ).rootPath,
+    );
+  },
+};
+
+function probe_execution_capability(
+  probe: () => string | undefined,
+): ExecutionCapabilityState {
+  try {
+    const value = probe();
+
+    return {
+      available: Boolean(value),
+      value,
+      error: value ? undefined : "The required runtime capability was not found.",
+    };
+  } catch (error) {
+    return {
+      available: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -5338,7 +5614,6 @@ function launcher_from_run_request(
 
 function should_use_hoyo_overseer_launch(
   request: RunBottleExecutablePayload,
-  appName: string,
   executablePath: string,
 ): boolean {
   if (request.appId === "hoyoplay" || request.appId?.startsWith("hoyo:")) {
@@ -5559,6 +5834,50 @@ function normalize_executable_path(executablePath: string): string {
   }
 
   return expand_user_home_path(executablePath);
+}
+
+function resolve_manual_launcher_installer_path(installerPath?: string): string | undefined {
+  const trimmedPath = installerPath?.trim();
+
+  if (!trimmedPath) {
+    return undefined;
+  }
+
+  const resolvedPath = expand_user_home_path(trimmedPath);
+
+  if (path.extname(resolvedPath).toLowerCase() !== ".exe") {
+    throw new Error("Select a Windows launcher installer with the .exe extension.");
+  }
+
+  let descriptor: number | undefined;
+
+  try {
+    if (!statSync(resolvedPath).isFile()) {
+      throw new Error("The selected launcher installer is not a file.");
+    }
+
+    const header = Buffer.alloc(2);
+    descriptor = openSync(resolvedPath, "r");
+
+    if (readSync(descriptor, header, 0, header.length, 0) !== header.length || header.toString("ascii") !== "MZ") {
+      throw new Error("The selected file is not a Windows PE executable.");
+    }
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message === "The selected launcher installer is not a file."
+      || error.message === "The selected file is not a Windows PE executable."
+    )) {
+      throw error;
+    }
+
+    throw new Error(`The selected launcher installer cannot be read: ${resolvedPath}`);
+  } finally {
+    if (descriptor !== undefined) {
+      closeSync(descriptor);
+    }
+  }
+
+  return resolvedPath;
 }
 
 function get_process_cwd(executablePath: string, bottlePath: string): string {

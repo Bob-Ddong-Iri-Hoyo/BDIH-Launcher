@@ -374,12 +374,13 @@
       },
       "installers": {
         "title": "启动器安装程序",
-        "description": "首次点击只下载官方 Windows 安装程序。运行安装程序时才会设置 Prefix 和 Wine。",
+        "description": "可下载官方安装程序，或直接选择已有的启动器 EXE。",
         "modalTitle": "启动器安装程序",
-        "modalDescription": "先下载安装程序，下载完成后再次点击以使用 Wine 运行。",
+        "modalDescription": "下载完成后，下载按钮会变为安装。直接运行会使用所选 EXE 启动相同的安装流程。",
         "openAction": "打开启动器安装程序",
         "install": "下载安装程序",
-        "runInstaller": "运行安装程序",
+        "runInstaller": "安装",
+        "selectExecutable": "直接运行",
         "installSteam": "下载 / 运行 Steam 安装程序",
         "installHoyoplay": "下载 / 运行 HoYoPlay 安装程序",
         "installing": "正在准备安装程序...",
@@ -407,8 +408,6 @@
         }
       },
       "runner": {
-        "title": "运行可执行文件",
-        "description": "使用此 Bottle Prefix 直接运行本地 Windows 可执行文件。",
         "addManualApp": "手动添加应用",
         "addManualAppDescription": "自动检测遗漏时，将可执行文件注册到此 Bottle。",
         "pathPlaceholder": "C:\\Program Files\\App\\app.exe 或 /Users/me/Downloads/setup.exe",
@@ -456,12 +455,10 @@
         "installerModeActiveDescription": "不会注册安装程序本身；安装结束后将从所选 Prefix 中查找已安装的应用。",
         "installerStarted": "安装程序已启动，正在等待安装结束。",
         "pathRequired": "请先输入可执行文件路径。",
-        "wineRuntimeMissing": "Wine 运行时未安装或未解压：{{versionId}}",
         "starting": "正在启动可执行文件...",
         "started": "可执行文件已在此 Bottle 中启动。",
         "registered": "可执行文件已添加到此 Bottle。",
         "failed": "无法启动可执行文件。",
-        "run": "在 Bottle 中运行",
         "register": "添加到应用"
       },
       "searchReady": "搜索 Bottle",

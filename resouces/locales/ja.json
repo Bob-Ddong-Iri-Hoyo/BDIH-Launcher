@@ -374,12 +374,13 @@
       },
       "installers": {
         "title": "ランチャーインストーラ",
-        "description": "最初のクリックでは公式Windowsインストーラだけをダウンロードします。prefixとWine設定はインストーラ実行時に準備します。",
+        "description": "公式インストーラをダウンロードするか、手元のランチャーEXEを直接選択できます。",
         "modalTitle": "ランチャーインストーラ",
-        "modalDescription": "まずインストーラをダウンロードし、完了後にもう一度クリックしてWineで実行します。",
+        "modalDescription": "ダウンロード完了後、ダウンロードボタンがインストールに変わります。直接実行は選択したEXEで同じインストール処理を開始します。",
         "openAction": "ランチャーインストーラを開く",
         "install": "インストーラをダウンロード",
-        "runInstaller": "インストーラを実行",
+        "runInstaller": "インストール",
+        "selectExecutable": "直接実行",
         "installSteam": "Steamインストーラをダウンロード/実行",
         "installHoyoplay": "HoYoPlayインストーラをダウンロード/実行",
         "installing": "インストーラを準備中...",
@@ -407,8 +408,6 @@
         }
       },
       "runner": {
-        "title": "実行ファイルを起動",
-        "description": "ローカルのWindows実行ファイルをこのボトルprefixで直接実行します。",
         "addManualApp": "アプリを手動追加",
         "addManualAppDescription": "自動検出されなかった実行ファイルをこのボトルに登録します。",
         "pathPlaceholder": "C:\\Program Files\\App\\app.exe or /Users/me/Downloads/setup.exe",
@@ -456,12 +455,10 @@
         "installerModeActiveDescription": "インストーラー自体は登録せず、終了後に選択したprefixからインストール済みアプリを検出します。",
         "installerStarted": "インストーラーを開始しました。インストールの終了を待っています。",
         "pathRequired": "先に実行ファイルのパスを入力してください。",
-        "wineRuntimeMissing": "Wineランタイムがインストールまたは展開されていません: {{versionId}}",
         "starting": "実行ファイルを起動中...",
         "started": "このボトルで実行ファイルを起動しました。",
         "registered": "実行ファイルをこのボトルに追加しました。",
         "failed": "実行ファイルの起動に失敗しました。",
-        "run": "ボトルで実行",
         "register": "アプリに追加"
       },
       "searchReady": "ボトルを検索",

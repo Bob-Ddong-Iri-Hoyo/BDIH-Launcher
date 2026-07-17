@@ -1,7 +1,13 @@
-import type { HoyoGameProfileId, HoyoConfigOptionDefinition } from "./HoyoGameProfile";
-import type { RuntimeLauncherProfile } from "../../../Common/Types/DataProtoType";
+import type {
+  RuntimeLauncherProfile,
+} from "../../../../Common/Types/DataProtoType";
+import type {
+  HoyoConfigOptionDefinition,
+  HoyoGameProfileId,
+} from "../HoyoGameProfile";
 
-export interface HoyoplayLauncherProfile extends RuntimeLauncherProfile<"hoyoplay", HoyoGameProfileId> {
+export interface HoyoplayLauncherProfile
+extends RuntimeLauncherProfile<"hoyoplay", HoyoGameProfileId> {
   kind: "launcher";
   id: "hoyoplay";
   managedGames: HoyoGameProfileId[];

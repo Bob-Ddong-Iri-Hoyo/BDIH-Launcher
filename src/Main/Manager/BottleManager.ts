@@ -85,6 +85,12 @@ interface BottleRegistryState {
   deletedBottleKeys: string[];
 }
 
+interface SteamInstallDetection {
+  app: InstalledBottleAppPayload;
+  steamRootPath: string;
+  prefixPath: string;
+}
+
 /**
  * Maintains bottle metadata across three sources:
  *
@@ -1545,11 +1551,9 @@ async function detect_installed_apps(bottle: BottleMetadataPayload): Promise<Ins
   return apps;
 }
 
-async function detect_steam_install(bottle: BottleMetadataPayload): Promise<{
-  app: InstalledBottleAppPayload;
-  steamRootPath: string;
-  executablePath: string;
-} | null> {
+async function detect_steam_install(
+  bottle: BottleMetadataPayload,
+): Promise<SteamInstallDetection | null> {
   const detected = await find_launcher_profile_executable(bottle.path, "steam");
 
   if (!detected) {
@@ -1558,7 +1562,7 @@ async function detect_steam_install(bottle: BottleMetadataPayload): Promise<{
 
   return {
     steamRootPath: path.dirname(detected.executablePath),
-    executablePath: detected.executablePath,
+    prefixPath: detected.prefixPath,
     app: {
       id: "steam",
       name: "Steam",
@@ -1801,38 +1805,114 @@ async function find_launcher_profile_executable(
 
 async function detect_steam_games(
   bottle: BottleMetadataPayload,
-  steamInstall: { steamRootPath: string; app: InstalledBottleAppPayload },
+  steamInstall: SteamInstallDetection,
 ): Promise<InstalledBottleAppPayload[]> {
-  const steamAppsPath = path.join(steamInstall.steamRootPath, "steamapps");
+  const steamAppsPaths = await find_steam_library_steamapps_paths(steamInstall);
+  const manifestPaths = unique_paths((await Promise.all(
+    steamAppsPaths.map(async (steamAppsPath) => {
+      try {
+        const entries = await readdir(steamAppsPath, { withFileTypes: true });
 
-  if (!existsSync(steamAppsPath)) {
-    return [];
+        return entries
+          .filter((entry) => entry.isFile() && /^appmanifest_\d+\.acf$/i.test(entry.name))
+          .map((entry) => path.join(steamAppsPath, entry.name));
+      } catch {
+        return [];
+      }
+    }),
+  )).flat());
+  const detectedApps = await Promise.all(
+    manifestPaths.map(async (manifestPath) => {
+      try {
+        return steam_app_from_manifest(
+          bottle,
+          steamInstall,
+          manifestPath,
+          await readFile(manifestPath, "utf8"),
+        );
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const appsById = new Map<string, InstalledBottleAppPayload>();
+
+  for (const app of detectedApps) {
+    if (app) {
+      appsById.set(app.id, app);
+    }
+  }
+
+  return [...appsById.values()];
+}
+
+async function find_steam_library_steamapps_paths(
+  steamInstall: SteamInstallDetection,
+): Promise<string[]> {
+  const primarySteamAppsPath = path.join(steamInstall.steamRootPath, "steamapps");
+  const libraryRoots: string[] = [steamInstall.steamRootPath];
+  const sharedDriveRoot = wine_drive_host_root(steamInstall.prefixPath, "g:");
+
+  if (sharedDriveRoot) {
+    libraryRoots.push(sharedDriveRoot, path.join(sharedDriveRoot, "SteamLibrary"));
   }
 
   try {
-    const entries = await readdir(steamAppsPath, { withFileTypes: true });
-    const manifests = entries
-      .filter((entry) => entry.isFile() && /^appmanifest_\d+\.acf$/i.test(entry.name))
-      .map((entry) => path.join(steamAppsPath, entry.name));
-    const apps = await Promise.all(
-      manifests.map(async (manifestPath) => {
-        try {
-          return steam_app_from_manifest(bottle, steamInstall, manifestPath, await readFile(manifestPath, "utf8"));
-        } catch {
-          return null;
-        }
-      }),
+    const libraryFolders = await readFile(
+      path.join(primarySteamAppsPath, "libraryfolders.vdf"),
+      "utf8",
     );
 
-    return apps.filter((app): app is InstalledBottleAppPayload => Boolean(app));
+    for (const libraryPath of steam_library_paths_from_vdf(libraryFolders)) {
+      const hostPath = host_path_from_app_executable(
+        steamInstall.prefixPath,
+        libraryPath,
+      );
+
+      if (hostPath) {
+        libraryRoots.push(hostPath);
+      }
+    }
   } catch {
-    return [];
+    // The primary library and conventional G: locations still remain valid.
   }
+
+  return unique_paths(
+    libraryRoots.map((libraryRoot) =>
+      path.basename(libraryRoot).toLowerCase() === "steamapps"
+        ? libraryRoot
+        : path.join(libraryRoot, "steamapps"),
+    ),
+  ).filter((steamAppsPath) => existsSync(steamAppsPath));
+}
+
+function steam_library_paths_from_vdf(libraryFolders: string): string[] {
+  const paths: string[] = [];
+  const currentFormat = /"path"\s+"((?:\\.|[^"\\])*)"/gi;
+  const legacyFormat = /"\d+"\s+"((?:[A-Za-z]:[\\/]|\/)(?:\\.|[^"\\])*)"/g;
+
+  for (const pattern of [currentFormat, legacyFormat]) {
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(libraryFolders)) !== null) {
+      if (match[1]) {
+        paths.push(decode_vdf_string(match[1]));
+      }
+    }
+  }
+
+  return [...new Set(paths)];
+}
+
+function decode_vdf_string(value: string): string {
+  return value
+    .replace(/\\\\/g, "\\")
+    .replace(/\\"/g, '"');
 }
 
 async function steam_app_from_manifest(
   bottle: BottleMetadataPayload,
-  steamInstall: { steamRootPath: string; app: InstalledBottleAppPayload },
+  steamInstall: SteamInstallDetection,
   manifestPath: string,
   manifest: string,
 ): Promise<InstalledBottleAppPayload | null> {
@@ -1844,8 +1924,9 @@ async function steam_app_from_manifest(
     return null;
   }
 
+  const steamAppsPath = path.dirname(manifestPath);
   const gameExecutablePath = installDir
-    ? await find_steam_game_executable(steamInstall.steamRootPath, installDir, name)
+    ? await find_steam_game_executable(steamAppsPath, installDir, name)
     : undefined;
   const iconSrc = await iconManager.extractExecutableIcon(gameExecutablePath, bottle_icon_cache_path(bottle.path));
 
@@ -1869,11 +1950,11 @@ async function steam_app_from_manifest(
 }
 
 async function find_steam_game_executable(
-  steamRootPath: string,
+  steamAppsPath: string,
   installDir: string,
   appName: string,
 ): Promise<string | undefined> {
-  const appRootPath = path.join(steamRootPath, "steamapps", "common", installDir);
+  const appRootPath = path.join(steamAppsPath, "common", installDir);
 
   if (!existsSync(appRootPath)) {
     return undefined;

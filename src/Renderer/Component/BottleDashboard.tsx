@@ -1107,6 +1107,7 @@ export function BottleDetailPanel({
   onRevealBottle,
   onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
+  onInstallBottleLauncherExecutable,
   onLaunchBottleApp,
   onStopBottleApp,
   onDeleteBottleApp,
@@ -1132,6 +1133,7 @@ export function BottleDetailPanel({
   onRevealBottle?: (path: string) => void;
   onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
+  onInstallBottleLauncherExecutable?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
   onStopBottleApp?: (bottleId: string, appId: string) => void;
   onDeleteBottleApp?: (bottleId: string, appId: string) => void;
@@ -1294,15 +1296,10 @@ export function BottleDetailPanel({
 
         <BottleActionBar
           bottle={bottle}
-          wineRuntimePath={wineRuntimePath}
-          dxmtPackagePath={dxmtPackagePath}
-          launcherOptionsManifest={launcherOptionsManifest}
           onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
           onInstallBottleLauncher={onInstallBottleLauncher}
+          onInstallBottleLauncherExecutable={onInstallBottleLauncherExecutable}
           onLaunchBottleApp={onLaunchBottleApp}
-          onRegisterBottleExecutable={onRegisterBottleExecutable}
-          onUpdateBottlePrefixes={onUpdateBottlePrefixes}
-          onDeleteBottlePrefix={onDeleteBottlePrefix}
         />
 
         {shouldShowSetupProgress ? (

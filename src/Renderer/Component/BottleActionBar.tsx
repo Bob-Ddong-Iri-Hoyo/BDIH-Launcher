@@ -1,11 +1,9 @@
 import React from "react";
-import { Download } from "lucide-react";
+import { Download, FileUp, PackageOpen, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { HOYOPLAY_ICON_URL, STEAM_ICON_URL } from "../../Common/Constant/RuntimeSources";
-import type { BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload } from "../../Common/Types/IPC";
-import type { WineLauncherOptionsManifest } from "../../Common/Types/Wine";
+import type { BottleLauncherKind } from "../../Common/Types/IPC";
 import type { Bottle } from "../Types/Bottle";
-import { DirectExecutableAction } from "./DirectExecutableAction";
 import { Dialog } from "./Dialog";
 import { FaviconIcon } from "./FaviconIcon";
 import { Box, Button, Inline, InlineText, Stack, Text } from "./Primitives";
@@ -14,30 +12,20 @@ import { Box, Button, Inline, InlineText, Stack, Text } from "./Primitives";
  * Quick action row for the currently selected bottle.
  *
  * Use this above or beside bottle metadata when the user needs launcher install
- * shortcuts and a direct executable launcher for the same bottle context.
+ * shortcuts for the same bottle context.
  */
 export function BottleActionBar({
   bottle,
-  wineRuntimePath,
-  dxmtPackagePath,
-  launcherOptionsManifest,
   onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
+  onInstallBottleLauncherExecutable,
   onLaunchBottleApp,
-  onRegisterBottleExecutable,
-  onUpdateBottlePrefixes,
-  onDeleteBottlePrefix,
 }: {
   bottle: Bottle;
-  wineRuntimePath?: string;
-  dxmtPackagePath?: string;
-  launcherOptionsManifest?: WineLauncherOptionsManifest;
   onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
+  onInstallBottleLauncherExecutable?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
-  onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
-  onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
-  onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
 }) {
   const { t } = useTranslation();
   const [isLauncherInstallOpen, setIsLauncherInstallOpen] = React.useState(false);
@@ -93,15 +81,6 @@ export function BottleActionBar({
           {t("main.installers.openAction")}
         </Button>
       </Stack>
-      <DirectExecutableAction
-        bottle={bottle}
-        wineRuntimePath={wineRuntimePath}
-        dxmtPackagePath={dxmtPackagePath}
-        launcherOptionsManifest={launcherOptionsManifest}
-        onRegisterBottleExecutable={onRegisterBottleExecutable}
-        onUpdateBottlePrefixes={onUpdateBottlePrefixes}
-        onDeleteBottlePrefix={onDeleteBottlePrefix}
-      />
       <Dialog
         open={isLauncherInstallOpen}
         title={t("main.installers.modalTitle")}
@@ -120,22 +99,24 @@ export function BottleActionBar({
         ]}
       >
         <Box className="grid gap-3">
-          <LauncherInstallIconButton
+          <LauncherInstallRow
             bottle={bottle}
             launcher="steam"
             iconSrc={STEAM_ICON_URL}
             label={t("main.installers.steam.title")}
             onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
             onInstallBottleLauncher={onInstallBottleLauncher}
+            onInstallBottleLauncherExecutable={onInstallBottleLauncherExecutable}
             onLaunchBottleApp={onLaunchBottleApp}
           />
-          <LauncherInstallIconButton
+          <LauncherInstallRow
             bottle={bottle}
             launcher="hoyoplay"
             iconSrc={HOYOPLAY_ICON_URL}
             label={t("main.installers.hoyoplay.title")}
             onDownloadBottleLauncherInstaller={onDownloadBottleLauncherInstaller}
             onInstallBottleLauncher={onInstallBottleLauncher}
+            onInstallBottleLauncherExecutable={onInstallBottleLauncherExecutable}
             onLaunchBottleApp={onLaunchBottleApp}
           />
         </Box>
@@ -144,13 +125,14 @@ export function BottleActionBar({
   );
 }
 
-function LauncherInstallIconButton({
+function LauncherInstallRow({
   bottle,
   launcher,
   iconSrc,
   label,
   onDownloadBottleLauncherInstaller,
   onInstallBottleLauncher,
+  onInstallBottleLauncherExecutable,
   onLaunchBottleApp,
 }: {
   bottle: Bottle;
@@ -159,6 +141,7 @@ function LauncherInstallIconButton({
   label: string;
   onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onInstallBottleLauncher?: (bottleId: string, launcher: BottleLauncherKind) => void;
+  onInstallBottleLauncherExecutable?: (bottleId: string, launcher: BottleLauncherKind) => void;
   onLaunchBottleApp?: (bottleId: string, appId: string) => void;
 }) {
   const { t } = useTranslation();
@@ -183,7 +166,7 @@ function LauncherInstallIconButton({
     ? `${label} ${t(`main.installers.stage.${task?.stage ?? "install"}`)}`
     : `${label} ${statusLabel}`;
 
-  function handle_launcher_click() {
+  function handle_primary_click() {
     if (isReady && launcherApp) {
       onLaunchBottleApp?.(bottle.id, launcherApp.id);
       return;
@@ -198,12 +181,9 @@ function LauncherInstallIconButton({
   }
 
   return (
-    <Button
-      type="button"
-      disabled={isWorking}
+    <Box
       title={title}
-      onClick={handle_launcher_click}
-      className={`launcher-action-button group grid h-14 min-w-0 shrink-0 grid-cols-[2.75rem_minmax(0,1fr)_7.25rem] items-center gap-2 overflow-hidden rounded-xl border px-3 text-left transition active:scale-95 ${
+      className={`launcher-action-button group grid min-h-16 min-w-0 grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-xl border p-2 transition ${
         isReady
           ? "accent-border bg-white/[0.07] text-slate-100 hover:bg-white/[0.1]"
         : isError
@@ -212,36 +192,55 @@ function LauncherInstallIconButton({
           ? "border-sky-300/25 bg-sky-500/10 text-sky-100 hover:bg-sky-500/15"
           : isWorking
             ? "border-white/10 bg-white/[0.035] text-slate-300 hover:border-white/15 hover:bg-white/[0.05]"
-            : "border-white/10 bg-white/[0.025] text-slate-500 grayscale hover:border-white/15 hover:bg-white/[0.04]"
-      } ${isWorking ? "cursor-wait disabled:cursor-wait" : ""}`}
+            : "border-white/10 bg-white/[0.025] text-slate-500 hover:border-white/15 hover:bg-white/[0.04]"
+      } ${isWorking ? "cursor-wait" : ""}`}
     >
-      <Box
-        className={`launcher-action-icon relative grid h-10 w-10 place-items-center justify-self-center rounded-full ${isWorking ? "launcher-action-icon-working" : ""} ${isError ? "launcher-action-icon-error" : ""} ${isReady ? "launcher-action-icon-ready" : ""}`}
-        style={{ "--launcher-progress": `${displayProgress}%` } as React.CSSProperties}
-      >
-        <FaviconIcon src={iconSrc} label={label} />
-        {isWorking ? (
-          <Box className="pointer-events-none absolute inset-[-5px] rounded-full launcher-action-progress-ring" />
-        ) : null}
-      </Box>
-      <Stack className="min-w-0 gap-0.5">
-        <InlineText className={isReady || isDownloaded ? "min-w-0 truncate text-left text-xs font-semibold text-slate-200" : "min-w-0 truncate text-left text-xs font-semibold text-slate-500"}>
+      <Stack className="min-w-0 items-center gap-1">
+        <Box
+          className={`launcher-action-icon relative grid h-10 w-10 place-items-center rounded-full ${isWorking ? "launcher-action-icon-working" : ""} ${isError ? "launcher-action-icon-error" : ""} ${isReady ? "launcher-action-icon-ready" : ""}`}
+          style={{ "--launcher-progress": `${displayProgress}%` } as React.CSSProperties}
+        >
+          <FaviconIcon src={iconSrc} label={label} />
+          {isWorking ? (
+            <Box className="pointer-events-none absolute inset-[-5px] rounded-full launcher-action-progress-ring" />
+          ) : null}
+        </Box>
+        <InlineText className="max-w-12 truncate text-[9px] font-semibold text-slate-400">
           {label}
         </InlineText>
-        {task?.message ? (
-          <Text className="min-w-0 truncate text-[10px] leading-4 text-slate-500">
-            {task.message}
-          </Text>
-        ) : null}
       </Stack>
-      <Inline className="min-w-0 justify-end">
-        <InlineText className={`inline-flex h-7 w-28 items-center justify-center truncate rounded-full border px-2 text-center text-[10px] font-black ${
-          launcher_status_tone_class({ isWorking, isDownloaded, isReady, isError })
-        }`}>
-          {statusLabel}
-        </InlineText>
-      </Inline>
-    </Button>
+      <Button
+        type="button"
+        variant={isReady ? "primary" : "glass"}
+        size="md"
+        disabled={isWorking}
+        icon={isReady
+          ? <Play size={14} />
+          : isDownloaded
+            ? <PackageOpen size={14} />
+            : <Download size={14} />}
+        className={`min-w-0 px-2 text-xs ${launcher_status_tone_class({ isWorking, isDownloaded, isReady, isError })}`}
+        onClick={handle_primary_click}
+      >
+        <InlineText className="truncate">{statusLabel}</InlineText>
+      </Button>
+      <Button
+        type="button"
+        variant="glass"
+        size="md"
+        disabled={isWorking || !onInstallBottleLauncherExecutable}
+        icon={<FileUp size={14} />}
+        className="min-w-0 px-2 text-xs"
+        onClick={() => onInstallBottleLauncherExecutable?.(bottle.id, launcher)}
+      >
+        <InlineText className="truncate">{t("main.installers.selectExecutable")}</InlineText>
+      </Button>
+      {task?.message ? (
+        <Text className="col-span-2 col-start-2 min-w-0 truncate px-1 text-[10px] leading-4 text-slate-500">
+          {task.message}
+        </Text>
+      ) : null}
+    </Box>
   );
 }
 
@@ -279,7 +278,7 @@ function launcher_status_label({
   }
 
   if (isReady) {
-    return translate("main.installers.stage.ready");
+    return translate("common.actions.run");
   }
 
   return translate("common.actions.download");

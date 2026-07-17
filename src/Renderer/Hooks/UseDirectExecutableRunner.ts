@@ -212,11 +212,6 @@ export function useDirectExecutableRunner({
       return;
     }
 
-    if (!wineRuntimePath) {
-      setStatusMessage(t("main.runner.wineRuntimeMissing", { versionId: bottle.wineVersionId }));
-      return;
-    }
-
     setStatusMessage(t("main.runner.starting"));
     const runExecutablePath = executable_path_for_wine_prefix(executablePath.trim(), manualPrefixPath);
     const result = await (

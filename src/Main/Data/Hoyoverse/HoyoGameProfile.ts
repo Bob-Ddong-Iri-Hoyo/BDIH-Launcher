@@ -1,6 +1,6 @@
-import { GENSHIN_HOYO_GAME_PROFILE } from "./Genshin";
-import { STARRAIL_HOYO_GAME_PROFILE } from "./Starrail";
-import { ZZZ_HOYO_GAME_PROFILE } from "./ZenlessZoneZero";
+import { GENSHIN_HOYO_GAME_PROFILE } from "./genshin/profile";
+import { STARRAIL_HOYO_GAME_PROFILE } from "./starrail/profile";
+import { ZZZ_HOYO_GAME_PROFILE } from "./zenless-zone-zero/profile";
 import type { BottleLaunchOptionsPayload } from "../../../Common/Types/IPC";
 import type {
   RuntimeConfigOptionDefinition,

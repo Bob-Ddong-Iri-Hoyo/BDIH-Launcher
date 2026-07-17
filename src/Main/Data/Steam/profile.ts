@@ -6,7 +6,10 @@ import type {
 
 export type SteamLaunchMode = "wine-direct" | "steam-client";
 
-export type SteamConfigValueType = Extract<RuntimeConfigValueType, "boolean" | "number" | "string">;
+export type SteamConfigValueType = Extract<
+  RuntimeConfigValueType,
+  "boolean" | "number" | "string"
+>;
 
 export interface SteamConfigOptionDefinition extends RuntimeConfigOptionDefinition {
   type: SteamConfigValueType;

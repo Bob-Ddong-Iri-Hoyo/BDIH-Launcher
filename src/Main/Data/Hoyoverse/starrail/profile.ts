@@ -1,4 +1,4 @@
-import type { HoyoGameProfile } from "./HoyoGameProfile";
+import type { HoyoGameProfile } from "../HoyoGameProfile";
 
 export const STARRAIL_HOYO_GAME_PROFILE = {
   kind: "game",

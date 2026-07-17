@@ -8,6 +8,16 @@ The target architecture in this document is a design direction. Unless a
 section explicitly says otherwise, the interfaces shown below are not yet
 implemented.
 
+An initial compatibility layer is implemented for Strategy availability
+checks. It evaluates declarative Wine and dependency requirements before the
+existing `BottleExecutionManager` execution body runs, and emits typed
+availability events. Actual process execution still uses the existing manager
+until the later migration phases are completed.
+
+Application-owned definitions live below `src/Main/Data`, next to their
+Profiles. `Main/Execution` contains only shared contracts, evaluation, event
+coordination, and the temporary route resolver.
+
 ## Goals
 
 - Keep application-specific execution behavior outside the central execution
@@ -90,6 +100,14 @@ launcher session, what ends a session, and when metadata should be refreshed.
 
 ### Current launcher installation flow
 
+The launcher installer dialog exposes two provider-bound sources for Steam and
+HoYoPlay. The primary action downloads the official installer and changes from
+`Download` to `Install` when the cached download is complete. The secondary
+action lets the user select a local Windows EXE. A selected file must be a
+readable `.exe` with a PE `MZ` header; after that validation, both sources enter
+the same provider-specific installation and session-handoff flow. The generic
+direct-execution card is not exposed as an installation entry point.
+
 The dedicated launcher installation path currently performs all of the
 following in `BottleExecutionManager`:
 
@@ -98,8 +116,9 @@ following in `BottleExecutionManager`:
 3. Start the installer executable.
 4. Create a prefix session.
 5. Poll the prefix for the expected launcher executable.
-6. Stop polling when the executable is stable, the installer process exits, or
-   the timeout expires.
+6. Keep polling through a short grace period when the installer exits cleanly;
+   stop immediately on failure, or when the grace period or global timeout
+   expires.
 7. Update launcher task state and optionally force a Bottle metadata refresh.
 
 The flow assumes that the parent installer process is a useful lifecycle
@@ -167,6 +186,31 @@ already present and can be detected before the installer parent exits. A new
 Nightly Bottle starts with a clean prefix, so the invalid parent-exit boundary
 is much more likely to be observed. The different storage root is not the
 cause; the initial filesystem state and event order are different.
+
+### Compatibility handoff now in use
+
+Until launcher installation moves fully into provider-owned Strategies, the
+manager preserves one prefix session across the transition:
+
+```text
+installer:<launcher> / executionMode=installer
+  -> launcher executable becomes stable
+  -> same session ID changes to appId=<launcher>
+  -> launcher=<launcher> / executionMode=app
+  -> UI receives the handoff and marks the launcher as running
+```
+
+A clean installer exit receives a 30-second discovery grace period so Steam's
+bootstrap/update processes can create or replace `steam.exe`. Steam handoff
+also attaches the game-process log watcher to the surviving session.
+
+Steam game discovery reads every accessible library declared in
+`steamapps/libraryfolders.vdf`, translating Wine C:, G:, and Z: paths back to
+host paths. Conventional `G:\\steamapps` and
+`G:\\SteamLibrary\\steamapps` layouts are included as fallbacks. When the
+running Steam session reports a previously unknown `steam:<appid>`, the
+renderer forces a Bottle metadata rescan so the shared-library game can enter
+the app list.
 
 ## Problems with the current design
 
@@ -251,6 +295,58 @@ ExecutionRequest
 
 It does not branch on `steam`, `hoyoplay`, or a game ID.
 
+### Application-owned layout
+
+Each application directory owns its Profile and Strategy definitions and
+exports them together as a Provider:
+
+```text
+src/Main/Data/
+  GenericWine/
+    profile.ts
+    strategy.ts
+    index.ts
+  Steam/
+    profile.ts
+    strategy.ts
+    index.ts
+  Hoyoverse/
+    genshin/
+      profile.ts
+      strategy.ts
+      index.ts
+    hoyoplay/
+      profile.ts
+      strategy.ts
+      index.ts
+    starrail/
+      profile.ts
+      strategy.ts
+      index.ts
+    zenless-zone-zero/
+      profile.ts
+      strategy.ts
+      index.ts
+```
+
+`profile.ts` owns declarative application and runtime data. `strategy.ts` owns
+the requirements and, after execution migration, the Context-based lifecycle.
+`index.ts` is the public application boundary:
+
+```ts
+export const GENSHIN_EXECUTION_PROVIDER = {
+  profile: GENSHIN_HOYO_GAME_PROFILE,
+  strategies: {
+    launch: GENSHIN_EXECUTION_STRATEGY,
+  },
+};
+```
+
+Current application Strategies inherit `ExecutionStrategyDefinition`. During
+the compatibility stage this base class supplies the availability contract.
+It intentionally does not expose a fake `run` method: execution is added only
+when that application's real manager-owned route is migrated to Context.
+
 ## Explicit execution requests
 
 Execution meaning must be represented by a discriminated request instead of an
@@ -293,6 +389,7 @@ interface ExecutionStrategy<
   P extends RuntimeProfile,
   R extends ExecutionRequest,
 > {
+  availability: ExecutionStrategyAvailabilityPolicy<R>;
   run(
     context: ExecutionContext<P>,
     request: R,
@@ -330,6 +427,113 @@ const steamInstallStrategy: ExecutionStrategy<
 parent process exit does not cancel child-process or prefix discovery. It ends
 when the target application is detected, the prefix becomes idle, the session
 is cancelled, or the timeout expires.
+
+### Availability preflight
+
+Every Strategy declares what its execution path requires before `run` is
+called. Requirements describe capabilities, not Wine build names:
+
+```ts
+type ExecutionRequirement =
+  | { kind: "wine-runtime"; id: string; label: string }
+  | { kind: "wine-tool"; tool: "wine64" | "wineboot" | "wineserver" }
+  | { kind: "wine-manifest-group"; groupId: string }
+  | { kind: "wine-launch-option"; optionName: string }
+  | { kind: "wine-family"; anyOf: string[] }
+  | { kind: "runtime-dependency"; dependency: "dxmt" | "jadeite" };
+```
+
+The launcher creates an `ExecutionCapabilityProbe` from the selected Wine
+runtime and launcher-owned dependency resolvers. The Strategy receives the
+result through its availability contract; it does not inspect arbitrary host
+paths itself.
+
+```ts
+interface ExecutionStrategyAvailabilityPolicy<R> {
+  providerId: string;
+  strategyId: string;
+  operation: "launch" | "install" | "repair" | "uninstall";
+  requirements:
+    | readonly ExecutionRequirement[]
+    | ((request: R) => readonly ExecutionRequirement[]);
+  checkAvailability?(context: AvailabilityContext<R>): Promise<AvailabilityIssue[]>;
+}
+```
+
+Declarative requirements cover common checks. `checkAvailability` exists for a
+provider-specific contract that cannot be represented by the shared
+vocabulary. It can only add structured issues and does not receive managers or
+raw process APIs.
+
+The execution sequence becomes:
+
+```text
+Strategy selected
+  -> emit checking
+  -> probe selected Wine and declared dependencies
+  -> evaluate declarative requirements
+  -> run optional provider-specific availability check
+  -> emit available and continue
+     or emit unavailable and stop before side effects
+```
+
+The availability event contains the Bottle, app, Provider, Strategy, selected
+Wine version, issue codes, diagnostic messages, and remediation text. The
+initial compatibility implementation exposes
+`bottle:execution-availability-update` with `checking`, `available`, and
+`unavailable` states. An unavailable result is also returned to the IPC caller,
+so a missed renderer event cannot cause execution to continue.
+
+Currently registered application-owned Strategies cover:
+
+- Generic Wine application launch and installer execution.
+- Steam launcher installation, launcher execution, and Steam game execution.
+- HoYoPlay installation and supervised execution.
+- ZZZ and Genshin execution with Wine manifest groups and DXMT.
+- Star Rail execution with Wine manifest groups, DXMT, and Jadeite.
+
+This is deliberately a preflight boundary, not the finished Provider runtime.
+`ExecutionStrategyResolver` currently selects the application-owned Provider
+Strategy from the legacy manager-derived classification. `ProviderRegistry`
+will replace that temporary resolver as each existing execution branch becomes
+a real Context-based Strategy.
+
+## Generic Wine provider
+
+Unknown and ordinary Windows programs use a built-in `generic-wine` Provider.
+This keeps fallback behavior inside the same Provider contract instead of
+adding a special branch to the execution manager.
+
+```ts
+const genericWineProvider: ExecutionProvider = {
+  manifest: {
+    id: "generic-wine",
+    capabilities: [
+      "prefix.prepare",
+      "executable.launch",
+      "session.observe",
+    ],
+  },
+  profile: genericWineProfile,
+  recognizer: genericWineRecognizer,
+  strategies: {
+    launch: genericLaunchStrategy,
+    install: genericInstallerStrategy,
+  },
+};
+```
+
+`genericLaunchStrategy` performs normal Wine prefix preparation, argument and
+environment composition, process startup, and session observation. A known
+Provider that needs no special lifecycle can reuse this Strategy.
+
+`genericInstallerStrategy` uses installer session semantics. The bootstrap
+parent exiting is not treated as proof that the whole prefix is idle, and a
+newly discovered executable is not persisted without an explicit registration
+decision.
+
+The generic Strategies must not infer a privileged Provider from a file name,
+perform Steam or HoYo handoff behavior, or write Bottle metadata directly.
 
 ## Capability-scoped Context
 
