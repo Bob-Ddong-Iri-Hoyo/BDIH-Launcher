@@ -13,6 +13,8 @@ const DEVELOPER_YOUTUBE_HANDLE = BDIH_YOUTUBE_HANDLE;
 const DEVELOPER_SITE_URL = BDIH_SITE_URL;
 const DEVELOPER_GITHUB_URL = BDIH_GITHUB_URL;
 const DEVELOPER_YOUTUBE_URL = BDIH_YOUTUBE_URL;
+const YOUTUBE_LIVE_REFRESH_INTERVAL_MS = 60_000;
+const UPDATE_STATUS_REFRESH_INTERVAL_MS = 10 * 60_000;
 const DEFAULT_DATA_ROOT_PATH = "~/Library/Application Support/BDIH Launcher";
 const DEFAULT_WINE_INSTALL_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "Wine");
 const DEFAULT_BOTTLE_PREFIX_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "Bottles");
@@ -320,6 +322,20 @@ const App: React.FC = () => {
   }, []);
 
   React.useEffect(() => {
+    function request_update_check() {
+      window.BTIH_API?.send(IPC_CHANNELS.APP.UPDATE.channelName, undefined as never);
+    }
+
+    request_update_check();
+    const intervalId = window.setInterval(
+      request_update_check,
+      UPDATE_STATUS_REFRESH_INTERVAL_MS,
+    );
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  React.useEffect(() => {
     return window.BTIH_API?.on(
       IPC_CHANNELS.APP.UPDATE_INSTALL_PROGRESS.channelName,
       (_event, payload: AppUpdateInstallProgressPayload) => {
@@ -349,7 +365,10 @@ const App: React.FC = () => {
     }
 
     void refresh_developer_live_status();
-    const intervalId = window.setInterval(refresh_developer_live_status, 60_000);
+    const intervalId = window.setInterval(
+      refresh_developer_live_status,
+      YOUTUBE_LIVE_REFRESH_INTERVAL_MS,
+    );
 
     return () => {
       isMounted = false;
@@ -442,11 +461,47 @@ const App: React.FC = () => {
       shortcuts,
     } as LauncherPreferencePayload;
 
-    void window.BTIH_API?.invoke(IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName, nextPreference);
-    setSavedPreferenceKey(currentPreferenceKey);
-    void change_renderer_locale(locale);
-    apply_renderer_accent_color(accentColor);
-    apply_renderer_theme_mode(themeMode);
+    void window.BTIH_API?.invoke(
+      IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName,
+      nextPreference,
+    ).then((result) => {
+      const savedPreference = result as LauncherPreferencePayload | undefined;
+      if (!savedPreference) {
+        return;
+      }
+
+      const savedDataRootPath = savedPreference.dataRootPath || dataRootPath;
+      const savedWineInstallPath = savedPreference.wineInstallPath || installPath;
+      const savedBottlePrefixPath = savedPreference.bottlePrefixPath || bottlePrefixPath;
+      const savedDxmtCachePath = savedPreference.dxmtCachePath || dxmtCachePath;
+      const savedGameInstallPath = savedPreference.gameInstallPath || gameInstallPath;
+
+      setDataRootPath(savedDataRootPath);
+      setInstallPath(savedWineInstallPath);
+      setBottlePrefixPath(savedBottlePrefixPath);
+      setDxmtCachePath(savedDxmtCachePath);
+      setGameInstallPath(savedGameInstallPath);
+      setSavedPreferenceKey(create_preference_key({
+        language: locale,
+        accentColor,
+        dataRootPath: savedDataRootPath,
+        wineInstallPath: savedWineInstallPath,
+        bottlePrefixPath: savedBottlePrefixPath,
+        dxmtCachePath: savedDxmtCachePath,
+        gameInstallPath: savedGameInstallPath,
+        autoCheckUpdates: autoUpdateEnabled,
+        closeToTray,
+        themeMode,
+        appLoggingLevel,
+        debugFlagMode,
+        loggingLevel,
+        wineDebugArgs,
+        shortcuts,
+      }));
+      void change_renderer_locale(locale);
+      apply_renderer_accent_color(accentColor);
+      apply_renderer_theme_mode(themeMode);
+    });
   };
 
   const handle_check_for_updates = () => {

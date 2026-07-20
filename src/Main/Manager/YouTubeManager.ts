@@ -33,9 +33,37 @@ export class YouTubeManager {
   private readonly logger = logManager.createLogger("YouTubeManager");
   private readonly channelIdCache = new Map<string, ChannelIdCacheEntry>();
   private readonly liveStatusCache = new Map<string, LiveStatusCacheEntry>();
+  private readonly liveStatusRequests = new Map<string, Promise<YouTubeLiveStatusPayload>>();
 
   async getLiveStatus(
     request: YouTubeLiveStatusRequest = {},
+  ): Promise<YouTubeLiveStatusPayload> {
+    const requestKey = request.channelId?.trim()
+      || (request.handle ? normalize_youtube_handle(request.handle) : undefined);
+
+    if (!requestKey) {
+      return this.createPayload(false, undefined, "YouTube channel or handle is required.");
+    }
+
+    const activeRequest = this.liveStatusRequests.get(requestKey);
+    if (activeRequest) {
+      return activeRequest;
+    }
+
+    const statusRequest = this.resolveLiveStatus(request);
+    this.liveStatusRequests.set(requestKey, statusRequest);
+
+    try {
+      return await statusRequest;
+    } finally {
+      if (this.liveStatusRequests.get(requestKey) === statusRequest) {
+        this.liveStatusRequests.delete(requestKey);
+      }
+    }
+  }
+
+  private async resolveLiveStatus(
+    request: YouTubeLiveStatusRequest,
   ): Promise<YouTubeLiveStatusPayload> {
     try {
       const channelId = await this.resolveChannelId(request).catch((error) => {
@@ -44,9 +72,7 @@ export class YouTubeManager {
       });
       const cacheKey = this.getLiveStatusCacheKey(request, channelId);
 
-      if (!cacheKey) {
-        return this.createPayload(false, undefined, "YouTube channel or handle is required.");
-      }
+      if (!cacheKey) return this.createPayload(false, undefined, "YouTube channel or handle is required.");
 
       const cached = this.getCachedLiveStatus(cacheKey);
       if (cached) {

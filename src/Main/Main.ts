@@ -2,6 +2,7 @@ import { app, dialog, type MessageBoxOptions } from "electron";
 import { config as load_dotenv_config } from "dotenv";
 import { mkdirSync } from "fs";
 import path from "path";
+import { BDIH_YOUTUBE_HANDLE } from "../Common/Constant/RuntimeSources";
 import { get_update_test_runtime_paths, is_nightly_launcher_build, is_update_test_build } from "./Environment/AppPaths";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
@@ -14,6 +15,7 @@ import { preferenceManager } from "./Manager/PreferenceManager";
 import { shortcutManager } from "./Manager/ShortcutManager";
 import { updateManager } from "./Manager/UpdateManager";
 import { windowManager } from "./Manager/WindowManager";
+import { youtubeManager } from "./Manager/YouTubeManager";
 
 // Main-process entry state used to make the asynchronous quit cleanup idempotent.
 let isQuitCleanupComplete = false;
@@ -102,6 +104,10 @@ async function createApp(): Promise<void> {
   }
   ipcManager.init();
 
+  // Warm the shared cache without delaying window creation. The renderer can
+  // await the same in-flight request if Settings is opened immediately.
+  void youtubeManager.getLiveStatus({ handle: BDIH_YOUTUBE_HANDLE });
+
   const mainWindow = await windowManager.createMainWindow();
 
   if (preference.autoCheckUpdates) {
@@ -165,7 +171,7 @@ function get_active_wine_quit_copy(language?: string): ActiveWineQuitCopy {
 }
 
 async function confirm_quit_with_active_wine(): Promise<boolean> {
-  if (!bottleExecutionManager.hasActiveWineProcesses()) {
+  if (!await bottleExecutionManager.hasManagedWineProcesses()) {
     return true;
   }
 
@@ -200,8 +206,9 @@ async function cleanupBeforeQuit(): Promise<void> {
   shortcutManager.unregisterAll();
   await windowManager.flushLauncherWindowState();
   await preferenceManager.flushPendingWrites();
+  const hasManagedWineProcesses = await bottleExecutionManager.hasManagedWineProcesses();
   const shouldShowShutdownWindow =
-    bottleExecutionManager.hasActiveWineProcesses() ||
+    hasManagedWineProcesses ||
     downloadManager.listActiveDownloadIds().length > 0;
 
   if (shouldShowShutdownWindow) {
@@ -225,7 +232,7 @@ async function cleanupBeforeQuit(): Promise<void> {
 async function prepareForUpdateInstall(): Promise<void> {
   windowManager.sendUpdateInstallProgress({ stage: "checking-processes", progress: 5 });
 
-  const activeWineProcesses = bottleExecutionManager.hasActiveWineProcesses();
+  const activeWineProcesses = await bottleExecutionManager.hasManagedWineProcesses();
   const activeDownloads = downloadManager.listActiveDownloadIds().length;
   logManager.info("Main", "preparing app update", {
     activeWineProcesses,
@@ -305,12 +312,16 @@ app.on("before-quit", (event) => {
 
     try {
       await cleanupBeforeQuit();
-    } catch (error) {
-      logManager.warn("Main", "quit cleanup failed", error);
-    } finally {
-      windowManager.closeShutdownWindow();
       isQuitCleanupComplete = true;
       app.quit();
+    } catch (error) {
+      // Do not let Electron exit while launcher-owned Wine processes remain.
+      // The user can retry after inspecting the recorded process IDs.
+      logManager.error("Main", "quit cleanup failed; keeping the launcher open", error);
+      const message = error instanceof Error ? error.message : String(error);
+      dialog.showErrorBox("Wine 종료 실패", `일부 Wine 프로세스를 종료하지 못해 앱을 종료하지 않았습니다.\n\n${message}`);
+    } finally {
+      windowManager.closeShutdownWindow();
     }
   })().finally(() => {
     if (!isQuitCleanupComplete) {

@@ -164,9 +164,7 @@ export class IPCManager {
         // Never remove a prefix directory while its wineserver/session is still
         // active. The renderer confirms this destructive action with the user;
         // Main enforces the stop-before-delete ordering even for stale UI state.
-        if (this.bottleExecutions.hasActiveWineProcessesForBottle(request.bottleId)) {
-          await this.bottleExecutions.stopBottleWineProcesses(request.bottleId);
-        }
+        await this.bottleExecutions.stopBottleWineProcesses(request.bottleId, request.bottlePath);
         return this.bottles.deleteBottle(request);
       },
     );
@@ -418,6 +416,10 @@ export class IPCManager {
           || Object.prototype.hasOwnProperty.call(patch, "bottlePrefixPath")
         ) {
           this.bottles.clearCache();
+        }
+
+        if (previousPreference.gameInstallPath !== preference.gameInstallPath) {
+          await this.bottleExecutions.refreshSharedGamesDriveMappings(preference);
         }
 
         apply_localized_app_name(preference.language);

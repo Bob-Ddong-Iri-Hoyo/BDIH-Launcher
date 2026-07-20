@@ -1,6 +1,6 @@
 import { WebContents } from "electron";
 import { spawn } from "child_process";
-import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { request as httpsRequest } from "https";
 import os from "os";
 import path from "path";
@@ -51,6 +51,11 @@ import { get_hoyo_game_profile, type HoyoGameProfile } from "../Data/Hoyoverse/H
 import { get_launcher_runtime_profile } from "../Data/GameProfile";
 import { find_runtime_profile_executable } from "../Util/RuntimeExecutableDiscovery";
 import { send_to_web_contents } from "../Util/SafeWebContents";
+import {
+  find_managed_wine_process_ids,
+  terminate_managed_wine_processes,
+} from "../Util/ManagedWineProcesses";
+import { ensure_shared_games_drive, inspect_symlink } from "../Util/SharedGamesDrive";
 import {
   type ExecutionCapabilityState,
   type ExecutionStrategyAvailabilityPolicy,
@@ -2696,6 +2701,7 @@ export class BottleExecutionManager {
 
     if (prefixes.length === 0 && sessions.length === 0) {
       await processManager.stopAll();
+      await this.stopDetachedManagedWineProcesses();
       discordPresenceManager.clearAllActivities();
       return;
     }
@@ -2721,11 +2727,56 @@ export class BottleExecutionManager {
       this.finishPrefixSession(session);
     }
     this.activeWinePrefixes.clear();
+    await this.stopDetachedManagedWineProcesses();
     discordPresenceManager.clearAllActivities();
+  }
+
+  async refreshSharedGamesDriveMappings(
+    preference?: LauncherPreference,
+  ): Promise<void> {
+    const resolvedPreference = preference ?? await preferenceManager.getPreference();
+    const bottleList = await bottleManager.getBottleList();
+    const prefixPaths = [...new Set(
+      bottleList.bottles.flatMap((bottle) =>
+        find_existing_bottle_prefix_paths(expand_user_home_path(bottle.path)),
+      ),
+    )];
+    const activePrefixPaths = new Set([
+      ...this.activeWinePrefixes.keys(),
+      ...[...this.prefixSessionsByPrefixPath.values()]
+        .filter((session) => !session.ended)
+        .map((session) => session.prefixPath),
+    ].map(prefix_session_key));
+    const skippedActivePrefixPaths: string[] = [];
+    const updatedPrefixPaths: string[] = [];
+
+    for (const prefixPath of prefixPaths) {
+      if (activePrefixPaths.has(prefix_session_key(prefixPath))) {
+        skippedActivePrefixPaths.push(prefixPath);
+        continue;
+      }
+
+      ensure_shared_games_drive(prefixPath, resolvedPreference, this.logger);
+      updatedPrefixPaths.push(prefixPath);
+    }
+
+    this.logger.info("shared games G: mappings refreshed after preference save", {
+      gameInstallPath: resolvedPreference.gameInstallPath,
+      updatedPrefixPaths,
+      skippedActivePrefixPaths,
+    });
   }
 
   hasActiveWineProcesses(): boolean {
     return this.activeWinePrefixes.size > 0 || processManager.listRunningProcessIds().length > 0;
+  }
+
+  async hasManagedWineProcesses(): Promise<boolean> {
+    if (this.hasActiveWineProcesses()) {
+      return true;
+    }
+
+    return (await find_managed_wine_process_ids(await this.getManagedWineRoots())).length > 0;
   }
 
   hasActiveWineProcessesForBottle(bottleId: string): boolean {
@@ -2733,7 +2784,7 @@ export class BottleExecutionManager {
       [...this.prefixSessionsByPrefixPath.values()].some((session) => !session.ended && session.bottleId === bottleId);
   }
 
-  async stopBottleWineProcesses(bottleId: string): Promise<void> {
+  async stopBottleWineProcesses(bottleId: string, bottlePath?: string): Promise<void> {
     const sessions = [...this.prefixSessionsByPrefixPath.values()].filter((session) =>
       !session.ended && session.bottleId === bottleId,
     );
@@ -2751,7 +2802,7 @@ export class BottleExecutionManager {
       }
     }
 
-    if (prefixContexts.size === 0 && sessions.length === 0) {
+    if (prefixContexts.size === 0 && sessions.length === 0 && !bottlePath) {
       return;
     }
 
@@ -2772,6 +2823,17 @@ export class BottleExecutionManager {
     }
     for (const prefixPath of prefixContexts.keys()) {
       this.activeWinePrefixes.delete(prefixPath);
+    }
+
+    // A launcher such as Steam can move CEF/Wine grandchildren into a new
+    // process session. Those processes are no longer represented by the
+    // tracked bootstrap PID, so remove anything still using this Bottle before
+    // its directory is deleted.
+    if (bottlePath) {
+      const cleanup = await terminate_managed_wine_processes([bottlePath]);
+      if (cleanup.remainingPids.length > 0) {
+        throw new Error(`Wine processes still use this Bottle: ${cleanup.remainingPids.join(", ")}`);
+      }
     }
   }
 
@@ -2807,8 +2869,8 @@ export class BottleExecutionManager {
     });
   }
 
-  private stopWinePrefix(bottlePath: string, wineRuntimePath?: string): Promise<void> {
-    return new Promise((resolve) => {
+  private async stopWinePrefix(bottlePath: string, wineRuntimePath?: string): Promise<void> {
+    await new Promise<void>((resolve) => {
       const command = resolve_wine_tool(wineRuntimePath, "wineserver");
       const killer = spawn(command, ["-k"], {
         cwd: bottlePath,
@@ -2839,6 +2901,48 @@ export class BottleExecutionManager {
         resolve();
       });
     });
+
+    const cleanup = await terminate_managed_wine_processes([bottlePath]);
+    if (cleanup.detectedPids.length > 0) {
+      this.logger.warn("terminated detached Wine processes after wineserver shutdown", {
+        bottlePath,
+        detectedPids: cleanup.detectedPids,
+        terminatedPids: cleanup.terminatedPids,
+        remainingPids: cleanup.remainingPids,
+      });
+    }
+  }
+
+  private async stopDetachedManagedWineProcesses(): Promise<void> {
+    const roots = await this.getManagedWineRoots();
+    const cleanup = await terminate_managed_wine_processes(roots);
+
+    if (cleanup.detectedPids.length === 0) {
+      return;
+    }
+
+    const logContext = {
+      roots,
+      detectedPids: cleanup.detectedPids,
+      terminatedPids: cleanup.terminatedPids,
+      remainingPids: cleanup.remainingPids,
+    };
+
+    if (cleanup.remainingPids.length > 0) {
+      this.logger.warn("managed Wine processes remained after forced shutdown", logContext);
+      throw new Error(`Failed to stop managed Wine processes: ${cleanup.remainingPids.join(", ")}`);
+    } else {
+      this.logger.info("detached managed Wine processes terminated", logContext);
+    }
+  }
+
+  private async getManagedWineRoots(): Promise<string[]> {
+    const preference = await preferenceManager.getPreference();
+
+    return [
+      preference.dataRootPath,
+      preference.bottlePrefixPath,
+    ];
   }
 
   private startPrefixSession(
@@ -4035,6 +4139,10 @@ function find_existing_bottle_prefix_paths(bottlePath: string): string[] {
   const metadataPath = path.join(bottlePath, "bdih-bottle.json");
   const candidates = new Set<string>();
 
+  // Legacy Bottles can themselves be a Wine prefix instead of containing a
+  // named *-prefix directory.
+  candidates.add(bottlePath);
+
   for (const prefixName of [
     "steam-prefix",
     "hoyo-prefix",
@@ -5026,78 +5134,6 @@ function safe_file_size(targetPath: string): number {
     return statSync(targetPath).size;
   } catch {
     return 0;
-  }
-}
-
-function ensure_shared_games_drive(
-  prefixPath: string,
-  preference: LauncherPreference,
-  logger: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void },
-): void {
-  const dosDevicesPath = path.join(prefixPath, "dosdevices");
-  const driveLinkPath = path.join(dosDevicesPath, "g:");
-  const markerPath = path.join(prefixPath, ".bdih-shared-games-drive.json");
-  const managedTarget = read_shared_games_drive_marker(markerPath);
-  const currentLink = inspect_symlink(driveLinkPath);
-  const configuredPath = shared_games_path(preference);
-
-  if (!configuredPath) {
-    if (managedTarget && currentLink.target === managedTarget) {
-      rmSync(driveLinkPath, { force: true });
-    }
-    rmSync(markerPath, { force: true });
-    return;
-  }
-
-  const targetPath = path.resolve(expand_user_home_path(configuredPath));
-  mkdirSync(targetPath, { recursive: true });
-  mkdirSync(dosDevicesPath, { recursive: true });
-
-  if (currentLink.exists && currentLink.target !== targetPath) {
-    if (!currentLink.isSymbolicLink || !managedTarget || currentLink.target !== managedTarget) {
-      logger.warn("shared games G: drive was not changed because an unmanaged mapping already exists", {
-        prefixPath,
-        currentTarget: currentLink.target,
-        requestedTarget: targetPath,
-      });
-      return;
-    }
-
-    rmSync(driveLinkPath, { force: true });
-  }
-
-  if (!currentLink.exists || currentLink.target !== targetPath) {
-    symlinkSync(targetPath, driveLinkPath);
-  }
-
-  writeFileSync(markerPath, JSON.stringify({ schemaVersion: 1, targetPath }, null, 2));
-  logger.info("shared games G: drive configured", { prefixPath, targetPath });
-}
-
-function inspect_symlink(targetPath: string): { exists: boolean; isSymbolicLink: boolean; target?: string } {
-  try {
-    const stat = lstatSync(targetPath);
-
-    if (!stat.isSymbolicLink()) {
-      return { exists: true, isSymbolicLink: false };
-    }
-
-    return {
-      exists: true,
-      isSymbolicLink: true,
-      target: path.resolve(path.dirname(targetPath), readlinkSync(targetPath)),
-    };
-  } catch {
-    return { exists: false, isSymbolicLink: false };
-  }
-}
-
-function read_shared_games_drive_marker(markerPath: string): string | undefined {
-  try {
-    const value = JSON.parse(readFileSync(markerPath, "utf8")) as { targetPath?: unknown };
-    return typeof value.targetPath === "string" ? path.resolve(value.targetPath) : undefined;
-  } catch {
-    return undefined;
   }
 }
 

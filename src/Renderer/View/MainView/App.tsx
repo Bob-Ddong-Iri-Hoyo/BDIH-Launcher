@@ -22,6 +22,7 @@ import { Stack, Text } from "../../Component/Primitives";
 import { change_renderer_locale, is_supported_locale, resolve_initial_locale, SupportedLocale } from "../../I18n";
 import { useSystemStore } from "../../Store";
 import { AccentColor, apply_renderer_accent_color, is_accent_color, resolve_initial_accent_color } from "../../Theme";
+import { normalize_preference_path, preference_storage_paths_equal } from "../../Util/PreferencePath";
 import { LauncherView } from "./MainView";
 import type { Bottle, CreateBottleInput } from "./MainView";
 import type { PreferencePathKey } from "../PreferenceView/PreferenceView";
@@ -41,6 +42,8 @@ const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   logFindPrevious: "Command + P",
 };
 const DEVELOPER_YOUTUBE_HANDLE = BDIH_YOUTUBE_HANDLE;
+const YOUTUBE_LIVE_REFRESH_INTERVAL_MS = 60_000;
+const UPDATE_STATUS_REFRESH_INTERVAL_MS = 10 * 60_000;
 
 interface PreferenceDraftSnapshot {
   locale: SupportedLocale;
@@ -851,16 +854,9 @@ function preference_snapshots_equal(left: PreferenceDraftSnapshot, right: Prefer
     left.windowStartupSizeMode === right.windowStartupSizeMode &&
     left.windowStartupCustomWidth === right.windowStartupCustomWidth &&
     left.windowStartupCustomHeight === right.windowStartupCustomHeight &&
-    normalize_preference_path(left.dataRootPath) === normalize_preference_path(right.dataRootPath) &&
-    normalize_preference_path(left.installPath) === normalize_preference_path(right.installPath) &&
-    normalize_preference_path(left.bottlePrefixPath) === normalize_preference_path(right.bottlePrefixPath) &&
-    normalize_preference_path(left.dxmtCachePath) === normalize_preference_path(right.dxmtCachePath) &&
+    preference_storage_paths_equal(left, right) &&
     LAUNCHER_SHORTCUT_ACTIONS.every((action) => left.shortcuts[action] === right.shortcuts[action])
   );
-}
-
-function normalize_preference_path(targetPath: string): string {
-  return targetPath.trim().replace(/\/+$/, "");
 }
 
 const App: React.FC = () => {
@@ -1091,6 +1087,49 @@ const App: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
+    async function preload_update_status() {
+      try {
+        const status = await window.BTIH_API?.invoke(
+          IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName,
+          undefined as never,
+        ) as AppUpdateStatusPayload | undefined;
+
+        if (isMounted && status) {
+          setAppUpdateStatus(status);
+        }
+      } catch {
+        // Startup update checks continue through UpdateManager status events.
+      }
+    }
+
+    async function preload_developer_live_status() {
+      try {
+        const status = await window.BTIH_API?.invoke(
+          IPC_CHANNELS.YOUTUBE.GET_LIVE_STATUS.channelName,
+          { handle: DEVELOPER_YOUTUBE_HANDLE },
+        ) as YouTubeLiveStatusPayload | undefined;
+
+        if (isMounted) {
+          setIsDeveloperOnAir(status?.isLive ?? false);
+        }
+      } catch {
+        if (isMounted) {
+          setIsDeveloperOnAir(false);
+        }
+      }
+    }
+
+    void preload_update_status();
+    void preload_developer_live_status();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
     if (activeView !== "preferences") {
       return () => {
         isMounted = false;
@@ -1114,12 +1153,41 @@ const App: React.FC = () => {
       }
     }
 
+    async function refresh_update_status() {
+      try {
+        const status = await window.BTIH_API?.invoke(
+          IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName,
+          undefined as never,
+        ) as AppUpdateStatusPayload | undefined;
+
+        if (isMounted && status) {
+          setAppUpdateStatus(status);
+        }
+      } catch {
+        // Keep the most recent startup/event status visible on transient errors.
+      }
+    }
+
+    function request_update_check() {
+      window.BTIH_API?.send(IPC_CHANNELS.APP.UPDATE.channelName, undefined as never);
+    }
+
     void refresh_developer_live_status();
-    const intervalId = window.setInterval(refresh_developer_live_status, 60_000);
+    void refresh_update_status();
+    request_update_check();
+    const liveIntervalId = window.setInterval(
+      refresh_developer_live_status,
+      YOUTUBE_LIVE_REFRESH_INTERVAL_MS,
+    );
+    const updateIntervalId = window.setInterval(
+      request_update_check,
+      UPDATE_STATUS_REFRESH_INTERVAL_MS,
+    );
 
     return () => {
       isMounted = false;
-      window.clearInterval(intervalId);
+      window.clearInterval(liveIntervalId);
+      window.clearInterval(updateIntervalId);
     };
   }, [activeView]);
 
@@ -1710,15 +1778,32 @@ const App: React.FC = () => {
       windowStartupSizeMode,
       windowStartupCustomWidth,
       windowStartupCustomHeight,
-    }).then(() => {
-      setSavedPreferenceSnapshot(currentPreferenceSnapshot);
-      setAppliedShortcuts(shortcuts);
-      setAppliedAccentColor(accentColor);
-      setStoreInstallPath(installPath);
-      setStoreDxmtCachePath(dxmtCachePath);
-      setStoreJadeiteInstallPath(derive_storage_paths_from_data_root(dataRootPath).jadeiteInstallPath);
-      void change_renderer_locale(locale);
-      apply_renderer_theme_mode(themeMode);
+    }).then((result) => {
+      const savedPreference = result as LauncherPreferencePayload | undefined;
+      if (!savedPreference) {
+        return;
+      }
+
+      // Main can normalize storage paths (notably for isolated update-test
+      // builds). Reflect the value that was actually persisted instead of
+      // treating the renderer draft as the saved source of truth.
+      const savedDataRootPath = savedPreference.dataRootPath || dataRootPath;
+      const savedStoragePaths = derive_storage_paths_from_data_root(savedDataRootPath);
+      const savedSnapshot: PreferenceDraftSnapshot = {
+        ...currentPreferenceSnapshot,
+        dataRootPath: savedDataRootPath,
+        installPath: savedPreference.wineInstallPath || savedStoragePaths.installPath,
+        bottlePrefixPath: savedPreference.bottlePrefixPath || savedStoragePaths.bottlePrefixPath,
+        dxmtCachePath: savedPreference.dxmtCachePath || savedStoragePaths.dxmtCachePath,
+        gameInstallPath: savedPreference.gameInstallPath || savedStoragePaths.gameInstallPath,
+      };
+
+      restore_preference_draft(savedSnapshot);
+      setSavedPreferenceSnapshot(savedSnapshot);
+      setAppliedShortcuts(savedSnapshot.shortcuts);
+      setAppliedAccentColor(savedSnapshot.accentColor);
+      void change_renderer_locale(savedSnapshot.locale);
+      apply_renderer_theme_mode(savedSnapshot.themeMode);
     });
   };
 

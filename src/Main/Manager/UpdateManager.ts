@@ -35,6 +35,7 @@ export class UpdateManager {
   private installFailureHandler: (() => Promise<void> | void) | null = null;
   private installFailureNotified = false;
   private cachedUpdateCleanupComplete = false;
+  private checkPromise: Promise<void> | null = null;
   private window: BrowserWindow | null = null;
   private activeChannel: LauncherUpdateChannel = "stable";
   private lastStatus: AppUpdateStatusPayload = { status: "idle" };
@@ -128,8 +129,30 @@ export class UpdateManager {
   }
 
   async checkForUpdates(window?: BrowserWindow): Promise<void> {
-    await this.cleanupIncompatibleNightlyUpdateCache();
     this.init(window);
+
+    if (this.installRequested) {
+      return;
+    }
+
+    if (this.checkPromise) {
+      return this.checkPromise;
+    }
+
+    const checkPromise = this.performUpdateCheck();
+    this.checkPromise = checkPromise;
+
+    try {
+      await checkPromise;
+    } finally {
+      if (this.checkPromise === checkPromise) {
+        this.checkPromise = null;
+      }
+    }
+  }
+
+  private async performUpdateCheck(): Promise<void> {
+    await this.cleanupIncompatibleNightlyUpdateCache();
     await this.configureUpdateChannel();
 
     if (!this.canCheckForUpdates()) {
