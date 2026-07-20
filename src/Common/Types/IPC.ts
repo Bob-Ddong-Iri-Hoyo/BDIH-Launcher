@@ -544,6 +544,7 @@ export interface InstalledBottleAppPayload {
 
 export interface BottleMetadataPayload {
   id: string;
+  bottleIconId?: string;
   name: string;
   description: string;
   wineVersionId: string;

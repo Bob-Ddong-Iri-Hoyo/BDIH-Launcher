@@ -1,0 +1,137 @@
+name: macOS Signing Certificate Monitor
+
+on:
+  schedule:
+    # 09:00 KST on the first day of every month.
+    - cron: "0 0 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-signing-certificate-monitor
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    name: Check signing certificate expiry
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inspect macOS signing certificate
+        id: macos_signing
+        uses: ./.github/actions/setup-macos-signing
+        with:
+          p12-base64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+          identity: BDIH Launcher Update Signing
+          warning-days: "730"
+          minimum-valid-days: "1"
+
+      - name: Create, update, or close certificate expiry issue
+        id: expiry_issue
+        env:
+          DAYS_REMAINING: ${{ steps.macos_signing.outputs.days-remaining }}
+          EXPIRY_ISO: ${{ steps.macos_signing.outputs.not-after-iso }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_MARKER: "<!-- bdih-macos-signing-certificate-expiry -->"
+          WARNING_DAYS: "730"
+        run: |
+          set -euo pipefail
+
+          issue_number="$(
+            gh issue list \
+              --state all \
+              --limit 100 \
+              --json number,body \
+              --jq ".[] | select((.body // \"\") | contains(\"$ISSUE_MARKER\")) | .number" \
+              | head -n 1
+          )"
+
+          if ((DAYS_REMAINING > WARNING_DAYS)); then
+            if [[ -n "$issue_number" ]]; then
+              issue_state="$(gh issue view "$issue_number" --json state --jq .state)"
+              if [[ "$issue_state" == "OPEN" ]]; then
+                gh issue close "$issue_number" \
+                  --comment "The configured signing certificate now has $DAYS_REMAINING days remaining and expires at $EXPIRY_ISO. Closing the expiry alert."
+              fi
+            fi
+
+            echo "alert_required=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          issue_title="Rotate macOS signing certificate before $EXPIRY_ISO"
+          issue_body="$(cat <<EOF
+          $ISSUE_MARKER
+
+          The macOS update-signing certificate expires at **$EXPIRY_ISO**.
+
+          Remaining validity: **$DAYS_REMAINING days**
+
+          Required work:
+
+          - Generate and securely back up the replacement signing identity.
+          - Publish an old-certificate bridge release whose designated requirement accepts both certificates.
+          - Verify stable, beta, and Nightly updates through the bridge release.
+          - Publish the new-certificate release only after the bridge is installed and tested.
+
+          Releases are blocked automatically when fewer than 180 validity days remain.
+          EOF
+          )"
+
+          if [[ -n "$issue_number" ]]; then
+            issue_state="$(gh issue view "$issue_number" --json state --jq .state)"
+            if [[ "$issue_state" != "OPEN" ]]; then
+              gh issue reopen "$issue_number"
+            fi
+            gh issue edit "$issue_number" --title "$issue_title" --body "$issue_body"
+            issue_url="$(gh issue view "$issue_number" --json url --jq .url)"
+          else
+            if ! issue_url="$(
+              gh issue create \
+                --title "$issue_title" \
+                --body "$issue_body" \
+                --assignee "$GITHUB_REPOSITORY_OWNER"
+            )"; then
+              issue_url="$(gh issue create --title "$issue_title" --body "$issue_body")"
+            fi
+          fi
+
+          {
+            echo "## macOS signing certificate expiry"
+            echo
+            echo "- Expires: $EXPIRY_ISO"
+            echo "- Remaining: $DAYS_REMAINING days"
+            echo "- Tracking issue: $issue_url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "alert_required=true" >> "$GITHUB_OUTPUT"
+          echo "issue_url=$issue_url" >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup macOS signing identity
+        if: ${{ always() && steps.macos_signing.outcome == 'success' }}
+        env:
+          CERTIFICATE_SHA1: ${{ steps.macos_signing.outputs.certificate-sha1 }}
+          KEYCHAIN_PATH: ${{ steps.macos_signing.outputs.keychain-path }}
+          SIGNING_TEMP_DIR: ${{ steps.macos_signing.outputs.temp-dir }}
+        run: |
+          set +e
+          sudo -n security delete-certificate \
+            -Z "$CERTIFICATE_SHA1" \
+            /Library/Keychains/System.keychain >/dev/null 2>&1
+          security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1
+          find "$SIGNING_TEMP_DIR" -type f -delete >/dev/null 2>&1
+          rmdir "$SIGNING_TEMP_DIR" >/dev/null 2>&1
+
+      - name: Keep the certificate alert visible
+        if: ${{ steps.expiry_issue.outputs.alert_required == 'true' }}
+        env:
+          ISSUE_URL: ${{ steps.expiry_issue.outputs.issue_url }}
+        run: |
+          echo "::error::The macOS signing certificate is inside its two-year rotation window. Track the required bridge release at $ISSUE_URL"
+          exit 1

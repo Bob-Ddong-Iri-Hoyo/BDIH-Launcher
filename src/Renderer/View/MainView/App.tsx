@@ -12,6 +12,7 @@ import {
   executable_path_for_wine_prefix,
   launcher_from_bottle_app,
 } from "../../../Common/Util/BottlePath";
+import { pick_bottle_icon_id } from "../../../Common/Util/BottleIcon";
 import { Dialog } from "../../Component/Dialog";
 import { AppUpdateInstallDialog } from "../../Component/AppUpdateInstallDialog";
 import { RuntimeInstallFailureDialog } from "../../Component/RuntimeInstallFailureDialog";
@@ -1177,28 +1178,30 @@ const App: React.FC = () => {
       }
     }
 
-    function request_update_check() {
-      window.BTIH_API?.send(IPC_CHANNELS.APP.UPDATE.channelName, undefined as never);
-    }
-
     void refresh_developer_live_status();
     void refresh_update_status();
-    request_update_check();
     const liveIntervalId = window.setInterval(
       refresh_developer_live_status,
       YOUTUBE_LIVE_REFRESH_INTERVAL_MS,
-    );
-    const updateIntervalId = window.setInterval(
-      request_update_check,
-      UPDATE_STATUS_REFRESH_INTERVAL_MS,
     );
 
     return () => {
       isMounted = false;
       window.clearInterval(liveIntervalId);
-      window.clearInterval(updateIntervalId);
     };
   }, [activeView]);
+
+  useEffect(() => {
+    if (!isPreferenceLoaded || !savedPreferenceSnapshot.autoUpdateEnabled) {
+      return undefined;
+    }
+
+    const updateIntervalId = window.setInterval(() => {
+      window.BTIH_API?.send(IPC_CHANNELS.APP.UPDATE.channelName, undefined as never);
+    }, UPDATE_STATUS_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(updateIntervalId);
+  }, [isPreferenceLoaded, savedPreferenceSnapshot.autoUpdateEnabled]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2029,8 +2032,10 @@ const App: React.FC = () => {
 
       const now = new Date().toISOString();
       const prefixPath = normalize_bottle_prefix_root(input.prefixPath || bottlePrefixPath, name);
+      const bottleId = create_bottle_id(name);
       const bottle: Bottle = {
-        id: create_bottle_id(name),
+        id: bottleId,
+        bottleIconId: pick_bottle_icon_id(currentBottles, bottleId),
         name,
         description: input.description || name,
         wineVersionId: input.wineVersionId,

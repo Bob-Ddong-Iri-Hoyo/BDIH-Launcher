@@ -2,6 +2,7 @@ import React from "react";
 import { Download, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AppUpdateInstallProgressPayload, AppUpdateInstallStage } from "../../Common/Types/IPC";
+import updateProgressImage from "../../../resouces/app/images/update/dialog-update-progress.png";
 import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
 import { Inline, Stack, Text } from "./Primitives";
@@ -38,6 +39,8 @@ export function AppUpdateInstallDialog({ progress }: AppUpdateInstallDialogProps
       description={t("updateInstall.description")}
       tone="info"
       icon={Download}
+      iconImageSrc={updateProgressImage}
+      iconImageSize="large"
       placement="center"
       widthClassName="max-w-lg"
       closeOnBackdrop={false}

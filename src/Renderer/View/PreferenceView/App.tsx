@@ -14,7 +14,6 @@ const DEVELOPER_SITE_URL = BDIH_SITE_URL;
 const DEVELOPER_GITHUB_URL = BDIH_GITHUB_URL;
 const DEVELOPER_YOUTUBE_URL = BDIH_YOUTUBE_URL;
 const YOUTUBE_LIVE_REFRESH_INTERVAL_MS = 60_000;
-const UPDATE_STATUS_REFRESH_INTERVAL_MS = 10 * 60_000;
 const DEFAULT_DATA_ROOT_PATH = "~/Library/Application Support/BDIH Launcher";
 const DEFAULT_WINE_INSTALL_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "Wine");
 const DEFAULT_BOTTLE_PREFIX_PATH = create_data_root_child_path(DEFAULT_DATA_ROOT_PATH, "Bottles");
@@ -319,20 +318,6 @@ const App: React.FC = () => {
 
       setAppUpdateStatus(payload);
     });
-  }, []);
-
-  React.useEffect(() => {
-    function request_update_check() {
-      window.BTIH_API?.send(IPC_CHANNELS.APP.UPDATE.channelName, undefined as never);
-    }
-
-    request_update_check();
-    const intervalId = window.setInterval(
-      request_update_check,
-      UPDATE_STATUS_REFRESH_INTERVAL_MS,
-    );
-
-    return () => window.clearInterval(intervalId);
   }, []);
 
   React.useEffect(() => {

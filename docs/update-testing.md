@@ -35,3 +35,24 @@ BDIH_MOCK_UPDATE=error pnpm start
 ## Recommended path
 
 Use the main-process mock for UI/dialog behavior, then use one real prerelease before shipping the first public release.
+
+## Signing-certificate transition tests
+
+Mock feeds and renderer mocks cannot validate Squirrel.Mac code-signature
+continuity. When rotating the macOS signing certificate, use real packaged apps
+and complete this matrix before activating the replacement identity:
+
+```text
+old stable   -> bridge stable   -> new stable
+old beta     -> bridge beta     -> new beta
+old Nightly  -> bridge Nightly  -> new Nightly
+```
+
+The bridge builds must still use the old GitHub signing Secrets. CI checks that
+their designated requirement contains the old certificate fingerprint, the
+replacement fingerprint, and the channel's bundle identifier. Keep at least
+one installed old build and one installed bridge build for every channel until
+the transition is complete.
+
+The commands, generated files, Secret rotation order, rollback rules, and
+archival locations are documented in [Publishing and macOS signing](publish.md#certificate-renewal).

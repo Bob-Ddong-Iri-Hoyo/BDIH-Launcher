@@ -22,6 +22,19 @@ import type { BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetada
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
 import type { Bottle, CreateBottleInput } from "../Types/Bottle";
 import { create_bottle_path_from_name, normalize_bottle_prefix_root } from "../../Common/Util/BottlePath";
+import { assign_missing_bottle_icon_ids, BOTTLE_ICON_IDS, BottleIconId, is_bottle_icon_id, pick_bottle_icon_id } from "../../Common/Util/BottleIcon";
+import bottleIcon1 from "../../../resouces/app/images/bottles/icon1.png";
+import bottleIcon2 from "../../../resouces/app/images/bottles/icon2.png";
+import bottleIcon3 from "../../../resouces/app/images/bottles/icon3.png";
+import bottleIcon4 from "../../../resouces/app/images/bottles/icon4.png";
+import bottleIcon5 from "../../../resouces/app/images/bottles/icon5.png";
+import bottleIcon6 from "../../../resouces/app/images/bottles/icon6.png";
+import bottleIcon7 from "../../../resouces/app/images/bottles/icon7.png";
+import bottleIcon8 from "../../../resouces/app/images/bottles/icon8.png";
+import bottleIcon10 from "../../../resouces/app/images/bottles/icon10.png";
+import bottleIcon11 from "../../../resouces/app/images/bottles/icon11.png";
+import bottleIcon12 from "../../../resouces/app/images/bottles/icon12.png";
+import bottleIcon13 from "../../../resouces/app/images/bottles/icon13.png";
 import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
 import { PathAutocompleteInput } from "./PathAutocompleteInput";
@@ -79,12 +92,33 @@ type BottleCardSize = "large" | "medium" | "small" | "compact";
 
 const BOTTLE_CARD_SIZE_STORAGE_KEY = "bdih:bottle-card-size";
 const BOTTLE_CARD_SIZES: BottleCardSize[] = ["compact", "small", "medium", "large"];
+const BOTTLE_ICON_IMAGE_BY_ID: Record<BottleIconId, string> = {
+  icon1: bottleIcon1,
+  icon2: bottleIcon2,
+  icon3: bottleIcon3,
+  icon4: bottleIcon4,
+  icon5: bottleIcon5,
+  icon6: bottleIcon6,
+  icon7: bottleIcon7,
+  icon8: bottleIcon8,
+  icon10: bottleIcon10,
+  icon11: bottleIcon11,
+  icon12: bottleIcon12,
+  icon13: bottleIcon13,
+};
 const BOTTLE_GRID_CLASSES: Record<BottleCardSize, string> = {
   large: "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4",
   medium: "grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5",
   small: "grid grid-cols-[repeat(auto-fill,minmax(8rem,9rem))] justify-start gap-3",
   compact: "grid grid-cols-[repeat(auto-fill,minmax(6.5rem,7.5rem))] justify-start gap-2",
 };
+
+function bottle_icon_src(bottle: Pick<Bottle, "id" | "bottleIconId">): string {
+  const bottleIconId = is_bottle_icon_id(bottle.bottleIconId)
+    ? bottle.bottleIconId
+    : pick_bottle_icon_id([], bottle.id);
+  return BOTTLE_ICON_IMAGE_BY_ID[bottleIconId];
+}
 
 function initial_bottle_card_size(): BottleCardSize {
   try {
@@ -218,6 +252,7 @@ function bottle_running_app_count(bottle: Bottle): number {
  */
 export function BottleCard({
   bottle,
+  iconSrc,
   onClick,
   onContextMenu,
   isEditing = false,
@@ -226,6 +261,7 @@ export function BottleCard({
   dragHandleProps,
 }: {
   bottle: Bottle;
+  iconSrc?: string;
   onClick: () => void;
   onContextMenu?: (
     event: React.MouseEvent<HTMLButtonElement>,
@@ -239,6 +275,7 @@ export function BottleCard({
   const { t } = useTranslation();
   const isRunning = is_bottle_running(bottle);
   const runningAppCount = bottle_running_app_count(bottle);
+  const resolvedIconSrc = iconSrc ?? bottle_icon_src(bottle);
 
   return (
     <Button
@@ -275,8 +312,8 @@ export function BottleCard({
     >
       {size === "compact" ? (
         <Stack className="min-w-0 flex-1 items-center justify-center gap-2 text-center">
-          <IconSlot className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#0b1020] ring-1 ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
-            <Layers3 size={18} className="text-slate-200" />
+          <IconSlot className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#0b1020] ring-1 ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
+            <img src={resolvedIconSrc} alt="" aria-hidden="true" className="h-full w-full object-cover" />
           </IconSlot>
           <Stack className="w-full min-w-0 items-center gap-0.5">
             <InlineText className="w-full truncate text-center text-xs font-semibold text-slate-100">{bottle.name}</InlineText>
@@ -291,8 +328,8 @@ export function BottleCard({
       ) : (
         <>
           <Inline className={`${size === "large" ? "mb-4" : size === "medium" ? "mb-3" : "mb-2"} items-start justify-between gap-3`}>
-            <IconSlot className={`flex items-center justify-center rounded-lg bg-[#0b1020] ring-1 ${size === "large" ? "h-12 w-12" : size === "medium" ? "h-10 w-10" : "h-9 w-9"} ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
-              <Layers3 size={size === "large" ? 24 : size === "medium" ? 20 : 18} className="text-slate-200" />
+            <IconSlot className={`flex items-center justify-center overflow-hidden rounded-lg bg-[#0b1020] ring-1 ${size === "large" ? "h-12 w-12" : size === "medium" ? "h-10 w-10" : "h-9 w-9"} ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
+              <img src={resolvedIconSrc} alt="" aria-hidden="true" className="h-full w-full object-cover" />
             </IconSlot>
             {isEditing ? (
               <IconSlot className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/25 text-slate-200 shadow-lg">
@@ -330,12 +367,14 @@ export function BottleCard({
 
 function SortableBottleCard({
   bottle,
+  iconSrc,
   isEditing,
   size,
   onClick,
   onContextMenu,
 }: {
   bottle: Bottle;
+  iconSrc: string;
   isEditing: boolean;
   size: BottleCardSize;
   onClick: () => void;
@@ -368,6 +407,7 @@ function SortableBottleCard({
     >
       <BottleCard
         bottle={bottle}
+        iconSrc={iconSrc}
         onClick={onClick}
         onContextMenu={onContextMenu}
         isEditing={isEditing}
@@ -501,6 +541,12 @@ function BottleLibraryPanel({
       ...bottle.apps.flatMap((app) => [app.name, app.subtitle]),
     ].some((value) => value?.normalize("NFC").toLocaleLowerCase().includes(search)));
   }, [orderedBottles, searchQuery]);
+  const bottleIconAssignments = React.useMemo(() => new Map(
+    assign_missing_bottle_icon_ids(bottles).map((bottle) => [
+      bottle.id,
+      BOTTLE_ICON_IMAGE_BY_ID[bottle.bottleIconId],
+    ]),
+  ), [bottles]);
 
   const begin_edit_mode = () => {
     const nextOrder = bottles.map((bottle) => bottle.id);
@@ -721,6 +767,7 @@ function BottleLibraryPanel({
                 <SortableBottleCard
                   key={bottle.id}
                   bottle={bottle}
+                  iconSrc={bottleIconAssignments.get(bottle.id) ?? BOTTLE_ICON_IMAGE_BY_ID[BOTTLE_ICON_IDS[0]]}
                   isEditing={isEditing && !isApplyingOrder}
                   size={bottleCardSize}
                   onClick={() => onSelectBottle?.(bottle.id)}
@@ -1265,12 +1312,19 @@ export function BottleDetailPanel({
               </InlineText>
             ) : null}
           </Inline>
-          <Box as="h3" className="min-w-0 truncate text-xl font-bold tracking-normal text-white">
-            {bottle.name}
-          </Box>
-          <Text className="line-clamp-2 text-xs leading-5 text-slate-400">
-            {bottle.description || t("main.bottleInfo.description")}
-          </Text>
+          <Inline className="min-w-0 items-center gap-4 py-1">
+            <Box className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/[0.04] shadow-lg shadow-black/20">
+              <img src={bottle_icon_src(bottle)} alt="" aria-hidden="true" className="h-full w-full object-cover" />
+            </Box>
+            <Stack className="min-w-0 flex-1 self-stretch items-start justify-center gap-1 pb-1 text-left">
+              <Box as="h3" className="w-full min-w-0 truncate text-left text-xl font-bold tracking-normal text-white">
+                {bottle.name}
+              </Box>
+              <Text className="w-full line-clamp-2 text-left text-xs leading-5 text-slate-400">
+                {bottle.description || t("main.bottleInfo.description")}
+              </Text>
+            </Stack>
+          </Inline>
           <Text className="break-all font-mono text-[11px] leading-5 text-slate-500">
             {bottle.path}
           </Text>

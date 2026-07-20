@@ -401,6 +401,7 @@ jobs:
           fi
 
           codesign -dr - "$app_path"
+          bash scripts/verifyMacosSigningBridge.sh "$app_path"
 
       - name: Cleanup macOS signing identity
         if: ${{ always() && steps.macos_signing.outcome == 'success' }}

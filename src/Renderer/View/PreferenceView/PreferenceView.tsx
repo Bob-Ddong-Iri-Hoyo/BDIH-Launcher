@@ -14,6 +14,7 @@ import { StatusBadge } from "../../Component/StatusBadge";
 import { Box, Button, FieldLabel, InlineText, Input, Text } from "../../Component/Primitives";
 import { is_supported_locale, LOCALE_OPTIONS, SupportedLocale } from "../../I18n";
 import { ACCENT_COLOR_ITEMS, AccentColor, is_accent_color } from "../../Theme";
+import appIconImage from "../../../../resouces/app/icon/icon.png";
 
 type PreferenceCategory = "general" | "wine" | "shortcut" | "appInfo";
 export type PreferencePathKey = "dataRootPath" | "bottlePrefixPath" | "gameInstallPath";
@@ -91,17 +92,26 @@ function SettingField({ title, description, children }: { title: string; descrip
 function PreferenceSection({
   title,
   description,
+  headerIconSrc,
   children,
 }: {
   title: string;
   description: string;
+  headerIconSrc?: string;
   children: React.ReactNode;
 }) {
   return (
     <Box as="section" className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-      <Box className="mb-5">
-        <Text as="h3" className="text-base font-semibold text-white">{title}</Text>
-        <Text className="mt-1 text-sm text-slate-400">{description}</Text>
+      <Box className={`mb-5 ${headerIconSrc ? "flex items-center gap-5" : ""}`}>
+        {headerIconSrc ? (
+          <Box className="h-28 w-28 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-[#0b1020] shadow-[0_18px_45px_rgba(0,0,0,0.24)]">
+            <img src={headerIconSrc} alt="" aria-hidden="true" className="h-full w-full object-cover" />
+          </Box>
+        ) : null}
+        <Box className="min-w-0 text-left">
+          <Text as="h3" className="text-base font-semibold text-white">{title}</Text>
+          <Text className="mt-1 text-sm text-slate-400">{description}</Text>
+        </Box>
       </Box>
       {children}
     </Box>
@@ -1318,39 +1328,43 @@ export function PreferenceView({
         ) : null}
 
         {activeCategory === "appInfo" ? (
-          <PreferenceSection title={t("preferences.appInfo.title")} description={t("preferences.appInfo.description")}>
+          <PreferenceSection
+            title={t("preferences.appInfo.title")}
+            description={t("preferences.appInfo.description")}
+            headerIconSrc={appIconImage}
+          >
             <Box className="grid gap-5 md:grid-cols-2">
-              <SettingField
-                title={t("preferences.appInfo.currentVersionTitle")}
-                description={t("preferences.appInfo.currentVersionDescription")}
-              >
-                <Box className="flex h-11 items-center rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm font-semibold text-slate-100">
-                  {resolvedAppUpdateStatus?.currentVersion ?? t("preferences.appInfo.versionUnknown")}
-                </Box>
-              </SettingField>
-              <SettingField
-                title={t("preferences.appInfo.channelTitle")}
-                description={resolvedAppUpdateStatus?.channelLocked
-                  ? t("preferences.appInfo.channelLockedDescription")
-                  : t("preferences.appInfo.channelDescription")}
-              >
-                {resolvedAppUpdateStatus?.channelLocked ? (
-                  <Box className="flex h-11 items-center rounded-lg border border-white/10 bg-[#0b1020] px-3 text-sm font-semibold text-slate-100">
-                    {t(`preferences.appInfo.channels.${resolvedAppUpdateStatus.channel ?? "nightly"}.label`)}
-                  </Box>
-                ) : (
-                  <SelectMenu
-                    value={updateChannel}
-                    label={t("preferences.appInfo.channelTitle")}
-                    options={updateChannelOptions}
-                    onChange={(value) => {
-                      if (LAUNCHER_PUBLIC_UPDATE_CHANNELS.some((channel) => channel === value)) {
-                        request_update_channel(value as LauncherUpdateChannel);
-                      }
-                    }}
-                  />
-                )}
-              </SettingField>
+                  <SettingField
+                    title={t("preferences.appInfo.currentVersionTitle")}
+                    description={t("preferences.appInfo.currentVersionDescription")}
+                  >
+                    <Box className="flex h-11 items-center rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm font-semibold text-slate-100">
+                      {resolvedAppUpdateStatus?.currentVersion ?? t("preferences.appInfo.versionUnknown")}
+                    </Box>
+                  </SettingField>
+                  <SettingField
+                    title={t("preferences.appInfo.channelTitle")}
+                    description={resolvedAppUpdateStatus?.channelLocked
+                      ? t("preferences.appInfo.channelLockedDescription")
+                      : t("preferences.appInfo.channelDescription")}
+                  >
+                    {resolvedAppUpdateStatus?.channelLocked ? (
+                      <Box className="flex h-11 items-center rounded-lg border border-white/10 bg-[#0b1020] px-3 text-sm font-semibold text-slate-100">
+                        {t(`preferences.appInfo.channels.${resolvedAppUpdateStatus.channel ?? "nightly"}.label`)}
+                      </Box>
+                    ) : (
+                      <SelectMenu
+                        value={updateChannel}
+                        label={t("preferences.appInfo.channelTitle")}
+                        options={updateChannelOptions}
+                        onChange={(value) => {
+                          if (LAUNCHER_PUBLIC_UPDATE_CHANNELS.some((channel) => channel === value)) {
+                            request_update_channel(value as LauncherUpdateChannel);
+                          }
+                        }}
+                      />
+                    )}
+                  </SettingField>
             </Box>
 
             <Box className="mt-5">

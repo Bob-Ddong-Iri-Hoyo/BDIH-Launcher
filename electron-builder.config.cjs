@@ -1,3 +1,6 @@
+const fs = require("fs");
+const path = require("path");
+
 const repository = process.env.PUBLISH_REPOSITORY || process.env.GITHUB_REPOSITORY || "";
 const [owner, repo] = repository.split("/");
 
@@ -8,6 +11,41 @@ const isNightly = releaseChannel === "nightly";
 const requireCodeSigning = process.env.BDIH_REQUIRE_CODE_SIGNING === "true";
 const productName = isNightly ? "BDIH-Launcher Nightly" : "BDIH-Launcher";
 const appId = isNightly ? "day.faby.bdih-launcher.nightly" : "day.faby.bdih-launcher";
+
+function resolveBridgeRequirements() {
+  const bridgeRoot = path.resolve(__dirname, "build/signing/bridge");
+  const activeManifestPath = path.join(bridgeRoot, "active.json");
+
+  if (!fs.existsSync(activeManifestPath)) {
+    return undefined;
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(activeManifestPath, "utf8"));
+  const configuredPath = isNightly
+    ? manifest.nightlyRequirements
+    : manifest.stableRequirements;
+
+  if (typeof configuredPath !== "string" || configuredPath.length === 0) {
+    throw new Error(`Active signing bridge does not define ${isNightly ? "nightly" : "stable"} requirements.`);
+  }
+
+  const resolvedPath = path.resolve(__dirname, configuredPath);
+  const bridgePrefix = `${bridgeRoot}${path.sep}`;
+
+  if (!resolvedPath.startsWith(bridgePrefix)) {
+    throw new Error(`Signing bridge requirements must remain inside ${bridgeRoot}.`);
+  }
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Signing bridge requirements do not exist: ${resolvedPath}`);
+  }
+
+  return path.relative(__dirname, resolvedPath);
+}
+
+const bridgeRequirements = requireCodeSigning
+  ? resolveBridgeRequirements()
+  : undefined;
 
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
@@ -57,6 +95,7 @@ module.exports = {
   ],
   mac: {
     icon: "build/icon.icns",
+    ...(bridgeRequirements ? { requirements: bridgeRequirements } : {}),
     ...(isNightly ? {
       extendInfo: {
         CFBundleDisplayName: productName,

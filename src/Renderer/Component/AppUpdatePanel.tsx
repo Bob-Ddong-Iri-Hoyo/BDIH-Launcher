@@ -2,6 +2,13 @@ import React from "react";
 import { AlertTriangle, Check, CheckCircle2, Copy, Download, RefreshCw, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AppUpdateStatusPayload } from "../../Common/Types/IPC";
+import dialogCheckUpdateImage from "../../../resouces/app/images/update/dialog-check-update.png";
+import dialogLatestReleaseImage from "../../../resouces/app/images/update/dialog-latest-release.png";
+import dialogUpdateFailedImage from "../../../resouces/app/images/update/dialog-update-failed.png";
+import dialogUpdateProgressImage from "../../../resouces/app/images/update/dialog-update-progress.png";
+import errorResultImage from "../../../resouces/app/images/update/error-result.png";
+import latestReleaseImage from "../../../resouces/app/images/update/latest-release.png";
+import updateAvailableImage from "../../../resouces/app/images/update/update-available.png";
 import { classify_app_update_failure } from "../Logic/AppUpdateError";
 import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
@@ -32,6 +39,50 @@ const STATUS_TONE_MAP: Record<AppUpdateStatusPayload["status"], StatusTone> = {
   downloaded: "success",
   error: "danger",
 };
+
+const STATUS_ICON_SLOT_CLASS_MAP: Record<StatusTone, string> = {
+  neutral: "border-white/10 bg-white/[0.05]",
+  info: "border-sky-400/25 bg-sky-400/10",
+  success: "border-emerald-400/25 bg-emerald-400/10",
+  warning: "border-amber-400/25 bg-amber-400/10",
+  danger: "border-red-400/25 bg-red-400/10",
+};
+
+function panel_artwork_from_status(status?: AppUpdateStatusPayload["status"]): string {
+  if (status === "available" || status === "downloading" || status === "downloaded") {
+    return updateAvailableImage;
+  }
+
+  if (status === "error") {
+    return errorResultImage;
+  }
+
+  return latestReleaseImage;
+}
+
+function dialog_artwork_from_status(status?: AppUpdateStatusPayload["status"]): string | undefined {
+  if (status === "checking") {
+    return dialogCheckUpdateImage;
+  }
+
+  if (status === "not-available") {
+    return dialogLatestReleaseImage;
+  }
+
+  if (status === "available") {
+    return updateAvailableImage;
+  }
+
+  if (status === "downloading" || status === "downloaded") {
+    return dialogUpdateProgressImage;
+  }
+
+  if (status === "error") {
+    return dialogUpdateFailedImage;
+  }
+
+  return undefined;
+}
 
 function icon_from_status(status?: AppUpdateStatusPayload["status"]) {
   if (status === "error") {
@@ -220,6 +271,8 @@ export function AppUpdatePanel({
   const statusDescription = status && status.status !== "idle"
     ? t(`preferences.appUpdate.dialog.${status.status}.description`)
     : t("preferences.appUpdate.description");
+  const statusArtwork = panel_artwork_from_status(status?.status);
+  const dialogArtwork = dialog_artwork_from_status(dialogStatus?.status);
 
   React.useEffect(() => {
     if (!isResultDialogOpen || !status) {
@@ -277,11 +330,19 @@ export function AppUpdatePanel({
   return (
     <>
       <Box className="rounded-lg border border-white/10 bg-[#0b1020] p-4">
-        <Stack className="gap-4 md:flex-row md:items-start md:justify-between">
+        <Stack className="gap-4 sm:flex-row sm:items-start">
+          {statusArtwork ? (
+            <Box className={`h-20 w-20 shrink-0 self-start overflow-hidden rounded-xl border shadow-[0_14px_36px_rgba(0,0,0,0.22)] ${STATUS_ICON_SLOT_CLASS_MAP[STATUS_TONE_MAP[statusKey]]}`}>
+              <img src={statusArtwork} alt="" aria-hidden="true" className="h-full w-full object-cover" />
+            </Box>
+          ) : null}
+          <Stack className="min-w-0 flex-1 gap-4 md:flex-row md:items-start md:justify-between">
           <Inline className="min-w-0 gap-3">
-            <IconSlot className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-white/10 bg-white/[0.04]">
-              <Icon size={19} className={status?.status === "error" ? "text-red-300" : "accent-text"} />
-            </IconSlot>
+              {!statusArtwork ? (
+                <IconSlot className={`grid h-10 w-10 shrink-0 place-items-center rounded-md border ${STATUS_ICON_SLOT_CLASS_MAP[STATUS_TONE_MAP[statusKey]]}`}>
+                <Icon size={19} className={status?.status === "error" ? "text-red-300" : "accent-text"} />
+                </IconSlot>
+              ) : null}
             <Stack className="min-w-0 gap-1">
               <Inline className="flex-wrap items-center gap-2">
                 <Text className="text-sm font-semibold text-slate-100">{t("preferences.appUpdate.title")}</Text>
@@ -313,6 +374,7 @@ export function AppUpdatePanel({
               {t("preferences.appUpdate.check")}
             </Button>
           </Inline>
+          </Stack>
         </Stack>
 
         {status?.error ? (
@@ -331,7 +393,6 @@ export function AppUpdatePanel({
             descriptionText={t("preferences.appUpdate.downloading")}
           />
         ) : null}
-
       </Box>
 
       <Dialog
@@ -340,6 +401,8 @@ export function AppUpdatePanel({
         description={t(`preferences.appUpdate.dialog.${dialogStatusKey}.description`)}
         tone={dialog_tone_from_status(dialogStatus?.status)}
         icon={isDialogWorking ? undefined : DialogIcon}
+        iconImageSrc={dialogArtwork}
+        iconImageSize="large"
         placement="center"
         widthClassName="max-w-lg"
         onClose={() => setIsResultDialogOpen(false)}

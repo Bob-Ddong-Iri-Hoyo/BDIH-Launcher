@@ -12,6 +12,14 @@ inputs:
     description: Certificate common name used by electron-builder.
     required: false
     default: BDIH Launcher Update Signing
+  warning-days:
+    description: Emit a visible workflow warning inside this expiry window.
+    required: false
+    default: "730"
+  minimum-valid-days:
+    description: Fail signing when less validity remains.
+    required: false
+    default: "180"
 
 outputs:
   certificate-sha1:
@@ -20,6 +28,12 @@ outputs:
   keychain-path:
     description: Path to the temporary signing keychain.
     value: ${{ steps.setup.outputs.keychain-path }}
+  days-remaining:
+    description: Whole certificate-validity days remaining.
+    value: ${{ steps.setup.outputs.days-remaining }}
+  not-after-iso:
+    description: Certificate expiry timestamp in ISO 8601 format.
+    value: ${{ steps.setup.outputs.not-after-iso }}
   temp-dir:
     description: Directory containing temporary signing material.
     value: ${{ steps.setup.outputs.temp-dir }}
@@ -34,6 +48,8 @@ runs:
         MACOS_SIGNING_P12_BASE64: ${{ inputs.p12-base64 }}
         MACOS_SIGNING_P12_PASSWORD: ${{ inputs.p12-password }}
         MACOS_SIGNING_IDENTITY: ${{ inputs.identity }}
+        MACOS_SIGNING_WARNING_DAYS: ${{ inputs.warning-days }}
+        MACOS_SIGNING_MINIMUM_VALID_DAYS: ${{ inputs.minimum-valid-days }}
       run: |
         set -euo pipefail
 
@@ -49,6 +65,21 @@ runs:
 
         if [[ -z "${MACOS_SIGNING_IDENTITY:-}" || "$MACOS_SIGNING_IDENTITY" == *$'\n'* ]]; then
           echo "::error::The macOS signing identity is invalid."
+          exit 1
+        fi
+
+        if ! [[ "$MACOS_SIGNING_WARNING_DAYS" =~ ^[0-9]+$ ]]; then
+          echo "::error::warning-days must be a non-negative integer."
+          exit 1
+        fi
+
+        if ! [[ "$MACOS_SIGNING_MINIMUM_VALID_DAYS" =~ ^[0-9]+$ ]]; then
+          echo "::error::minimum-valid-days must be a non-negative integer."
+          exit 1
+        fi
+
+        if ((MACOS_SIGNING_MINIMUM_VALID_DAYS > MACOS_SIGNING_WARNING_DAYS)); then
+          echo "::error::minimum-valid-days cannot exceed warning-days."
           exit 1
         fi
 
@@ -130,6 +161,55 @@ runs:
             | tr -d ':'
         )"
 
+        active_bridge_manifest="${GITHUB_WORKSPACE:-}/build/signing/bridge/active.json"
+        if [[ -f "$active_bridge_manifest" ]]; then
+          bridge_old_certificate_sha1="$(node -e '
+            const fs = require("fs");
+            const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            process.stdout.write(String(manifest.oldCertificate?.sha1 ?? ""));
+          ' "$active_bridge_manifest")"
+
+          if [[ "$certificate_sha1" != "$bridge_old_certificate_sha1" ]]; then
+            echo "::error::An active certificate bridge must be signed with the old certificate ($bridge_old_certificate_sha1), but the configured GitHub Secret contains $certificate_sha1. Restore the old signing Secrets until all bridge releases are published."
+            exit 1
+          fi
+        fi
+
+        certificate_not_after="$(openssl x509 -in "$certificate_path" -noout -enddate | cut -d= -f2-)"
+        certificate_not_after_epoch="$(node -e '
+          const value = Date.parse(process.argv[1]);
+          if (!Number.isFinite(value)) {
+            console.error(`Cannot parse certificate expiry: ${process.argv[1]}`);
+            process.exit(1);
+          }
+          process.stdout.write(String(Math.floor(value / 1000)));
+        ' "$certificate_not_after")"
+        certificate_not_after_iso="$(node -e '
+          process.stdout.write(new Date(Number(process.argv[1]) * 1000).toISOString());
+        ' "$certificate_not_after_epoch")"
+        now_epoch="$(date +%s)"
+        seconds_remaining="$((certificate_not_after_epoch - now_epoch))"
+
+        if ((seconds_remaining <= 0)); then
+          echo "::error::The macOS signing certificate expired at $certificate_not_after_iso."
+          exit 1
+        fi
+
+        days_remaining="$(((seconds_remaining + 86399) / 86400))"
+
+        if ((days_remaining <= MACOS_SIGNING_WARNING_DAYS)); then
+          echo "::warning title=macOS signing certificate expires soon::The signing certificate expires at $certificate_not_after_iso ($days_remaining days remaining). Rotate it through a bridge release before expiry."
+        fi
+
+        if ((days_remaining < MACOS_SIGNING_MINIMUM_VALID_DAYS)); then
+          if [[ -f "$active_bridge_manifest" ]]; then
+            echo "::warning title=Expiry block bypassed for bridge release::The certificate has only $days_remaining days remaining, but an active signing bridge is present. This build must be used only to complete the certificate transition."
+          else
+            echo "::error::The macOS signing certificate has only $days_remaining days remaining; at least $MACOS_SIGNING_MINIMUM_VALID_DAYS are required for publishing. Prepare and test a bridge release before continuing."
+            exit 1
+          fi
+        fi
+
         openssl pkcs12 \
           -export \
           -legacy \
@@ -186,7 +266,9 @@ runs:
 
         {
           echo "certificate-sha1=$certificate_sha1"
+          echo "days-remaining=$days_remaining"
           echo "keychain-path=$keychain_path"
+          echo "not-after-iso=$certificate_not_after_iso"
           echo "temp-dir=$signing_dir"
         } >> "$GITHUB_OUTPUT"
 

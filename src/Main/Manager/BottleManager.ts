@@ -17,6 +17,7 @@ import {
   InstalledBottleAppPayload,
 } from "../../Common/Types/IPC";
 import { HOYOPLAY_ICON_URL, STEAM_GAME_LAUNCH_ARGUMENT, STEAM_ICON_URL } from "../../Common/Constant/RuntimeSources";
+import { assign_missing_bottle_icon_ids, is_bottle_icon_id } from "../../Common/Util/BottleIcon";
 import {
   bottle_name_to_slug,
   create_bottle_app_prefix_path,
@@ -896,9 +897,11 @@ function normalize_bottle_array(value: unknown): BottleMetadataPayload[] {
     return [];
   }
 
-  return value
-    .map((item) => normalize_bottle(item))
-    .filter((bottle): bottle is BottleMetadataPayload => Boolean(bottle));
+  return assign_missing_bottle_icon_ids(
+    value
+      .map((item) => normalize_bottle(item))
+      .filter((bottle): bottle is BottleMetadataPayload => Boolean(bottle)),
+  );
 }
 
 async function rename_incoming_bottle_directories(
@@ -986,6 +989,7 @@ function normalize_bottle(value: unknown, fallbackPath = ""): BottleMetadataPayl
 
   return {
     id,
+    bottleIconId: is_bottle_icon_id(value.bottleIconId) ? value.bottleIconId : undefined,
     name,
     description: string_or_default(value.description, name),
     wineVersionId: string_or_default(value.wineVersionId, ""),

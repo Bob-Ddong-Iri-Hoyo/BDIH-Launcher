@@ -198,7 +198,7 @@ const LOGS_BY_SESSION: Record<string, LogEntry[]> = {
       category: "app",
       source: "renderer",
       message: "Renderer process reported a recoverable UI error.",
-      detail: "Component stack: InstalledWinePanel > WineVersionCard",
+      detail: "Component stack: AppLibraryPanel > ImageButton",
     },
   ],
   "2026-05-16-2107": [

@@ -36,6 +36,8 @@ export interface DialogProps {
   description?: string;
   tone?: DialogTone;
   icon?: LucideIcon;
+  iconImageSrc?: string;
+  iconImageSize?: "default" | "large";
   children?: React.ReactNode;
   actions?: DialogAction[];
   onClose?: () => void;
@@ -166,6 +168,8 @@ export function Dialog({
   description,
   tone = "neutral",
   icon,
+  iconImageSrc,
+  iconImageSize = "default",
   children,
   actions = [],
   onClose,
@@ -196,6 +200,7 @@ export function Dialog({
 
   const toneClasses = TONE_CLASS_MAP[tone];
   const Icon = icon ?? toneClasses.defaultIcon;
+  const hasLargeIconImage = Boolean(iconImageSrc && iconImageSize === "large");
   const placementClass = placement === "center" ? "items-center py-4 sm:py-6" : "items-start py-4 sm:pb-6 sm:pt-24";
 
   function handle_backdrop_click(event: React.MouseEvent<HTMLDivElement>) {
@@ -219,17 +224,32 @@ export function Dialog({
         padding="lg"
         className={`flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden sm:max-h-[calc(100dvh-3rem)] ${widthClassName} border ${toneClasses.border} bg-[#0f172a] text-slate-100 shadow-2xl shadow-black/45 ${className}`}
       >
-        <Inline align="start" gap="md" className="shrink-0">
-          <Box className={`grid h-10 w-10 shrink-0 place-items-center rounded-md border ${toneClasses.iconBox}`}>
-            <Icon size={20} className={toneClasses.icon} />
+        <Inline align={hasLargeIconImage ? "center" : "start"} gap="md" className="shrink-0">
+          <Box className={`grid shrink-0 place-items-center overflow-hidden border ${toneClasses.iconBox} ${hasLargeIconImage ? "h-28 w-28 rounded-2xl" : "h-10 w-10 rounded-md"}`}>
+            {iconImageSrc ? (
+              <img src={iconImageSrc} alt="" aria-hidden="true" className="h-full w-full object-cover" />
+            ) : (
+              <Icon size={20} className={toneClasses.icon} />
+            )}
           </Box>
 
-          <Stack gap="xs" className="min-w-0 flex-1">
-            <Text id="dialog-title" tone="strong" size="base" weight="semibold">
+          <Stack gap="xs" className="min-w-0 flex-1 items-start text-left">
+            <Text
+              id="dialog-title"
+              tone="strong"
+              size="base"
+              weight="semibold"
+              className={`w-full text-left ${hasLargeIconImage ? "!text-xl !leading-7" : ""}`}
+            >
               {title}
             </Text>
             {description ? (
-              <Text id="dialog-description" tone="muted" size="sm">
+              <Text
+                id="dialog-description"
+                tone="muted"
+                size="sm"
+                className={`w-full text-left ${hasLargeIconImage ? "leading-6" : ""}`}
+              >
                 {description}
               </Text>
             ) : null}
@@ -238,7 +258,7 @@ export function Dialog({
           {showCloseButton && onClose ? (
             <DialogCloseButton
               onClose={onClose}
-              className="w-8 px-0 text-slate-400 hover:bg-white/5 hover:text-white"
+              className="w-8 self-start px-0 text-slate-400 hover:bg-white/5 hover:text-white"
             />
           ) : null}
         </Inline>

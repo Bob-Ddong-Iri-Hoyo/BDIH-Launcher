@@ -203,23 +203,25 @@ async function confirm_quit_with_active_wine(): Promise<boolean> {
  * user visible feedback while the processes are being stopped.
  */
 async function cleanupBeforeQuit(): Promise<void> {
+  await windowManager.showShutdownWindow();
+  const shutdownWindowShownAt = Date.now();
+
   shortcutManager.unregisterAll();
   await windowManager.flushLauncherWindowState();
   await preferenceManager.flushPendingWrites();
-  const hasManagedWineProcesses = await bottleExecutionManager.hasManagedWineProcesses();
-  const shouldShowShutdownWindow =
-    hasManagedWineProcesses ||
-    downloadManager.listActiveDownloadIds().length > 0;
-
-  if (shouldShowShutdownWindow) {
-    await windowManager.showShutdownWindow();
-  }
 
   await Promise.all([
     discordPresenceManager.shutdown(),
     downloadManager.stopAll(),
     bottleExecutionManager.stopAllWineProcesses(),
   ]);
+
+  const minimumVisibleMs = 600;
+  const remainingVisibleMs = minimumVisibleMs - (Date.now() - shutdownWindowShownAt);
+
+  if (remainingVisibleMs > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, remainingVisibleMs));
+  }
 }
 
 /**
