@@ -23,6 +23,10 @@ import { change_renderer_locale, is_supported_locale, resolve_initial_locale, Su
 import { useSystemStore } from "../../Store";
 import { AccentColor, apply_renderer_accent_color, is_accent_color, resolve_initial_accent_color } from "../../Theme";
 import { normalize_preference_path, preference_storage_paths_equal } from "../../Util/PreferencePath";
+import {
+  initial_running_state_for_live_log_entry,
+  running_state_after_live_log_entry,
+} from "../../Util/LogSessionActivity";
 import { LauncherView } from "./MainView";
 import type { Bottle, CreateBottleInput } from "./MainView";
 import type { PreferencePathKey } from "../PreferenceView/PreferenceView";
@@ -536,7 +540,9 @@ function update_log_sessions(sessions: LogSession[], entry: LauncherLogEntryPayl
         bottleId: entry.bottleId,
         bottleName: entry.bottleName,
         count: 1,
-        isRunning: true,
+        isRunning: initial_running_state_for_live_log_entry(
+          isBottleSession ? "bottle" : "app",
+        ),
       },
     ];
   }
@@ -553,7 +559,10 @@ function update_log_sessions(sessions: LogSession[], entry: LauncherLogEntryPayl
       ? {
           ...session,
           count: (session.count ?? 0) + 1,
-          isRunning: true,
+          isRunning: running_state_after_live_log_entry(
+            session.kind,
+            session.isRunning,
+          ),
         }
       : session,
   );
@@ -2324,6 +2333,22 @@ const App: React.FC = () => {
     }
 
     launchingAppsRef.current.delete(launchKey);
+
+    if (result.processId && !processAlreadyExited) {
+      setLogSessions((currentSessions) => {
+        const nextSessions = set_runtime_log_session_state(
+          currentSessions,
+          bottle.id,
+          bottle.name,
+          [app.id],
+          app.name,
+          true,
+          result.processId,
+        );
+        logSessionsRef.current = nextSessions;
+        return nextSessions;
+      });
+    }
 
     if (result.refreshBottles) {
       const bottlePayload = (await window.BTIH_API?.invoke(

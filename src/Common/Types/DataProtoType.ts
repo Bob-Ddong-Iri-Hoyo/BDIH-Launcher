@@ -68,6 +68,11 @@ export interface RuntimeLauncherProfile<
   id: Id;
   displayName: string;
   executableNames: string[];
+  /**
+   * Long-lived Windows processes that prove the launcher has actually started.
+   * This can differ from the bootstrap executable used to launch it.
+   */
+  runningExecutableNames?: string[];
   executableDiscovery: RuntimeExecutableDiscoveryDefinition;
   managedGames?: ManagedId[];
   allowedLaunchOptionKeys: readonly RuntimeLaunchOptionKey[];

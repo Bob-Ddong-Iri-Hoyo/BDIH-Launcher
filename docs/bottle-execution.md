@@ -122,7 +122,10 @@ following in `BottleExecutionManager`:
    base launcher runtime and must enter the supervised HoYoPlay route before a
    game is launched in its game-specific prefix.
 5. Create a prefix session.
-6. Poll the prefix for the expected launcher executable.
+6. Poll the prefix for the expected launcher executable. HoYoPlay additionally
+   waits until either the installer exits or a long-lived HoYoPlay process is
+   running inside that prefix. This handles the installer option that opens
+   HoYoPlay before its own Wine invocation returns.
 7. Keep polling through a short grace period when the installer exits cleanly;
    stop immediately on failure, or when the grace period or global timeout
    expires.
@@ -140,6 +143,14 @@ with the `steam-session` supervisor. HoYoPlay declares base Wine and a
 `hoyoplay-overseer` supervisor. The HoYoPlay install preflight therefore checks
 `wineserver`, the HoYo routing/network manifest groups, and supervisor
 registration before the installer starts.
+
+HoYoPlay's completion descriptor uses
+`installer-exit-or-launcher-process`. When the installer automatically opens
+`HYP.exe`, the manager detects that process by both its Profile-owned executable
+name and an open path inside the launcher prefix. It then stops the unsupervised
+first process and immediately relaunches HoYoPlay through the overseer. If the
+user disables automatic launch, a clean installer exit satisfies the same
+transition instead.
 
 ## Original Steam handoff behavior and regression
 
@@ -736,6 +747,12 @@ interface ExecutionSession {
 The UI derives **Running**, installer progress, and handoff state from active
 sessions. It does not require a discovered app to exist before showing that a
 Bottle has an active installer session.
+
+A live Bottle log line is not considered process-liveness evidence. Only an
+explicit successful launch result, prefix-session update, or process exit
+changes a Bottle log session's running marker. This prevents a final
+`executable exited` log line arriving after the prefix-end event from reviving
+an already-ended Steam session in the log viewer.
 
 For Steam, the same session ID survives the handoff:
 

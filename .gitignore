@@ -8,3 +8,4 @@ output/
 screenshots/
 tmp*
 .env
+private/

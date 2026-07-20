@@ -53,6 +53,7 @@ import { find_runtime_profile_executable } from "../Util/RuntimeExecutableDiscov
 import { send_to_web_contents } from "../Util/SafeWebContents";
 import {
   find_managed_wine_process_ids,
+  has_managed_wine_executable_process,
   terminate_managed_wine_processes,
 } from "../Util/ManagedWineProcesses";
 import { ensure_shared_games_drive, inspect_symlink } from "../Util/SharedGamesDrive";
@@ -2601,10 +2602,12 @@ export class BottleExecutionManager {
       if (
         detectedPath
         && await is_stable_launcher_executable(detectedPath, LAUNCHER_EXECUTABLE_STABLE_MS)
-        && (
-          !installPlan.completion.requireInstallerExitBeforeTransition
-          || installerExitedSuccessfully
-        )
+        && await is_launcher_install_transition_ready({
+          completion: installPlan.completion,
+          installerExitedSuccessfully,
+          bottlePath,
+          launcherProfile,
+        })
       ) {
         this.sendStatus(sender, {
           bottleId: request.bottleId,
@@ -3744,6 +3747,32 @@ async function is_stable_launcher_executable(targetPath: string, stableMs: numbe
   } catch {
     return false;
   }
+}
+
+async function is_launcher_install_transition_ready(options: {
+  completion: LauncherInstallExecutionPlan["completion"];
+  installerExitedSuccessfully: boolean;
+  bottlePath: string;
+  launcherProfile: ReturnType<typeof get_launcher_runtime_profile>;
+}): Promise<boolean> {
+  if (options.completion.transitionReadiness === "launcher-executable") {
+    return true;
+  }
+
+  if (options.installerExitedSuccessfully) {
+    return true;
+  }
+
+  const runningExecutableNames = options.launcherProfile?.runningExecutableNames ?? [];
+
+  if (runningExecutableNames.length === 0) {
+    return false;
+  }
+
+  return has_managed_wine_executable_process(
+    [options.bottlePath],
+    runningExecutableNames,
+  );
 }
 
 function delay(ms: number): Promise<void> {

@@ -5,6 +5,7 @@ const channel = process.env.UPDATE_CHANNEL || "latest";
 const releaseType = process.env.RELEASE_TYPE || "release";
 const releaseChannel = process.env.BDIH_RELEASE_CHANNEL || channel;
 const isNightly = releaseChannel === "nightly";
+const requireCodeSigning = process.env.BDIH_REQUIRE_CODE_SIGNING === "true";
 const productName = isNightly ? "BDIH-Launcher Nightly" : "BDIH-Launcher";
 const appId = isNightly ? "day.faby.bdih-launcher.nightly" : "day.faby.bdih-launcher";
 
@@ -45,6 +46,7 @@ module.exports = {
   ],
   detectUpdateChannel: true,
   generateUpdatesFilesForAllChannels: true,
+  forceCodeSigning: requireCodeSigning,
   publish: [
     {
       provider: "github",

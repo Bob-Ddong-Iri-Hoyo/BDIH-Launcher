@@ -49,7 +49,7 @@ class HoyoplayInstallStrategy extends LauncherInstallStrategyDefinition {
       },
       completion: {
         launcher: "hoyoplay",
-        requireInstallerExitBeforeTransition: true,
+        transitionReadiness: "installer-exit-or-launcher-process",
       },
       transition: {
         kind: "stop-and-relaunch",

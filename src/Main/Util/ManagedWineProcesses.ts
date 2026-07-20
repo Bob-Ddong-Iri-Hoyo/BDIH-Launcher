@@ -11,7 +11,7 @@ export interface ManagedWineProcessCleanupResult {
   remainingPids: number[];
 }
 
-interface ProcessCommand {
+export interface ManagedWineProcess {
   pid: number;
   command: string;
 }
@@ -30,6 +30,10 @@ export function is_wine_host_process_command(command: string): boolean {
 }
 
 export async function find_managed_wine_process_ids(roots: string[]): Promise<number[]> {
+  return (await find_managed_wine_processes(roots)).map(({ pid }) => pid);
+}
+
+export async function find_managed_wine_processes(roots: string[]): Promise<ManagedWineProcess[]> {
   if (process.platform === "win32") {
     return [];
   }
@@ -63,9 +67,51 @@ export async function find_managed_wine_process_ids(roots: string[]): Promise<nu
   ]);
   const pidsWithManagedFiles = process_ids_with_paths_in_roots(lsofOutput, normalizedRoots);
 
-  return processCommands
-    .map(({ pid }) => pid)
-    .filter((pid) => pidsWithManagedFiles.has(pid));
+  return processCommands.filter(({ pid }) => pidsWithManagedFiles.has(pid));
+}
+
+export async function has_managed_wine_executable_process(
+  roots: string[],
+  executableNames: readonly string[],
+): Promise<boolean> {
+  if (executableNames.length === 0) {
+    return false;
+  }
+
+  const processes = await find_managed_wine_processes(roots);
+
+  return processes.some(({ command }) =>
+    executableNames.some((executableName) =>
+      command_runs_windows_executable(command, executableName),
+    ),
+  );
+}
+
+export function command_runs_windows_executable(
+  command: string,
+  executableName: string,
+): boolean {
+  const normalizedCommand = command.trim().replace(/\\/g, "/").toLowerCase();
+  const normalizedExecutableName = executableName.trim().replace(/\\/g, "/").toLowerCase();
+
+  if (!normalizedExecutableName || normalizedExecutableName.includes("/")) {
+    return false;
+  }
+
+  const executableToken = `/${normalizedExecutableName}`;
+  const executableIndex = normalizedCommand.indexOf(executableToken);
+
+  if (executableIndex >= 0) {
+    const trailingCharacter = normalizedCommand[executableIndex + executableToken.length];
+    return trailingCharacter === undefined || /\s/.test(trailingCharacter);
+  }
+
+  if (!normalizedCommand.startsWith(normalizedExecutableName)) {
+    return false;
+  }
+
+  const trailingCharacter = normalizedCommand[normalizedExecutableName.length];
+  return trailingCharacter === undefined || /\s/.test(trailingCharacter);
 }
 
 export async function terminate_managed_wine_processes(
@@ -96,7 +142,7 @@ export async function terminate_managed_wine_processes(
   };
 }
 
-function parse_process_commands(output: string): ProcessCommand[] {
+function parse_process_commands(output: string): ManagedWineProcess[] {
   return output.split(/\r?\n/).flatMap((line) => {
     const match = line.match(/^\s*(\d+)\s+(.+)$/);
 

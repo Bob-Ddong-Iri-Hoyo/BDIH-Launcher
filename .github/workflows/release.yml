@@ -95,10 +95,17 @@ jobs:
             echo "RELEASE_TYPE=release" >> "$GITHUB_ENV"
           fi
 
+      - name: Setup macOS signing identity
+        id: macos_signing
+        uses: ./.github/actions/setup-macos-signing
+        with:
+          p12-base64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+          identity: BDIH Launcher Update Signing
+
       - name: Build and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: false
           BDIH_DISCORD_CLIENT_ID: ${{ vars.BDIH_DISCORD_CLIENT_ID || secrets.BDIH_DISCORD_CLIENT_ID }}
           BDIH_DISCORD_SHOW_IDLE: ${{ vars.BDIH_DISCORD_SHOW_IDLE || 'true' }}
           BDIH_DISCORD_LARGE_IMAGE_KEY: ${{ vars.BDIH_DISCORD_LARGE_IMAGE_KEY || 'bdih_logo' }}
@@ -109,3 +116,40 @@ jobs:
           fi
           pnpm build
           pnpm exec electron-builder --mac --publish always --config electron-builder.config.cjs
+
+      - name: Verify published app signature
+        env:
+          MACOS_SIGNING_IDENTITY: BDIH Launcher Update Signing
+        run: |
+          set -euo pipefail
+
+          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name '*.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "::error::No packaged macOS application was found."
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          signature="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+          if [[ "$signature" != *"Authority=$MACOS_SIGNING_IDENTITY"* ]]; then
+            echo "::error::The packaged app was not signed by $MACOS_SIGNING_IDENTITY."
+            printf '%s\n' "$signature"
+            exit 1
+          fi
+
+          codesign -dr - "$app_path"
+
+      - name: Cleanup macOS signing identity
+        if: ${{ always() && steps.macos_signing.outcome == 'success' }}
+        env:
+          CERTIFICATE_SHA1: ${{ steps.macos_signing.outputs.certificate-sha1 }}
+          KEYCHAIN_PATH: ${{ steps.macos_signing.outputs.keychain-path }}
+          SIGNING_TEMP_DIR: ${{ steps.macos_signing.outputs.temp-dir }}
+        run: |
+          set +e
+          sudo -n security delete-certificate \
+            -Z "$CERTIFICATE_SHA1" \
+            /Library/Keychains/System.keychain >/dev/null 2>&1
+          security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1
+          find "$SIGNING_TEMP_DIR" -type f -delete >/dev/null 2>&1
+          rmdir "$SIGNING_TEMP_DIR" >/dev/null 2>&1

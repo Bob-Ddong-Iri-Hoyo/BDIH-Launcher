@@ -52,7 +52,7 @@ class SteamInstallStrategy extends LauncherInstallStrategyDefinition {
       },
       completion: {
         launcher: "steam",
-        requireInstallerExitBeforeTransition: false,
+        transitionReadiness: "launcher-executable",
       },
       transition: {
         kind: "adopt-existing",

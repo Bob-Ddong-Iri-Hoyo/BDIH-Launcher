@@ -60,7 +60,9 @@ export interface LauncherInstallExecutionPlan {
   };
   completion: {
     launcher: BottleLauncherKind;
-    requireInstallerExitBeforeTransition: boolean;
+    transitionReadiness:
+      | "launcher-executable"
+      | "installer-exit-or-launcher-process";
   };
   transition: LauncherPostInstallTransition;
 }

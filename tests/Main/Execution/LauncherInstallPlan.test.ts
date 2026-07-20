@@ -32,7 +32,7 @@ describe("launcher install Strategy plans", () => {
       }),
       completion: {
         launcher: "steam",
-        requireInstallerExitBeforeTransition: false,
+        transitionReadiness: "launcher-executable",
       },
       transition: {
         kind: "adopt-existing",
@@ -63,7 +63,7 @@ describe("launcher install Strategy plans", () => {
       },
       completion: {
         launcher: "hoyoplay",
-        requireInstallerExitBeforeTransition: true,
+        transitionReadiness: "installer-exit-or-launcher-process",
       },
       transition: {
         kind: "stop-and-relaunch",

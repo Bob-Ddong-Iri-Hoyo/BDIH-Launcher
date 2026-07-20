@@ -22,6 +22,10 @@ export const HOYOPLAY_LAUNCHER_PROFILE = {
     "launcher.exe",
     "HoYoPlay.exe",
   ],
+  runningExecutableNames: [
+    "HYP.exe",
+    "HoYoPlay.exe",
+  ],
   executableDiscovery: {
     preferredRelativePaths: [
       "Program Files/HoYoPlay/launcher.exe",

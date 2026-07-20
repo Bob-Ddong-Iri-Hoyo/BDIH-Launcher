@@ -81,7 +81,8 @@ function create_harness(): UpdateManagerHarness {
     },
   }));
   jest.doMock("../../../src/Main/Environment/AppPaths", () => ({
-    is_nightly_update_test_build: jest.fn(() => false),
+    is_nightly_launcher_build: jest.fn(() => false),
+    is_update_test_build: jest.fn(() => false),
   }));
   jest.doMock("../../../src/Main/Manager/LogManager", () => ({
     logManager: {
@@ -178,6 +179,23 @@ describe("UpdateManager", () => {
     expect(beforeInstall).not.toHaveBeenCalled();
     expect(updater.downloadUpdate).not.toHaveBeenCalled();
     expect(updater.quitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it("coalesces startup and settings refreshes while an update check is in progress", async () => {
+    const { manager, updater } = create_harness();
+    const check = create_deferred();
+    updater.checkForUpdates.mockImplementation(() => check.promise);
+
+    const startupCheck = manager.checkForUpdates();
+    const settingsRefresh = manager.checkForUpdates();
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+
+    check.resolve();
+    await Promise.all([startupCheck, settingsRefresh]);
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
   });
 
   it("rejects installation before an update is available", async () => {

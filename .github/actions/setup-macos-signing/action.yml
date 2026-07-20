@@ -1,0 +1,194 @@
+name: Setup macOS signing
+description: Install the BDIH self-signed update identity in an isolated CI keychain.
+
+inputs:
+  p12-base64:
+    description: Base64-encoded PKCS#12 signing identity.
+    required: true
+  p12-password:
+    description: Password protecting the PKCS#12 signing identity.
+    required: true
+  identity:
+    description: Certificate common name used by electron-builder.
+    required: false
+    default: BDIH Launcher Update Signing
+
+outputs:
+  certificate-sha1:
+    description: SHA-1 fingerprint used to remove the temporary trust entry.
+    value: ${{ steps.setup.outputs.certificate-sha1 }}
+  keychain-path:
+    description: Path to the temporary signing keychain.
+    value: ${{ steps.setup.outputs.keychain-path }}
+  temp-dir:
+    description: Directory containing temporary signing material.
+    value: ${{ steps.setup.outputs.temp-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Import signing identity
+      id: setup
+      shell: bash
+      env:
+        MACOS_SIGNING_P12_BASE64: ${{ inputs.p12-base64 }}
+        MACOS_SIGNING_P12_PASSWORD: ${{ inputs.p12-password }}
+        MACOS_SIGNING_IDENTITY: ${{ inputs.identity }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${MACOS_SIGNING_P12_BASE64:-}" ]]; then
+          echo "::error::MACOS_SIGNING_P12_BASE64 is not configured."
+          exit 1
+        fi
+
+        if [[ -z "${MACOS_SIGNING_P12_PASSWORD:-}" ]]; then
+          echo "::error::MACOS_SIGNING_P12_PASSWORD is not configured."
+          exit 1
+        fi
+
+        if [[ -z "${MACOS_SIGNING_IDENTITY:-}" || "$MACOS_SIGNING_IDENTITY" == *$'\n'* ]]; then
+          echo "::error::The macOS signing identity is invalid."
+          exit 1
+        fi
+
+        signing_dir="$(mktemp -d "${RUNNER_TEMP}/bdih-macos-signing.XXXXXX")"
+        raw_p12="$signing_dir/signing-original.p12"
+        compatible_p12="$signing_dir/signing-macos-compatible.p12"
+        signing_pem="$signing_dir/signing-material.pem"
+        certificate_path="$signing_dir/signing-certificate.pem"
+        key_public_path="$signing_dir/key-public.pem"
+        certificate_public_path="$signing_dir/certificate-public.pem"
+        keychain_path="$signing_dir/signing.keychain-db"
+        keychain_password="$(openssl rand -base64 32 | tr -d '\n')"
+        certificate_sha1=""
+        keychain_created=0
+        trust_installed=0
+
+        cleanup_on_error() {
+          set +e
+
+          if ((trust_installed == 1)) && [[ -n "$certificate_sha1" ]]; then
+            sudo -n security delete-certificate \
+              -Z "$certificate_sha1" \
+              /Library/Keychains/System.keychain >/dev/null 2>&1
+          fi
+
+          if ((keychain_created == 1)); then
+            security delete-keychain "$keychain_path" >/dev/null 2>&1
+          fi
+
+          find "$signing_dir" -type f -delete >/dev/null 2>&1
+          rmdir "$signing_dir" >/dev/null 2>&1
+        }
+        trap cleanup_on_error ERR
+
+        chmod 700 "$signing_dir"
+        printf '%s' "$MACOS_SIGNING_P12_BASE64" \
+          | openssl base64 -d -A -out "$raw_p12"
+        chmod 600 "$raw_p12"
+
+        # OpenSSL 3 exports PKCS#12 with algorithms that macOS security(1) may
+        # reject. Read the secret with OpenSSL and re-export only the temporary
+        # CI copy using the legacy-compatible PKCS#12 algorithms.
+        openssl pkcs12 \
+          -legacy \
+          -in "$raw_p12" \
+          -nodes \
+          -passin env:MACOS_SIGNING_P12_PASSWORD \
+          -out "$signing_pem"
+        chmod 600 "$signing_pem"
+
+        openssl x509 \
+          -in "$signing_pem" \
+          -out "$certificate_path"
+
+        openssl pkey \
+          -in "$signing_pem" \
+          -pubout \
+          -out "$key_public_path"
+        openssl x509 \
+          -in "$certificate_path" \
+          -pubkey \
+          -noout \
+          -out "$certificate_public_path"
+
+        if ! cmp -s "$key_public_path" "$certificate_public_path"; then
+          echo "::error::The PKCS#12 private key does not match its certificate."
+          exit 1
+        fi
+
+        certificate_subject="$(openssl x509 -in "$certificate_path" -noout -subject -nameopt RFC2253)"
+        if [[ "$certificate_subject" != *"CN=$MACOS_SIGNING_IDENTITY"* ]]; then
+          echo "::error::Expected signing certificate CN=$MACOS_SIGNING_IDENTITY, got: $certificate_subject"
+          exit 1
+        fi
+
+        certificate_sha1="$(
+          openssl x509 -in "$certificate_path" -noout -fingerprint -sha1 \
+            | cut -d= -f2 \
+            | tr -d ':'
+        )"
+
+        openssl pkcs12 \
+          -export \
+          -legacy \
+          -in "$signing_pem" \
+          -name "$MACOS_SIGNING_IDENTITY" \
+          -out "$compatible_p12" \
+          -passout env:MACOS_SIGNING_P12_PASSWORD
+        chmod 600 "$compatible_p12"
+
+        security create-keychain -p "$keychain_password" "$keychain_path"
+        keychain_created=1
+        security unlock-keychain -p "$keychain_password" "$keychain_path"
+        security set-keychain-settings -lut 21600 "$keychain_path"
+        security list-keychains -d user -s "$keychain_path"
+        security import "$compatible_p12" \
+          -k "$keychain_path" \
+          -P "$MACOS_SIGNING_P12_PASSWORD" \
+          -T /usr/bin/codesign \
+          -T /usr/bin/security >/dev/null
+        security set-key-partition-list \
+          -S apple-tool:,apple: \
+          -s \
+          -k "$keychain_password" \
+          "$keychain_path" >/dev/null
+
+        # A self-signed identity is not an Apple trust anchor. Trust it only on
+        # this disposable runner so security(1) exposes it as a valid identity.
+        sudo -n security add-trusted-cert \
+          -d \
+          -r trustRoot \
+          -p codeSign \
+          -k /Library/Keychains/System.keychain \
+          "$certificate_path"
+        trust_installed=1
+
+        identities="$(security find-identity -v -p codesigning "$keychain_path")"
+        if [[ "$identities" != *"\"$MACOS_SIGNING_IDENTITY\""* ]]; then
+          echo "::error::The expected signing identity was not installed."
+          printf '%s\n' "$identities"
+          exit 1
+        fi
+
+        security verify-cert \
+          -c "$certificate_path" \
+          -p codeSign \
+          -k "$keychain_path" >/dev/null
+
+        {
+          echo "CSC_KEYCHAIN=$keychain_path"
+          echo "CSC_NAME=$MACOS_SIGNING_IDENTITY"
+          echo "CSC_IDENTITY_AUTO_DISCOVERY=false"
+          echo "BDIH_REQUIRE_CODE_SIGNING=true"
+        } >> "$GITHUB_ENV"
+
+        {
+          echo "certificate-sha1=$certificate_sha1"
+          echo "keychain-path=$keychain_path"
+          echo "temp-dir=$signing_dir"
+        } >> "$GITHUB_OUTPUT"
+
+        trap - ERR
+        echo "Installed macOS signing identity: $MACOS_SIGNING_IDENTITY"
