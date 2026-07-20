@@ -1,7 +1,8 @@
 ﻿import React from "react";
 import { Copy, FolderOpen, Pencil, Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AppUpdateStatusPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload, DebugFlagMode, DeleteLauncherDataResultPayload, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RendererThemeMode } from "../../../Common/Types/IPC";
+import type { AppUpdateStatusPayload, BottleExecutionStatePayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload, DebugFlagMode, DeleteLauncherDataResultPayload, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RendererThemeMode } from "../../../Common/Types/IPC";
+import { IPC_CHANNELS } from "../../../Common/Types/IPC";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../../Common/Types/Wine";
 import { BottleDetailPanel, CreateBottleDialog, DashboardBreadcrumb, DashboardHomePanel, is_bottle_running } from "../../Component/BottleDashboard";
 import { ContextMenu, ContextMenuItem, ContextMenuPosition } from "../../Component/ContextMenu";
@@ -43,7 +44,7 @@ export interface DashboardViewProps {
   onRenameBottle?: (bottleId: string, name: string) => void;
   onChangeBottleDescription?: (bottleId: string, description: string) => void;
   onRevealBottle?: (path: string) => void;
-  onDeleteBottle?: (bottleId: string) => void;
+  onDeleteBottle?: (bottleId: string) => Promise<void> | void;
   onClearBottleDxmtShaderCaches?: (bottleId: string, prefixPaths?: string[]) => Promise<DeleteLauncherDataResultPayload | undefined>;
   onSelectBottlePrefixPath?: (currentPath: string) => Promise<string | undefined>;
   onDownloadBottleLauncherInstaller?: (bottleId: string, launcher: BottleLauncherKind) => void;
@@ -206,6 +207,8 @@ export function DashboardView({
     bottleId: string;
     description: string;
   } | null>(null);
+  const [deleteBottleId, setDeleteBottleId] = React.useState<string | null>(null);
+  const [deleteBottleWasRunning, setDeleteBottleWasRunning] = React.useState(false);
   const [launchOptionsBottleId, setLaunchOptionsBottleId] = React.useState<string | null>(null);
   const [noticeDialog, setNoticeDialog] = React.useState<{
     title: string;
@@ -289,11 +292,7 @@ export function DashboardView({
         icon: Trash2,
         danger: true,
         separatorBefore: true,
-        onSelect: () => {
-          if (window.confirm(t("main.contextMenu.deleteBottleConfirm", { name: contextBottle.name }))) {
-            onDeleteBottle?.(contextBottle.id);
-          }
-        },
+        onSelect: () => void open_delete_bottle_dialog(contextBottle),
       },
       {
         id: "clear-dxmt-shader-cache",
@@ -328,6 +327,11 @@ export function DashboardView({
     () => bottles.find((bottle) => bottle.id === descriptionDraft?.bottleId),
     [bottles, descriptionDraft?.bottleId],
   );
+  const deleteBottle = React.useMemo(
+    () => bottles.find((bottle) => bottle.id === deleteBottleId),
+    [bottles, deleteBottleId],
+  );
+  const isDeleteBottleRunning = deleteBottleWasRunning || Boolean(deleteBottle && is_bottle_running(deleteBottle));
   const normalizedDescriptionDraft = descriptionDraft?.description.trim() ?? "";
   const canSubmitDescription = Boolean(
     descriptionDraft
@@ -412,6 +416,34 @@ export function DashboardView({
       description: t("main.editBottleDescription.successDescription", { name: descriptionBottle.name }),
       tone: "success",
     });
+  }
+
+  function confirm_delete_bottle() {
+    if (!deleteBottle) {
+      setDeleteBottleId(null);
+      return;
+    }
+
+    const bottleId = deleteBottle.id;
+    setDeleteBottleId(null);
+    void onDeleteBottle?.(bottleId);
+  }
+
+  async function open_delete_bottle_dialog(bottle: Bottle) {
+    let isRunning = is_bottle_running(bottle);
+
+    try {
+      const executionState = await window.BTIH_API?.invoke(
+        IPC_CHANNELS.BOTTLE.GET_EXECUTION_STATE.channelName,
+        { bottleId: bottle.id },
+      ) as BottleExecutionStatePayload | undefined;
+      isRunning ||= Boolean(executionState?.isRunning);
+    } catch (error) {
+      console.warn("Failed to check Bottle execution state before deletion:", error);
+    }
+
+    setDeleteBottleWasRunning(isRunning);
+    setDeleteBottleId(bottle.id);
   }
 
   function handle_bottle_context_menu(event: React.MouseEvent<HTMLButtonElement>, bottle: Bottle) {
@@ -503,6 +535,33 @@ export function DashboardView({
         launcherOptionsManifest={launchOptionsManifest}
         onClose={() => setLaunchOptionsBottleId(null)}
         onSave={onChangeBottleAppLaunchOptions}
+      />
+      <Dialog
+        open={Boolean(deleteBottleId && deleteBottle)}
+        title={t(isDeleteBottleRunning
+          ? "main.contextMenu.deleteRunningBottleTitle"
+          : "main.contextMenu.deleteBottleTitle", { name: deleteBottle?.name ?? "" })}
+        description={t(isDeleteBottleRunning
+          ? "main.contextMenu.deleteRunningBottleDescription"
+          : "main.contextMenu.deleteBottleDescription", { name: deleteBottle?.name ?? "" })}
+        tone="danger"
+        icon={Trash2}
+        placement="center"
+        onClose={() => setDeleteBottleId(null)}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "secondary",
+            onClick: () => setDeleteBottleId(null),
+          },
+          {
+            label: t(isDeleteBottleRunning
+              ? "main.contextMenu.stopAndDeleteBottle"
+              : "main.contextMenu.deleteBottleAction"),
+            variant: "danger",
+            onClick: confirm_delete_bottle,
+          },
+        ]}
       />
       <Dialog
         open={Boolean(renameDraft && renameBottle)}
@@ -792,7 +851,7 @@ export function LauncherView({
               setSelectedBottleId(undefined);
             }
 
-            onDeleteBottle?.(bottleId);
+            return onDeleteBottle?.(bottleId);
           }}
           onClearBottleDxmtShaderCaches={onClearBottleDxmtShaderCaches}
           onSelectBottlePrefixPath={onSelectBottlePrefixPath}

@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { readdir, rm } from "fs/promises";
 import os from "os";
 import path from "path";
-import { ApplyBottleRecipePayload, BottleExecutionStatePayload, BottleTaskResultPayload, DeleteBottleAppPayload, DeleteBottleAppResultPayload, DeleteBottlePayload, DeleteBottlePrefixPayload, DeleteBottlePrefixResultPayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, DownloadBottleLauncherInstallerPayload, DxmtDeletePayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, JadeiteDeletePayload, JadeiteInstallPayload, LauncherDataDeleteTarget, LauncherPreferencePatch, LocaleResourcesPayload, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RendererLogPayload, RosettaStatusPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, RuntimeDeleteResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload, WineDeletePayload } from "../../Common/Types/IPC";
+import { ApplyBottleRecipePayload, BottleExecutionStatePayload, BottleExecutionStateRequestPayload, BottleTaskResultPayload, DeleteBottleAppPayload, DeleteBottleAppResultPayload, DeleteBottlePayload, DeleteBottlePrefixPayload, DeleteBottlePrefixResultPayload, DeleteBottleResultPayload, DeleteLauncherDataPayload, DeleteLauncherDataResultPayload, DownloadBottleLauncherInstallerPayload, DxmtDeletePayload, InstallBottleLauncherPayload, IPC_CHANNELS, InstallRequest, JadeiteDeletePayload, JadeiteInstallPayload, LauncherDataDeleteTarget, LauncherPreferencePatch, LocaleResourcesPayload, OpenExternalUrlPayload, OpenPathPayload, OpenPathResultPayload, PathSuggestionPayload, PathSuggestionResultPayload, RendererLogPayload, RosettaStatusPayload, RunBottleExecutablePayload, RunBottleExecutableResultPayload, RuntimeDeleteResultPayload, SelectDirectoryPayload, SelectFilePayload, SetupBottlePrefixPayload, StopBottleProcessPayload, WineDeletePayload } from "../../Common/Types/IPC";
 import {
   get_bottle_registry_path,
   get_default_bottle_prefix_path,
@@ -161,6 +161,12 @@ export class IPCManager {
     ipcMain.handle(
       IPC_CHANNELS.BOTTLE.DELETE.channelName,
       async (_event, request: DeleteBottlePayload): Promise<DeleteBottleResultPayload> => {
+        // Never remove a prefix directory while its wineserver/session is still
+        // active. The renderer confirms this destructive action with the user;
+        // Main enforces the stop-before-delete ordering even for stale UI state.
+        if (this.bottleExecutions.hasActiveWineProcessesForBottle(request.bottleId)) {
+          await this.bottleExecutions.stopBottleWineProcesses(request.bottleId);
+        }
         return this.bottles.deleteBottle(request);
       },
     );
@@ -201,8 +207,10 @@ export class IPCManager {
     ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.GET_EXECUTION_STATE.channelName);
     ipcMain.handle(
       IPC_CHANNELS.BOTTLE.GET_EXECUTION_STATE.channelName,
-      async (): Promise<BottleExecutionStatePayload> => ({
-        isRunning: this.bottleExecutions.hasActiveWineProcesses(),
+      async (_event, request?: BottleExecutionStateRequestPayload): Promise<BottleExecutionStatePayload> => ({
+        isRunning: request?.bottleId
+          ? this.bottleExecutions.hasActiveWineProcessesForBottle(request.bottleId)
+          : this.bottleExecutions.hasActiveWineProcesses(),
       }),
     );
 

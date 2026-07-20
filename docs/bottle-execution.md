@@ -221,13 +221,15 @@ A clean installer exit receives a 30-second discovery grace period so Steam's
 bootstrap/update processes can create or replace `steam.exe`. Steam handoff
 also attaches the game-process log watcher to the surviving session.
 
-Steam game discovery reads every accessible library declared in
-`steamapps/libraryfolders.vdf`, translating Wine C:, G:, and Z: paths back to
-host paths. Conventional `G:\\steamapps` and
-`G:\\SteamLibrary\\steamapps` layouts are included as fallbacks. When the
-running Steam session reports a previously unknown `steam:<appid>`, the
-renderer forces a Bottle metadata rescan so the shared-library game can enter
-the app list.
+Normal Bottle scans detect the Steam launcher but do not enumerate game
+manifests. Merely exposing a shared library through G:, or adding that library
+to `steamapps/libraryfolders.vdf`, must not populate the Bottle app list. When
+the running Steam session reports `steam:<appid>` through its game-process log,
+the manager performs a targeted lookup for that AppID across the primary,
+registered, and conventional G: Steam library paths. Only that launched game
+is persisted, after which the renderer reloads the Bottle metadata. Legacy
+manifest-only entries from eager scanning are removed until an actual process
+launch confirms them.
 
 ## Problems with the current design
 

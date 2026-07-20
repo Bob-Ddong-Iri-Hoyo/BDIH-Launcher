@@ -109,6 +109,7 @@ export interface SteamGameLaunchReconciliationResult {
  */
 export class BottleManager {
   private cache: BottleMetadataPayload[] | null = null;
+  private registryOperationQueue: Promise<void> = Promise.resolve();
 
   async bootstrapAppMetadata(): Promise<void> {
     // Startup reconciliation runs while the splash window is visible. It makes
@@ -121,7 +122,11 @@ export class BottleManager {
     await this.writeRegistryBottles(bottles, registry.deletedBottleKeys);
   }
 
-  async getBottleList(forceReload = false): Promise<BottleListPayload> {
+  getBottleList(forceReload = false): Promise<BottleListPayload> {
+    return this.runRegistryOperation(() => this.getBottleListUnlocked(forceReload));
+  }
+
+  private async getBottleListUnlocked(forceReload = false): Promise<BottleListPayload> {
     if (!this.cache || forceReload) {
       const registry = await this.loadRegistryState();
 
@@ -134,7 +139,11 @@ export class BottleManager {
     };
   }
 
-  async saveBottleList(payload: BottleListPayload): Promise<BottleListPayload> {
+  saveBottleList(payload: BottleListPayload): Promise<BottleListPayload> {
+    return this.runRegistryOperation(() => this.saveBottleListUnlocked(payload));
+  }
+
+  private async saveBottleListUnlocked(payload: BottleListPayload): Promise<BottleListPayload> {
     // Save is a merge operation, not a destructive replace. This preserves
     // scanned/legacy bottles during normal app updates. Use deleteBottle or
     // clearAllBottleData when data should actually disappear.
@@ -250,7 +259,15 @@ export class BottleManager {
     await write_prefix_metadata(updatedBottle);
   }
 
-  async reconcileSteamGameLaunch(payload: {
+  reconcileSteamGameLaunch(payload: {
+    bottleId: string;
+    bottlePath: string;
+    steamAppId: string;
+  }): Promise<SteamGameLaunchReconciliationResult> {
+    return this.runRegistryOperation(() => this.reconcileSteamGameLaunchUnlocked(payload));
+  }
+
+  private async reconcileSteamGameLaunchUnlocked(payload: {
     bottleId: string;
     bottlePath: string;
     steamAppId: string;
@@ -274,7 +291,7 @@ export class BottleManager {
     // Populate the registry from prefix metadata/scanning before deciding that
     // the Steam game has no owning bottle.
     if (!bottle) {
-      await this.getBottleList(true);
+      await this.getBottleListUnlocked(true);
       registry = await this.loadRegistryState();
       bottle = find_bottle_by_identity(registry.bottles, payload.bottleId, bottlePath);
     }
@@ -288,10 +305,11 @@ export class BottleManager {
     }
 
     const targetBottleId = bottle.id;
-    const wasRegistered = bottle.apps.some((app) => app.id === appId);
+    const registeredApp = bottle.apps.find((app) => app.id === appId);
+    const wasRegistered = Boolean(registeredApp);
     const wasHidden = bottle.hiddenAppIds?.includes(appId) ?? false;
 
-    if (wasRegistered && !wasHidden) {
+    if (wasRegistered && !wasHidden && registeredApp?.steamLaunchConfirmedAt) {
       return {
         appId,
         registered: true,
@@ -299,35 +317,61 @@ export class BottleManager {
       };
     }
 
-    // Starting a game from Steam is an authoritative discovery signal. A
-    // list-only deletion must therefore stop suppressing that AppID, after
-    // which the normal manifest scanner can rebuild its name, args and icon.
-    const unhiddenBottles = registry.bottles.map((candidateBottle) => {
+    // Steam's game-process log is the authoritative registration signal. The
+    // normal bottle scan deliberately does not enumerate every manifest, since
+    // G: can already expose a shared library before the user signs in or adds
+    // that library to this Steam installation.
+    const steamInstall = await detect_steam_install(bottle);
+    const detectedApp = steamInstall
+      ? await detect_launched_steam_game(bottle, steamInstall, steamAppId)
+      : null;
+
+    if (!detectedApp) {
+      return {
+        appId,
+        registered: false,
+        changed: false,
+      };
+    }
+
+    const now = new Date().toISOString();
+    let reconciledBottle: BottleMetadataPayload | undefined;
+    const updateBottle = (candidateBottle: BottleMetadataPayload): BottleMetadataPayload => {
       if (!bottle_matches_identity(candidateBottle, targetBottleId, bottlePath)) {
         return candidateBottle;
       }
 
-      return {
+      reconciledBottle = {
         ...candidateBottle,
         hiddenAppIds: candidateBottle.hiddenAppIds?.filter((hiddenAppId) => hiddenAppId !== appId),
-        updatedAt: new Date().toISOString(),
+        apps: merge_apps(candidateBottle.apps, [detectedApp]),
+        updatedAt: now,
       };
-    });
-    const bottles = await this.buildBottleList([], {
-      ...registry,
-      bottles: unhiddenBottles,
-    });
-    const reconciledBottle = find_bottle_by_identity(bottles, targetBottleId, bottlePath);
-    const registered = reconciledBottle?.apps.some((app) => app.id === appId) ?? false;
+      return reconciledBottle;
+    };
+    const bottles = registry.bottles.map(updateBottle);
 
-    this.cache = bottles;
+    this.cache = this.cache?.map(updateBottle) ?? bottles;
     await this.writeRegistryBottles(bottles, registry.deletedBottleKeys);
+    if (reconciledBottle) {
+      await write_prefix_metadata(reconciledBottle);
+    }
 
     return {
       appId,
-      registered,
-      changed: wasHidden || (!wasRegistered && registered),
+      registered: true,
+      changed: wasHidden || !wasRegistered,
     };
+  }
+
+  private runRegistryOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.registryOperationQueue.then(operation, operation);
+
+    this.registryOperationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   async updateBottleLauncherTask(payload: {
@@ -1145,6 +1189,7 @@ function normalize_apps(value: unknown): InstalledBottleAppPayload[] {
         steamAppId,
         steamManifestPath: normalize_optional_host_path(app.steamManifestPath),
         steamManifestMissingChecks: Math.max(0, Math.floor(number_or_default(app.steamManifestMissingChecks, 0))) || undefined,
+        steamLaunchConfirmedAt: optional_string(app.steamLaunchConfirmedAt),
         lastPlayed: string_or_default(app.lastPlayed, "Never launched"),
         lastPlayedKey: optional_string(app.lastPlayedKey),
         status: app_status_or_default(app.status),
@@ -1546,6 +1591,13 @@ function reconcile_steam_manifest_availability(
     return app;
   }
 
+  // Older builds eagerly registered every manifest visible through G:. Those
+  // entries have no process-backed confirmation and should disappear until
+  // Steam actually launches the matching AppID.
+  if (!app.steamLaunchConfirmedAt) {
+    return null;
+  }
+
   const manifestPath = path.resolve(expand_user_home_path(app.steamManifestPath));
 
   if (existsSync(manifestPath)) {
@@ -1647,7 +1699,6 @@ async function detect_installed_apps(bottle: BottleMetadataPayload): Promise<Ins
 
   if (steamInstall) {
     apps.push(steamInstall.app);
-    apps.push(...await detect_steam_games(bottle, steamInstall));
   }
 
   const hoyoplayInstall = await detect_hoyoplay_install(bottle);
@@ -1913,47 +1964,34 @@ async function find_launcher_profile_executable(
   return undefined;
 }
 
-async function detect_steam_games(
+async function detect_launched_steam_game(
   bottle: BottleMetadataPayload,
   steamInstall: SteamInstallDetection,
-): Promise<InstalledBottleAppPayload[]> {
+  steamAppId: string,
+): Promise<InstalledBottleAppPayload | null> {
   const steamAppsPaths = await find_steam_library_steamapps_paths(steamInstall);
-  const manifestPaths = unique_paths((await Promise.all(
-    steamAppsPaths.map(async (steamAppsPath) => {
-      try {
-        const entries = await readdir(steamAppsPath, { withFileTypes: true });
+  const manifestName = `appmanifest_${steamAppId}.acf`;
 
-        return entries
-          .filter((entry) => entry.isFile() && /^appmanifest_\d+\.acf$/i.test(entry.name))
-          .map((entry) => path.join(steamAppsPath, entry.name));
-      } catch {
-        return [];
-      }
-    }),
-  )).flat());
-  const detectedApps = await Promise.all(
-    manifestPaths.map(async (manifestPath) => {
-      try {
-        return steam_app_from_manifest(
-          bottle,
-          steamInstall,
-          manifestPath,
-          await readFile(manifestPath, "utf8"),
-        );
-      } catch {
-        return null;
-      }
-    }),
-  );
-  const appsById = new Map<string, InstalledBottleAppPayload>();
+  for (const steamAppsPath of steamAppsPaths) {
+    const manifestPath = path.join(steamAppsPath, manifestName);
 
-  for (const app of detectedApps) {
-    if (app) {
-      appsById.set(app.id, app);
+    try {
+      const app = await steam_app_from_manifest(
+        bottle,
+        steamInstall,
+        manifestPath,
+        await readFile(manifestPath, "utf8"),
+      );
+
+      if (app?.steamAppId === steamAppId) {
+        return app;
+      }
+    } catch {
+      // Try the next Steam library registered for this prefix.
     }
   }
 
-  return [...appsById.values()];
+  return null;
 }
 
 async function find_steam_library_steamapps_paths(
@@ -1984,7 +2022,8 @@ async function find_steam_library_steamapps_paths(
       }
     }
   } catch {
-    // The primary library and conventional G: locations still remain valid.
+    // A launch event can arrive while Steam is still writing libraryfolders.vdf.
+    // The targeted AppID lookup below may still use primary/conventional G:.
   }
 
   return unique_paths(
@@ -2053,6 +2092,7 @@ async function steam_app_from_manifest(
     source: "steam",
     steamAppId: appId,
     steamManifestPath: path.resolve(manifestPath),
+    steamLaunchConfirmedAt: new Date().toISOString(),
     lastPlayed: "Never launched",
     lastPlayedKey: "main.lastPlayed.never",
     status: "ready",

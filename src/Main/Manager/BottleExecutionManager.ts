@@ -139,6 +139,7 @@ interface LauncherExecutableWaitResult {
 export class BottleExecutionManager {
   private readonly logger = logManager.createLogger({ file: "wine", source: "bottle" });
   private readonly activeWinePrefixes = new Map<string, {
+    bottleId: string;
     bottleName: string;
     wineRuntimePath?: string;
   }>();
@@ -2684,6 +2685,7 @@ export class BottleExecutionManager {
     for (const session of sessions) {
       if (!prefixContexts.has(session.prefixPath)) {
         prefixContexts.set(session.prefixPath, {
+          bottleId: session.bottleId,
           bottleName: session.bottleName,
           wineRuntimePath: session.wineRuntimePath,
         });
@@ -2726,6 +2728,53 @@ export class BottleExecutionManager {
     return this.activeWinePrefixes.size > 0 || processManager.listRunningProcessIds().length > 0;
   }
 
+  hasActiveWineProcessesForBottle(bottleId: string): boolean {
+    return [...this.activeWinePrefixes.values()].some((context) => context.bottleId === bottleId) ||
+      [...this.prefixSessionsByPrefixPath.values()].some((session) => !session.ended && session.bottleId === bottleId);
+  }
+
+  async stopBottleWineProcesses(bottleId: string): Promise<void> {
+    const sessions = [...this.prefixSessionsByPrefixPath.values()].filter((session) =>
+      !session.ended && session.bottleId === bottleId,
+    );
+    const prefixContexts = new Map(
+      [...this.activeWinePrefixes.entries()].filter(([, context]) => context.bottleId === bottleId),
+    );
+
+    for (const session of sessions) {
+      if (!prefixContexts.has(session.prefixPath)) {
+        prefixContexts.set(session.prefixPath, {
+          bottleId: session.bottleId,
+          bottleName: session.bottleName,
+          wineRuntimePath: session.wineRuntimePath,
+        });
+      }
+    }
+
+    if (prefixContexts.size === 0 && sessions.length === 0) {
+      return;
+    }
+
+    this.logger.info("stopping Wine processes before Bottle deletion", {
+      bottleId,
+      prefixes: [...prefixContexts.keys()],
+    });
+    await Promise.all(
+      [...prefixContexts.entries()].map(([prefixPath, context]) =>
+        this.stopWinePrefix(prefixPath, context.wineRuntimePath),
+      ),
+    );
+    await Promise.all(
+      sessions.map((session) => session.waiter?.Stop().catch(() => undefined)),
+    );
+    for (const session of sessions) {
+      this.finishPrefixSession(session);
+    }
+    for (const prefixPath of prefixContexts.keys()) {
+      this.activeWinePrefixes.delete(prefixPath);
+    }
+  }
+
   async stopProcess(processId: string, appId?: string): Promise<void> {
     const prefixSession = this.prefixSessionsByProcessId.get(processId);
 
@@ -2748,10 +2797,11 @@ export class BottleExecutionManager {
     await processManager.stopProcess(processId);
   }
 
-  private trackWinePrefix(request: Pick<SetupBottlePrefixPayload, "bottlePath" | "bottleName" | "wineRuntimePath">): void {
+  private trackWinePrefix(request: Pick<SetupBottlePrefixPayload, "bottleId" | "bottlePath" | "bottleName" | "wineRuntimePath">): void {
     const bottlePath = prefix_session_key(request.bottlePath);
 
     this.activeWinePrefixes.set(bottlePath, {
+      bottleId: request.bottleId,
       bottleName: request.bottleName,
       wineRuntimePath: request.wineRuntimePath,
     });
@@ -2853,6 +2903,7 @@ export class BottleExecutionManager {
     this.prefixSessionsByPrefixPath.set(prefixPath, session);
     this.prefixSessionsByProcessId.set(processId, session);
     this.activeWinePrefixes.set(prefixPath, {
+      bottleId: request.bottleId,
       bottleName: request.bottleName,
       wineRuntimePath: request.wineRuntimePath,
     });
@@ -3032,7 +3083,6 @@ export class BottleExecutionManager {
           pid,
         });
         this.reconcileSteamGameRegistration(session, started[1]);
-        this.sendPrefixSessionUpdate(session, true);
       }
       return;
     }
@@ -3067,23 +3117,12 @@ export class BottleExecutionManager {
           bottlePath,
           appId: result.appId,
         });
-        return;
-      }
-
-      if (!result.changed) {
-        return;
-      }
-
-      this.logger.info("Steam game registration restored from process activity", {
-        bottleId: session.bottleId,
-        bottlePath,
-        appId: result.appId,
-      });
-
-      // The first session update can race the manifest rescan. Send a second
-      // update after persistence so the renderer reloads the restored icon.
-      if (!session.ended) {
-        this.sendPrefixSessionUpdate(session, true);
+      } else if (result.changed) {
+        this.logger.info("Steam game registration restored from process activity", {
+          bottleId: session.bottleId,
+          bottlePath,
+          appId: result.appId,
+        });
       }
     }).catch((error) => {
       this.logger.warn("Failed to reconcile Steam game registration", {
@@ -3092,6 +3131,14 @@ export class BottleExecutionManager {
         steamAppId,
         error: error instanceof Error ? error.message : String(error),
       });
+    }).finally(() => {
+      // Publish the newly observed AppID only after the registry transaction
+      // completes. Sending it earlier makes the renderer issue GET_LIST while
+      // reconciliation is still writing, allowing that stale scan to erase the
+      // just-registered game.
+      if (!session.ended) {
+        this.sendPrefixSessionUpdate(session, true);
+      }
     });
   }
 

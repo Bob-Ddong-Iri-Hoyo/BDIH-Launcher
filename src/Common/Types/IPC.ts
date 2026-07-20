@@ -335,6 +335,10 @@ export interface BottleExecutionStatePayload {
   isRunning: boolean;
 }
 
+export interface BottleExecutionStateRequestPayload {
+  bottleId?: string;
+}
+
 export interface DeleteBottlePayload {
   bottleId: string;
   bottlePath: string;
@@ -530,6 +534,7 @@ export interface InstalledBottleAppPayload {
   steamAppId?: string;
   steamManifestPath?: string;
   steamManifestMissingChecks?: number;
+  steamLaunchConfirmedAt?: string;
   lastPlayed: string;
   lastPlayedKey?: string;
   status: "ready" | "needs-prefix" | "updating";
@@ -640,7 +645,7 @@ export interface BottleChannelSchema {
   readonly DELETE_PREFIX: IpcChannelUnit<DeleteBottlePrefixPayload>;
   readonly RUN_EXECUTABLE: IpcChannelUnit<RunBottleExecutablePayload>;
   readonly STOP_PROCESS: IpcChannelUnit<StopBottleProcessPayload>;
-  readonly GET_EXECUTION_STATE: IpcChannelUnit<void>;
+  readonly GET_EXECUTION_STATE: IpcChannelUnit<BottleExecutionStateRequestPayload | void>;
   readonly STOP_ALL_PROCESSES: IpcChannelUnit<void>;
   readonly SETUP_PREFIX: IpcChannelUnit<SetupBottlePrefixPayload>;
   readonly APPLY_RECIPE: IpcChannelUnit<ApplyBottleRecipePayload>;
@@ -812,7 +817,7 @@ export const BOTTLE = {
     channelName: "bottle:get-execution-state",
     method: "invoke",
     direction: "RENDERER_TO_MAIN",
-    payload: {} as never,
+    payload: {} as BottleExecutionStateRequestPayload | void,
   },
   STOP_ALL_PROCESSES: {
     channelName: "bottle:stop-all-processes",

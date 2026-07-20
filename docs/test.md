@@ -69,6 +69,51 @@ pnpm run build:test:stable -- --version 1.0.0
 pnpm run build:test:beta -- --version 1.1.0-beta.1
 ```
 
+To generate a sequence of artifacts, pass an inclusive range with `~` (or
+`..`). The app source is compiled once and electron-builder packages each
+version in order:
+
+```bash
+pnpm run build:test:stable -- --range 1.0.0~1.0.9
+pnpm run build:test:beta -- --range 1.1.0-beta.1~1.1.0-beta.9
+```
+
+Stable, Beta, and Nightly ranges can also be combined in one command. Each
+channel takes its own version expression so prerelease names remain explicit:
+
+```bash
+pnpm run build:test -- \
+  --stable 1.0.0~1.0.9 \
+  --beta 1.1.0-beta.1~1.1.0-beta.9
+```
+
+Ranges can be descending when the final feed target should exercise a
+downgrade. Use `--dry-run` to validate and print the complete plan without
+compiling or packaging:
+
+```bash
+pnpm run build:test -- --stable 1.0.9~1.0.0 --dry-run
+```
+
+After a range has been packaged, switch a channel's local feed metadata to any
+existing version without rebuilding it:
+
+```bash
+pnpm update:test:select -- --channel stable --version 1.0.4
+pnpm update:test:select -- --channel beta --version 1.1.0-beta.4
+```
+
+This also updates that channel's last-build record, so `pnpm install:test`
+installs the selected Stable/Beta app. A complete range workflow can therefore
+install the oldest build and then point the feed at the newest build:
+
+```bash
+pnpm run build:test:stable -- --range 1.0.0~1.0.9
+pnpm update:test:select -- --channel stable --version 1.0.0
+pnpm install:test
+pnpm update:test:select -- --channel stable --version 1.0.9
+```
+
 Stable versions must not contain a prerelease suffix. Beta and Nightly versions
 must use matching `beta` and `nightly` SemVer prerelease identifiers.
 

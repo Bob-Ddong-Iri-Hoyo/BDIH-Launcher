@@ -1,4 +1,4 @@
-import { app } from "electron";
+import { app, dialog, type MessageBoxOptions } from "electron";
 import { config as load_dotenv_config } from "dotenv";
 import { mkdirSync } from "fs";
 import path from "path";
@@ -124,6 +124,71 @@ function expand_user_home_path(targetPath: string): string {
   return targetPath;
 }
 
+interface ActiveWineQuitCopy {
+  title: string;
+  detail: string;
+  cancel: string;
+  confirm: string;
+}
+
+function get_active_wine_quit_copy(language?: string): ActiveWineQuitCopy {
+  switch (language?.toLowerCase().split("-")[0]) {
+    case "ko":
+      return {
+        title: "실행 중인 Wine을 종료할까요?",
+        detail: "현재 BDIH Launcher에서 실행한 Wine 앱과 Bottle이 있습니다. 런처를 종료하면 실행 중인 Wine도 모두 종료됩니다. 종료하시겠습니까?",
+        cancel: "취소",
+        confirm: "Wine 종료 후 앱 종료",
+      };
+    case "ja":
+      return {
+        title: "実行中のWineを終了しますか？",
+        detail: "BDIH Launcherから起動したWineアプリまたはボトルが実行中です。ランチャーを終了すると、実行中のWineもすべて終了します。終了しますか？",
+        cancel: "キャンセル",
+        confirm: "Wineを終了してアプリを終了",
+      };
+    case "zh":
+      return {
+        title: "要关闭正在运行的 Wine 吗？",
+        detail: "BDIH Launcher 启动的 Wine 应用或 Bottle 仍在运行。退出启动器将停止所有正在运行的 Wine。是否退出？",
+        cancel: "取消",
+        confirm: "停止 Wine 并退出应用",
+      };
+    default:
+      return {
+        title: "Quit running Wine apps?",
+        detail: "Wine apps or Bottle sessions launched by BDIH Launcher are still running. Quitting the launcher will stop all of them. Do you want to quit?",
+        cancel: "Cancel",
+        confirm: "Stop Wine and quit",
+      };
+  }
+}
+
+async function confirm_quit_with_active_wine(): Promise<boolean> {
+  if (!bottleExecutionManager.hasActiveWineProcesses()) {
+    return true;
+  }
+
+  const preference = await preferenceManager.getPreference();
+  const copy = get_active_wine_quit_copy(preference.language);
+  const options: MessageBoxOptions = {
+    type: "warning",
+    title: copy.title,
+    message: copy.title,
+    detail: copy.detail,
+    buttons: [copy.cancel, copy.confirm],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  };
+  const mainWindow = windowManager.getMainWindow();
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+
+  return result.response === 1;
+}
+
 /**
  * Stops app-owned background work before Electron exits.
  *
@@ -225,15 +290,33 @@ app.on("before-quit", (event) => {
 
   event.preventDefault();
 
-  quitCleanupPromise ??= cleanupBeforeQuit()
-    .catch((error) => {
+  quitCleanupPromise ??= (async () => {
+    let confirmed = false;
+    try {
+      confirmed = await confirm_quit_with_active_wine();
+    } catch (error) {
+      logManager.warn("Main", "quit confirmation failed", error);
+      return;
+    }
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await cleanupBeforeQuit();
+    } catch (error) {
       logManager.warn("Main", "quit cleanup failed", error);
-    })
-    .finally(() => {
+    } finally {
       windowManager.closeShutdownWindow();
       isQuitCleanupComplete = true;
       app.quit();
-    });
+    }
+  })().finally(() => {
+    if (!isQuitCleanupComplete) {
+      quitCleanupPromise = null;
+    }
+  });
 });
 
 app.on("will-quit", () => {

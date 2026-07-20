@@ -226,7 +226,13 @@
         "copyPath": "Copy path",
         "revealFolder": "Reveal in folder",
         "deleteBottle": "Delete bottle",
-        "deleteBottleConfirm": "Delete {{name}}?"
+        "deleteBottleConfirm": "Delete {{name}}?",
+        "deleteBottleTitle": "Delete {{name}}?",
+        "deleteBottleDescription": "This deletes the Bottle prefix, app metadata, and related logs. This action cannot be undone.",
+        "deleteRunningBottleTitle": "{{name}} is running",
+        "deleteRunningBottleDescription": "Wine apps or launchers are still running in this Bottle. Stop them all and delete the Bottle?",
+        "deleteBottleAction": "Delete Bottle",
+        "stopAndDeleteBottle": "Stop Wine and delete"
       },
       "renameBottle": {
         "title": "Rename bottle",

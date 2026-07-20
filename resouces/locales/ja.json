@@ -226,7 +226,13 @@
         "copyPath": "パスをコピー",
         "revealFolder": "フォルダで表示",
         "deleteBottle": "ボトルを削除",
-        "deleteBottleConfirm": "{{name}} を削除しますか？"
+        "deleteBottleConfirm": "{{name}} を削除しますか？",
+        "deleteBottleTitle": "{{name}} を削除しますか？",
+        "deleteBottleDescription": "ボトルのprefix、アプリ情報、関連ログを削除します。この操作は元に戻せません。",
+        "deleteRunningBottleTitle": "{{name}} は実行中です",
+        "deleteRunningBottleDescription": "このボトルではWineアプリまたはランチャーが実行中です。すべて終了してからボトルを削除しますか？",
+        "deleteBottleAction": "ボトルを削除",
+        "stopAndDeleteBottle": "Wineを終了して削除"
       },
       "renameBottle": {
         "title": "ボトル名を変更",

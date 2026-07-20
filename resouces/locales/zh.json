@@ -226,7 +226,13 @@
         "copyPath": "复制路径",
         "revealFolder": "在文件夹中显示",
         "deleteBottle": "删除 Bottle",
-        "deleteBottleConfirm": "要删除 {{name}} 吗？"
+        "deleteBottleConfirm": "要删除 {{name}} 吗？",
+        "deleteBottleTitle": "要删除 {{name}} 吗？",
+        "deleteBottleDescription": "这将删除 Bottle Prefix、应用信息和相关日志，且无法撤销。",
+        "deleteRunningBottleTitle": "{{name}} 正在运行",
+        "deleteRunningBottleDescription": "此 Bottle 中仍有 Wine 应用或启动器正在运行。是否全部停止后删除 Bottle？",
+        "deleteBottleAction": "删除 Bottle",
+        "stopAndDeleteBottle": "停止 Wine 并删除"
       },
       "renameBottle": {
         "title": "重命名 Bottle",

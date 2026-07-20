@@ -34,11 +34,13 @@
     "reveal:test": "node scripts/start-update-test.mjs --reveal",
     "reveal:test:nightly": "node scripts/start-update-test.mjs --channel nightly --reveal",
     "update:test:serve": "node scripts/serve-update-test.mjs",
+    "update:test:select": "node scripts/build-update-test.mjs --publish-only",
     "start:allinone": "pnpm build && electron .",
     "storybook": "storybook dev -c ./src/Renderer/.storybook -p 6006",
     "build-storybook": "storybook build -c ./src/Renderer/.storybook",
     "screenshot": "pnpm build-storybook && node scripts/capture-storybook-screenshot.mjs",
     "test:jest": "jest",
+    "test:update-build-script": "node --test tests/scripts/build-update-test.test.mjs",
     "test:jest:watch": "jest --watch"
   },
   "keywords": [
