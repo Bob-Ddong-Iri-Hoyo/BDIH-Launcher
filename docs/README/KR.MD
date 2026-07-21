@@ -1,38 +1,38 @@
-# BDIH Launcher
-
+# 밥똥이리호요 런처
 <p align="center">
-  <b>English</b> |
-  <a href="./docs/README/KR.MD">한국어</a> |
-  <a href="./docs/README/JP.MD">日本語</a> |
-  <a href="./docs/README/CN.MD">简体中文</a>
+  <a href="../../README.md">English</a> |
+  <b>한국어</b> |
+  <a href="./JP.MD">日本語</a> |
+  <a href="./CN.MD">简体中文</a>
 </p>
 
 <div align="center">
-  <img src="resouces/docs/bobtongirihoyo_wide.png" height="300">
+  <img src="../../resouces/docs/bobtongirihoyo_wide.png" height="300">
 </div>
-
 <p align="center">
-  <img width="220" src="./resouces/docs/Screenshot 2026-07-01 at 3.33.11 AM.png"/>
-  <img width="280" src="./resouces/docs/Screenshot 2026-07-01 at 3.32.41 AM.png"/>
+<img width="220" src="../../resouces/docs/Screenshot 2026-07-01 at 3.33.11 AM.png"/>
+<img width="280" src="../../resouces/docs/Screenshot 2026-07-01 at 3.32.41 AM.png"/>
 </p>
-
 <p align="center">
-  <a href="https://discord.gg/CuZ4xG3s6G">
+      <a href="https://discord.gg/CuZ4xG3s6G">
     <img src="https://img.shields.io/badge/Discord-5865F2?style=flat-square&logo=discord&logoColor=white"/>
   </a>
-  <a href="https://bob-ddong-iri-hoyo.github.io/">
+  <!-- <a href="https://www.youtube.com/channel/UCeb64J9jOGs-uLfdo0l15FA">
+    <img src="https://img.shields.io/badge/YouTube-FF0000?style=flat-square&logo=youtube&logoColor=white"/>
+  </a> -->
+   <a href="https://bob-ddong-iri-hoyo.github.io/">
     <img src="https://img.shields.io/badge/Homepage-444444?style=flat-square&logo=homeadvisor&logoColor=white"/>
   </a>
 </p>
 
-<h3 align="center">Release channels</h3>
+<h3 align="center">릴리스 채널</h3>
 
 <table align="center">
   <thead>
     <tr>
-      <th>Channel</th>
-      <th>Latest version</th>
-      <th>Latest release downloads</th>
+      <th>채널</th>
+      <th>최신 버전</th>
+      <th>최신 릴리스 다운로드</th>
     </tr>
   </thead>
   <tbody>
@@ -84,7 +84,8 @@
   </a>
 </p>
 
-<h3 align="center">Build status</h3>
+
+<h3 align="center">빌드 상태</h3>
 
 <p align="center">
   <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/release.yml">
@@ -95,113 +96,112 @@
   </a>
 </p>
 
-A launcher built for eating, playing Eternal Return, taking a break, and enjoying HoYoverse games on macOS.
+맥에서 밥먹고 이리하고 똥싸고 호요게임 하는데 특화된 런처임
 
-**I am not responsible if your account is banned or if the game crashes during a ranked match. This is very important.**
+**쓰다가 영정 먹거나 랭크에서 튕기더라도 나는 죄가 없어요(매우 중요)**
 
 <p align="center">
-  <img width="200" src="./resouces/docs/Saddy.jpg"/>
+<img width="200" src="../../resouces/docs/Saddy.jpg"/>
 </p>
 
 <p align="center">
-  <b>Important notes</b><br>
-  Installing Steam does not mean that every Steam game will work.<br>
-  Eternal Return is the <b>only</b> Steam game whose launch is currently guaranteed.<br>
-  Using CodeWeavers CrossOver is strongly recommended.<br>
-  The launcher's primary purpose is to prevent broken rendering and visual effects.<br>
+  <b>주의사항</b><br>
+  스팀이 설치된다고 모든 게임이 되는 것은 아님<br>
+  오직 이터널 리턴의 실행만을 <b>유일</b>하게 보장함<br>
+  CodeWeavers사의 CrossOver 사용을 적극 권장함<br>
+  이 런처의 본질적인 목적은 렌더링이 깨지는 것을 막아주는 것임<br>
 </p>
 
-# Features
+# 주요 기능
 
-- Fixes flashing and incorrectly rendered visual effects.
-- Manages Wine, DXMT, bottles, prefixes, launchers, and game launch options in one place.
-- Supports Stable, Beta, and Nightly update channels.
+- 섬광이나 깨지는 이펙트 버그 제거
+- Wine, DXMT, Bottle, Prefix, 런처와 게임 실행 옵션을 한곳에서 관리
+- Stable, Beta, Nightly 업데이트 채널 지원
 
-<h3 align="center">Visual examples</h3>
-
+<h3 align="center">예시 사진</h3>
 <table align="center">
   <thead>
     <tr>
-      <th>Character skill effect</th>
-      <th>Original</th>
-      <th>Patched</th>
+      <th>캐릭터 스킬 이펙트</th>
+      <th>원본</th>
+      <th>패치</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td align="center"><b>Felix</b></td>
+      <td align="center"><b>펠릭스</b></td>
       <td align="center">
-        <img alt="Felix effect before patching" src="./resouces/docs/felix-before.png"/>
+          <img alt="Latest stable release" src="../../resouces/docs/felix-before.png"/>
       </td>
       <td align="center">
-        <img alt="Felix effect after patching" src="./resouces/docs/felix-after.png"/>
+          <img alt="Latest stable release downloads" src="../../resouces/docs/felix-after.png"/>
       </td>
     </tr>
     <tr>
-      <td align="center"><b>Haze</b></td>
+      <td align="center"><b>헤이즈</b></td>
       <td align="center">
-        <img alt="Haze effect before patching" src="./resouces/docs/haze-before.png"/>
+          <img alt="Latest beta release" src="../../resouces/docs/haze-before.png"/>
       </td>
       <td align="center">
-        <img alt="Haze effect after patching" src="./resouces/docs/haze-after.png"/>
+          <img alt="Latest beta release downloads" src="../../resouces/docs/haze-after.png"/>
       </td>
     </tr>
   </tbody>
 </table>
 
-## Installation
+## 설치 방법
 
-See the project homepage for detailed installation instructions.
+자세한 설치 과정은 아래의 홈페이지 링크 참조
 
 <a href="https://bob-ddong-iri-hoyo.github.io/">
-  <img src="https://img.shields.io/badge/Homepage-444444?style=flat-square&logo=homeadvisor&logoColor=white"/>
-</a>
+    <img src="https://img.shields.io/badge/Homepage-444444?style=flat-square&logo=homeadvisor&logoColor=white"/>
+  </a>
 
-## Wine and DXMT providers
+## 신선한 와인과 안주 제공 단체
 
 [Custom CrossOver builds](https://github.com/Bob-Ddong-Iri-Hoyo/fullbodied-anca-wine-house)
-: Custom CrossOver-based Wine builds maintained for this launcher, based on Wine 11 and CrossOver 26.0.0 or newer.
+: 내가 만든 CrossOver 기반 커스텀 Wine 빌드(Wine 11 및 CrossOver 26.0.0 이상 기반)
 
 [Official Wine](https://www.winehq.org/)
-: The official Wine project.
+: 공식 Wine 프로젝트
 
 [DXMT](https://github.com/3Shain/dxmt)
-: A Direct3D 11 translation layer that targets Metal directly.
+: Metal을 직접 사용하는 Direct3D 11 변환 레이어
 
-## References
+## 참조 자료들
 
-Projects and resources referenced while building the Wine runtime and launcher:
+와인과 와인 런처 빌드에 참조한 repo나 그 긴거
 
 [CodeWeavers](https://www.codeweavers.com/)
-: The company behind CrossOver.
+: CrossOver 회사
 
 [Gcenx Wine](https://github.com/Gcenx/macOS_Wine_builds)
-: Wine builds for macOS maintained by Gcenx.
+: Gcenx 와인
 
 [YAAGL](https://github.com/yaagl/yet-another-anime-game-launcher)
-: A HoYoverse game launcher for macOS.
+: Mac용 호요버스 게임 런처
 
 [MacPorts Wine](https://github.com/riverfog7/macports-wine)
-: A Wine patch set believed to be used by YAAGL.
+: YAAGL에서 사용하는 것으로 추정되는 Wine 패치
 
 [Anime Game Launcher](https://github.com/an-anime-team/an-anime-game-launcher)
-: A HoYoverse game launcher for Linux.
+: Linux 용 호요버스 게임 런처
 
 [Dawn Winery](https://dawn.wine/dawn-winery)
-: Wine builds and patches for anime-style games.
+: 아니메 스타일 게임용 Wine 빌드 및 패치
 
 [Proton](https://github.com/valvesoftware/proton)
-: Valve's Wine-based compatibility tool.
+: Valve의 프로톤
 
-## Catalogs
+## 카탈로그 링크
 
-[Anca Wine House](https://github.com/Bob-Ddong-Iri-Hoyo/fullbodied-anca-wine-house/releases)
-: Wine releases for BDIH Launcher and personal use.
+[앙카 와인 하우스](https://github.com/Bob-Ddong-Iri-Hoyo/fullbodied-anca-wine-house/releases) : BDIH 런처용이나 개인 사용 목적 와인 저장소
 
-[Custom DXMT builds](https://github.com/Bob-Ddong-Iri-Hoyo/anka-snack-house/releases)
-: Patched DXMT releases for BDIH Launcher, including Eternal Return-specific builds.
 
-# License
+[커스텀 DXMT](https://github.com/Bob-Ddong-Iri-Hoyo/anka-snack-house/releases) : BDIH 런처용이나 개인 사용 목적 이터널리턴 전용으로 패치된 DXMT 저장소
+
+
+# 라이센스
 
 MIT License
 
