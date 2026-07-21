@@ -1,14 +1,16 @@
 import electron from "electron";
-import { existsSync, realpathSync } from "fs";
+import { existsSync, readFileSync, realpathSync } from "fs";
 import os from "os";
 import path from "path";
 
 const TEST_RESOURCE_DIR = "tmp_test_resource";
 const CURRENT_APP_DATA_DIR_NAME = "BDIH Launcher";
 const NIGHTLY_APP_DATA_DIR_NAME = "BDIH Launcher Nightly";
+const STAGING_APP_DATA_DIR_NAME = "BDIH Launcher Staging";
 const UPDATE_TEST_MARKER_FILE_NAME = "bdih-update-test.json";
 const NIGHTLY_UPDATE_TEST_MARKER_FILE_NAME = "bdih-nightly-update-test.json";
 const NIGHTLY_BUILD_MARKER_FILE_NAME = "bdih-nightly-build.json";
+const STAGING_BUILD_MARKER_FILE_NAME = "bdih-staging-build.json";
 const UPDATE_TEST_RELEASE_DIR_NAME = "Release";
 const UPDATE_TEST_PARENT_DIR_NAME = "tests";
 const UPDATE_TEST_STATE_DIR_NAME = "state";
@@ -25,6 +27,10 @@ const ENV_LEGACY_APP_DATA_ROOT = "BDIH_LEGACY_APP_DATA_ROOT";
 const ENV_UPDATE_TEST_BUILD = "BDIH_UPDATE_TEST_BUILD";
 const ENV_UPDATE_TEST_ROOT = "BDIH_UPDATE_TEST_ROOT";
 const ENV_RELEASE_CHANNEL = "BDIH_RELEASE_CHANNEL";
+const ENV_STAGING_BUILD = "BDIH_STAGING_BUILD";
+const ENV_STAGING_CHANNEL = "BDIH_STAGING_CHANNEL";
+
+export type StagingUpdateChannel = "stable" | "beta";
 
 export interface UpdateTestRuntimePaths {
   releaseRoot: string;
@@ -112,6 +118,38 @@ export function is_nightly_launcher_build(): boolean {
   return is_packaged_environment()
     && typeof process.resourcesPath === "string"
     && existsSync(path.join(process.resourcesPath, NIGHTLY_BUILD_MARKER_FILE_NAME));
+}
+
+export function is_staging_launcher_build(): boolean {
+  if (env_flag_is_enabled(ENV_STAGING_BUILD)) {
+    return true;
+  }
+
+  return is_packaged_environment()
+    && typeof process.resourcesPath === "string"
+    && existsSync(path.join(process.resourcesPath, STAGING_BUILD_MARKER_FILE_NAME));
+}
+
+export function get_staging_update_channel(): StagingUpdateChannel | undefined {
+  const environmentChannel = process.env[ENV_STAGING_CHANNEL]?.trim().toLowerCase();
+
+  if (environmentChannel === "stable" || environmentChannel === "beta") {
+    return environmentChannel;
+  }
+
+  if (!is_staging_launcher_build() || typeof process.resourcesPath !== "string") {
+    return undefined;
+  }
+
+  try {
+    const marker = JSON.parse(
+      readFileSync(path.join(process.resourcesPath, STAGING_BUILD_MARKER_FILE_NAME), "utf8"),
+    ) as { channel?: unknown };
+
+    return marker.channel === "beta" ? "beta" : "stable";
+  } catch {
+    return "stable";
+  }
 }
 
 function env_path(name: string): string | undefined {
@@ -204,7 +242,11 @@ function get_packaged_settings_dir(): string {
     return get_update_test_runtime_paths().settingsDir;
   }
 
-  const settingsDirName = is_nightly_launcher_build() ? ".bdih-launcher-nightly" : ".bdih-launcher";
+  const settingsDirName = is_nightly_launcher_build()
+    ? ".bdih-launcher-nightly"
+    : is_staging_launcher_build()
+      ? ".bdih-launcher-staging"
+      : ".bdih-launcher";
 
   return env_path(ENV_SETTINGS_DIR) ?? path.join(os.homedir(), settingsDirName);
 }
@@ -218,7 +260,11 @@ function get_packaged_app_data_root(): string {
     os.homedir(),
     "Library",
     "Application Support",
-    is_nightly_launcher_build() ? NIGHTLY_APP_DATA_DIR_NAME : CURRENT_APP_DATA_DIR_NAME,
+    is_nightly_launcher_build()
+      ? NIGHTLY_APP_DATA_DIR_NAME
+      : is_staging_launcher_build()
+        ? STAGING_APP_DATA_DIR_NAME
+        : CURRENT_APP_DATA_DIR_NAME,
   );
 }
 
@@ -261,7 +307,7 @@ export function get_legacy_app_data_roots(): string[] {
     return [override];
   }
 
-  if (is_nightly_launcher_build()) {
+  if (is_nightly_launcher_build() || is_staging_launcher_build()) {
     return [get_packaged_app_data_root()];
   }
 

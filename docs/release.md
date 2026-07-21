@@ -2,6 +2,11 @@
 
 Releases are tag based. `package.json` is the source of truth for the app version, and the release tag must match it exactly.
 
+Normal `main` commits do not create Production tags. Before creating a
+Production tag, use the manually dispatched `staging.yml` workflow to publish
+the selected commit to the TestProduction repository. Staging tags belong only
+to that repository and never move a Production tag.
+
 ## Stable release
 
 ```bash

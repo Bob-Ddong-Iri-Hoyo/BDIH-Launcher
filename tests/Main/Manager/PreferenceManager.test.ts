@@ -60,6 +60,19 @@ describe("PreferenceManager", () => {
     expect(savedPreference.appLoggingLevel).toBe("debug");
   });
 
+  it("uses the packaged staging channel as a default while allowing channel changes", async () => {
+    process.env.BDIH_IS_PACKAGED = "true";
+    process.env.BDIH_STAGING_BUILD = "1";
+    process.env.BDIH_STAGING_CHANNEL = "beta";
+    jest.resetModules();
+
+    const { PreferenceManager } = require("../../../src/Main/Manager/PreferenceManager") as typeof import("../../../src/Main/Manager/PreferenceManager");
+    const manager = new PreferenceManager();
+
+    expect((await manager.getPreference()).updateChannel).toBe("beta");
+    expect((await manager.updatePreference({ updateChannel: "stable" })).updateChannel).toBe("stable");
+  });
+
   it("serializes concurrent preference patches without losing either update", async () => {
     await write_legacy_preference(environment);
 

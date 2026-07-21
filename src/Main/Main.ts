@@ -3,7 +3,7 @@ import { config as load_dotenv_config } from "dotenv";
 import { mkdirSync } from "fs";
 import path from "path";
 import { BDIH_YOUTUBE_HANDLE } from "../Common/Constant/RuntimeSources";
-import { get_update_test_runtime_paths, is_nightly_launcher_build, is_update_test_build } from "./Environment/AppPaths";
+import { get_update_test_runtime_paths, is_nightly_launcher_build, is_staging_launcher_build, is_update_test_build } from "./Environment/AppPaths";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
 import { bottleExecutionManager } from "./Manager/BottleExecutionManager";
@@ -23,6 +23,7 @@ let quitCleanupPromise: Promise<void> | null = null;
 const UPDATE_INSTALL_HANDOFF_DELAY_MS = 350;
 const IS_UPDATE_TEST_BUILD = is_update_test_build();
 const IS_NIGHTLY_BUILD = is_nightly_launcher_build();
+const IS_STAGING_BUILD = is_staging_launcher_build();
 
 if (IS_UPDATE_TEST_BUILD) {
   const runtimePaths = get_update_test_runtime_paths();
@@ -77,7 +78,7 @@ load_dotenv_config({ quiet: true });
  */
 function configureAppIdentity(language?: string): void {
   if (!IS_UPDATE_TEST_BUILD) {
-    apply_localized_app_name(language, IS_NIGHTLY_BUILD);
+    apply_localized_app_name(language, IS_NIGHTLY_BUILD, IS_STAGING_BUILD);
   }
 
   if (process.platform === "darwin") {
@@ -99,7 +100,7 @@ async function createApp(): Promise<void> {
     logDir: path.join(expand_user_home_path(preference.dataRootPath), "logs"),
     minLevel: log_level_from_preference(preference.appLoggingLevel),
   });
-  if (!IS_UPDATE_TEST_BUILD) {
+  if (!IS_UPDATE_TEST_BUILD && !IS_STAGING_BUILD) {
     discordPresenceManager.init(preference.language);
   }
   ipcManager.init();

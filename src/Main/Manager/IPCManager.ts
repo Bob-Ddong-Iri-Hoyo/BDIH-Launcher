@@ -15,6 +15,8 @@ import {
   get_legacy_bottle_prefix_paths,
   get_legacy_settings_dir,
   get_settings_path,
+  is_nightly_launcher_build,
+  is_staging_launcher_build,
 } from "../Environment/AppPaths";
 import { apply_localized_app_name } from "../Environment/AppIdentity";
 import { preferenceManager, PreferenceManager } from "./PreferenceManager";
@@ -438,7 +440,11 @@ export class IPCManager {
           await this.bottleExecutions.refreshSharedGamesDriveMappings(preference);
         }
 
-        apply_localized_app_name(preference.language);
+        apply_localized_app_name(
+          preference.language,
+          is_nightly_launcher_build(),
+          is_staging_launcher_build(),
+        );
         discordPresenceManager.setLanguage(preference.language);
         logManager.setMinLevel(log_level_from_preference(preference.appLoggingLevel));
         return preference;

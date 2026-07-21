@@ -1,5 +1,6 @@
 import { jest } from "@jest/globals";
 import { mkdir, symlink } from "fs/promises";
+import os from "os";
 import path from "path";
 import {
   capture_manager_environment,
@@ -78,6 +79,31 @@ describe("AppPaths", () => {
     expect(get_default_dxmt_cache_path()).toBe(path.join(dataRoot, "DXMT"));
     expect(get_default_log_dir()).toBe(path.join(dataRoot, "logs"));
     expect(get_default_icon_cache_path()).toBe(path.join(dataRoot, "IconCache"));
+  });
+
+  it.each(["stable", "beta"])("isolates the %s staging build from production data", async (channel) => {
+    process.env.BDIH_IS_PACKAGED = "true";
+    process.env.BDIH_STAGING_BUILD = "1";
+    process.env.BDIH_STAGING_CHANNEL = channel;
+    delete process.env.BDIH_SETTINGS_DIR;
+    delete process.env.BDIH_APP_DATA_ROOT;
+    delete process.env.BDIH_LEGACY_APP_DATA_ROOT;
+    jest.resetModules();
+
+    const {
+      get_app_data_root,
+      get_legacy_app_data_roots,
+      get_settings_path,
+      get_staging_update_channel,
+      is_staging_launcher_build,
+    } = require("../../../src/Main/Environment/AppPaths") as typeof import("../../../src/Main/Environment/AppPaths");
+    const expectedDataRoot = path.join(os.homedir(), "Library", "Application Support", "BDIH Launcher Staging");
+
+    expect(is_staging_launcher_build()).toBe(true);
+    expect(get_staging_update_channel()).toBe(channel);
+    expect(get_settings_path()).toBe(path.join(os.homedir(), ".bdih-launcher-staging", "settings.json"));
+    expect(get_app_data_root()).toBe(expectedDataRoot);
+    expect(get_legacy_app_data_roots()).toEqual([expectedDataRoot]);
   });
 
   it("rejects update-test data paths outside the selected tests state root", async () => {

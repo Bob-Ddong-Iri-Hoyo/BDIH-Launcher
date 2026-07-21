@@ -1,0 +1,322 @@
+name: TestProduction Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Source branch, tag, or commit SHA to stage"
+        required: true
+        default: "main"
+        type: string
+      version:
+        description: "Candidate version, e.g. 1.0.0 or 1.0.0-beta.1"
+        required: true
+        type: string
+      channel:
+        description: "Update channel exposed by the staging app"
+        required: true
+        default: "beta"
+        type: choice
+        options:
+          - beta
+          - stable
+
+concurrency:
+  group: staging-testproduction
+  cancel-in-progress: false
+
+env:
+  TARGET_REPOSITORY: Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction
+  TARGET_STAGING_BRANCH: staging
+
+jobs:
+  staging:
+    name: Stage ${{ inputs.version }} (${{ inputs.channel }})
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Validate candidate
+        id: candidate
+        shell: bash
+        env:
+          STAGING_VERSION: ${{ inputs.version }}
+          STAGING_CHANNEL: ${{ inputs.channel }}
+          GH_TOKEN: ${{ secrets.STAGING_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Add STAGING_RELEASE_TOKEN to the source repository Actions secrets."
+            exit 1
+          fi
+
+          if [[ ! "$STAGING_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must look like 1.0.0 or 1.0.0-beta.1. Got: $STAGING_VERSION"
+            exit 1
+          fi
+
+          package_version="$(node -p "require('./package.json').version")"
+          package_base="${package_version%%-*}"
+          candidate_base="${STAGING_VERSION%%-*}"
+
+          if [[ "$package_base" != "$candidate_base" ]]; then
+            echo "::warning::Using synthetic staging version $STAGING_VERSION while package.json is $package_version. This is allowed only because TestProduction is isolated from Production."
+          fi
+
+          if [[ "$STAGING_CHANNEL" == "stable" && "$STAGING_VERSION" == *-* ]]; then
+            echo "::error::Stable staging versions cannot contain a prerelease suffix."
+            exit 1
+          fi
+
+          if [[ "$STAGING_CHANNEL" == "beta" && ! "$STAGING_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9A-Za-z.-]+$ ]]; then
+            echo "::error::Beta staging versions must look like 1.0.0-beta.1."
+            exit 1
+          fi
+
+          visibility="$(gh api "repos/$TARGET_REPOSITORY" --jq '.visibility')"
+          if [[ "$visibility" != "public" ]]; then
+            echo "::error::$TARGET_REPOSITORY must be public so packaged apps can read update metadata without embedding a GitHub token."
+            exit 1
+          fi
+
+          staging_tag="v${STAGING_VERSION}+staging.${STAGING_CHANNEL}"
+          if gh release view "$staging_tag" --repo "$TARGET_REPOSITORY" >/dev/null 2>&1 \
+            || gh api "repos/$TARGET_REPOSITORY/git/ref/tags/$staging_tag" >/dev/null 2>&1; then
+            echo "::error::Staging release or tag $staging_tag already exists. Tags are immutable; choose the next candidate version."
+            exit 1
+          fi
+
+          source_sha="$(git rev-parse HEAD)"
+          source_short_sha="$(git rev-parse --short=8 HEAD)"
+          channel_label="$([[ "$STAGING_CHANNEL" == "stable" ]] && echo Stable || echo Beta)"
+
+          {
+            echo "version=$STAGING_VERSION"
+            echo "tag=$staging_tag"
+            echo "source_sha=$source_sha"
+            echo "source_short_sha=$source_short_sha"
+            echo "channel_label=$channel_label"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare staging identity
+        env:
+          STAGING_VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          pkg.version = process.env.STAGING_VERSION;
+          fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Setup macOS signing identity
+        id: macos_signing
+        uses: ./.github/actions/setup-macos-signing
+        with:
+          p12-base64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+          identity: BDIH Launcher Update Signing
+
+      - name: Build staging candidate
+        env:
+          PUBLISH_REPOSITORY: ${{ env.TARGET_REPOSITORY }}
+          BDIH_STAGING_VERSION: ${{ steps.candidate.outputs.version }}
+          BDIH_STAGING_CHANNEL: ${{ inputs.channel }}
+          BDIH_STAGING_SOURCE_COMMIT: ${{ steps.candidate.outputs.source_sha }}
+          BDIH_DISCORD_CLIENT_ID: ""
+        run: |
+          set -euo pipefail
+          pnpm build
+          pnpm exec electron-builder \
+            --mac \
+            --arm64 \
+            --publish never \
+            --config electron-builder.staging.config.cjs
+
+      - name: Verify staging package
+        env:
+          MACOS_SIGNING_IDENTITY: BDIH Launcher Update Signing
+          STAGING_CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+
+          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name 'BDIH Launcher Staging.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "::error::No packaged staging application was found."
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          signature="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+          if [[ "$signature" != *"Authority=$MACOS_SIGNING_IDENTITY"* ]]; then
+            echo "::error::The staging app was not signed by $MACOS_SIGNING_IDENTITY."
+            printf '%s\n' "$signature"
+            exit 1
+          fi
+
+          expected_metadata="$([[ "$STAGING_CHANNEL" == "stable" ]] && echo latest-mac.yml || echo beta-mac.yml)"
+          for required in \
+            "release/BDIH-Launcher-Staging-${{ steps.candidate.outputs.channel_label }}-${{ steps.candidate.outputs.version }}.dmg" \
+            "release/BDIH-Launcher-Staging-${{ steps.candidate.outputs.channel_label }}-${{ steps.candidate.outputs.version }}.zip" \
+            "release/$expected_metadata"; do
+            if [[ ! -f "$required" ]]; then
+              echo "::error::Missing staging artifact: $required"
+              exit 1
+            fi
+          done
+
+      - name: Cleanup macOS signing identity
+        if: ${{ always() && steps.macos_signing.outcome == 'success' }}
+        env:
+          CERTIFICATE_SHA1: ${{ steps.macos_signing.outputs.certificate-sha1 }}
+          KEYCHAIN_PATH: ${{ steps.macos_signing.outputs.keychain-path }}
+          SIGNING_TEMP_DIR: ${{ steps.macos_signing.outputs.temp-dir }}
+        run: |
+          set +e
+          sudo -n security delete-certificate \
+            -Z "$CERTIFICATE_SHA1" \
+            /Library/Keychains/System.keychain >/dev/null 2>&1
+          security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1
+          find "$SIGNING_TEMP_DIR" -type f -delete >/dev/null 2>&1
+          rmdir "$SIGNING_TEMP_DIR" >/dev/null 2>&1
+
+      - name: Update staging release anchor
+        env:
+          GH_TOKEN: ${{ secrets.STAGING_RELEASE_TOKEN }}
+          STAGING_TAG: ${{ steps.candidate.outputs.tag }}
+          STAGING_VERSION: ${{ steps.candidate.outputs.version }}
+          STAGING_CHANNEL: ${{ inputs.channel }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          anchor_dir="$(mktemp -d)"
+          trap 'rm -rf "$anchor_dir"' EXIT
+          cd "$anchor_dir"
+
+          git init
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
+
+          if git fetch --depth=1 origin "$TARGET_STAGING_BRANCH"; then
+            git checkout -b "$TARGET_STAGING_BRANCH" FETCH_HEAD
+          else
+            git checkout -b "$TARGET_STAGING_BRANCH"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -rf .github/workflows
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          const metadata = {
+            version: process.env.STAGING_VERSION,
+            tag: process.env.STAGING_TAG,
+            channel: process.env.STAGING_CHANNEL,
+            sourceRepository: process.env.GITHUB_REPOSITORY,
+            sourceCommit: process.env.SOURCE_SHA,
+          };
+
+          fs.writeFileSync("candidate-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
+          if (!fs.existsSync("README.md")) {
+            fs.writeFileSync("README.md", [
+              "# BDIH Launcher TestProduction",
+              "",
+              "This branch anchors Stable and Beta staging releases.",
+              "Source commits are recorded in candidate-source.json and each release.",
+              "",
+            ].join("\n"));
+          }
+          NODE
+
+          git add README.md candidate-source.json
+          if git diff --cached --quiet; then
+            echo "Staging release anchor already records $STAGING_TAG."
+          else
+            git commit -m "Stage $STAGING_TAG from $SOURCE_SHA"
+            git push origin "HEAD:refs/heads/${TARGET_STAGING_BRANCH}"
+          fi
+
+      - name: Publish staging release
+        env:
+          GH_TOKEN: ${{ secrets.STAGING_RELEASE_TOKEN }}
+          STAGING_TAG: ${{ steps.candidate.outputs.tag }}
+          STAGING_VERSION: ${{ steps.candidate.outputs.version }}
+          STAGING_CHANNEL: ${{ inputs.channel }}
+          STAGING_CHANNEL_LABEL: ${{ steps.candidate.outputs.channel_label }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          SOURCE_SHORT_SHA: ${{ steps.candidate.outputs.source_short_sha }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          const metadata = {
+            version: process.env.STAGING_VERSION,
+            tag: process.env.STAGING_TAG,
+            channel: process.env.STAGING_CHANNEL,
+            sourceRepository: process.env.GITHUB_REPOSITORY,
+            sourceCommit: process.env.SOURCE_SHA,
+          };
+
+          fs.writeFileSync("release/staging-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
+          fs.writeFileSync("release-notes.md", [
+            `BDIH Launcher ${metadata.channel} staging candidate.`,
+            "",
+            `Source repository: ${metadata.sourceRepository}`,
+            `Source commit: ${metadata.sourceCommit}`,
+            `Version: ${metadata.version}`,
+            "",
+          ].join("\n"));
+          NODE
+
+          assets=(release/*.dmg release/*.zip release/*.yml release/*.blockmap release/staging-source.json)
+          if (( ${#assets[@]} == 0 )); then
+            echo "::error::No staging release assets were generated."
+            exit 1
+          fi
+
+          release_args=(--draft)
+          if [[ "$STAGING_CHANNEL" == "beta" ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          gh release create "$STAGING_TAG" "${assets[@]}" \
+            --repo "$TARGET_REPOSITORY" \
+            --target "$TARGET_STAGING_BRANCH" \
+            --title "BDIH Launcher Staging $STAGING_CHANNEL_LABEL $STAGING_VERSION ($SOURCE_SHORT_SHA)" \
+            --notes-file release-notes.md \
+            "${release_args[@]}"
+
+          gh release edit "$STAGING_TAG" \
+            --repo "$TARGET_REPOSITORY" \
+            --draft=false

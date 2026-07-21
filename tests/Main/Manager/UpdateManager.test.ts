@@ -58,7 +58,7 @@ function create_mock_auto_updater(): MockAutoUpdater {
   return updater;
 }
 
-function create_harness(): UpdateManagerHarness {
+function create_harness(preferenceChannel: "stable" | "beta" = "stable"): UpdateManagerHarness {
   const updater = create_mock_auto_updater();
   const sendToWebContents = jest.fn();
   const logger = {
@@ -77,7 +77,7 @@ function create_harness(): UpdateManagerHarness {
   jest.doMock("electron-updater", () => ({ autoUpdater: updater }));
   jest.doMock("../../../src/Main/Manager/PreferenceManager", () => ({
     preferenceManager: {
-      getPreference: jest.fn(async () => ({ updateChannel: "stable" })),
+      getPreference: jest.fn(async () => ({ updateChannel: preferenceChannel })),
     },
   }));
   jest.doMock("../../../src/Main/Environment/AppPaths", () => ({
@@ -123,6 +123,17 @@ describe("UpdateManager", () => {
 
     expect(updater.autoDownload).toBe(false);
     expect(updater.autoInstallOnAppQuit).toBe(false);
+  });
+
+  it("uses the selected beta channel without locking a non-Nightly build", async () => {
+    const { manager, updater } = create_harness("beta");
+
+    const status = await manager.getStatus();
+
+    expect(updater.channel).toBe("beta");
+    expect(updater.allowPrerelease).toBe(true);
+    expect(status.channel).toBe("beta");
+    expect(status.channelLocked).toBe(false);
   });
 
   it("automatically installs an update discovered by the startup check", async () => {

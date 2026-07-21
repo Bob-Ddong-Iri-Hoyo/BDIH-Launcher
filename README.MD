@@ -53,7 +53,7 @@
       <td align="center"><b>Beta</b></td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/releases?q=beta">
-          <img alt="Latest beta release" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher?include_prereleases=true&amp;filter=%2A-beta.%2A&amp;display_name=tag&amp;sort=semver&amp;label=Beta&amp;color=d97706&amp;style=flat-square"/>
+          <img alt="Latest beta release" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher?include_prereleases&amp;filter=%2A-beta.%2A&amp;display_name=tag&amp;sort=semver&amp;label=Beta&amp;color=d97706&amp;style=flat-square"/>
         </a>
       </td>
       <td align="left">
@@ -66,7 +66,7 @@
       <td align="center"><b>Nightly</b></td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-nightly/releases">
-          <img alt="Latest nightly release" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-nightly?include_prereleases=true&amp;filter=%2A-nightly.%2A&amp;display_name=tag&amp;sort=date&amp;label=Nightly&amp;color=2563eb&amp;style=flat-square"/>
+          <img alt="Latest nightly release" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-nightly?include_prereleases&amp;filter=%2A-nightly.%2A&amp;display_name=tag&amp;sort=date&amp;label=Nightly&amp;color=2563eb&amp;style=flat-square"/>
         </a>
       </td>
       <td align="left">

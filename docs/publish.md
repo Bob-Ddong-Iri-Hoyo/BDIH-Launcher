@@ -13,6 +13,9 @@ Configure these repository secrets in the source repository that runs both
 - `MACOS_SIGNING_P12_BASE64`: Base64 contents of
   `private/bdih-code-signing.p12`.
 - `MACOS_SIGNING_P12_PASSWORD`: The exact password used to export the `.p12`.
+- `STAGING_RELEASE_TOKEN`: Fine-grained GitHub token restricted to
+  `Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction` with repository Contents
+  read/write access. This is used only by `staging.yml`.
 
 Generate a new identity only once:
 
@@ -51,6 +54,64 @@ being visible only as an easy-to-miss log line.
 Stable and beta use the normal application bundle identifier. Nightly uses its
 separate Nightly bundle identifier, but all channels use the same signing
 certificate.
+
+Staging Stable/Beta candidates use `day.faby.bdih-launcher.staging`, the
+`BDIH Launcher Staging` product name, and isolated settings and application
+data. The staging app reads updates only from
+`Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction`; it does not replace or read
+the installed Production or Nightly app.
+
+## TestProduction staging candidates
+
+Run **TestProduction Candidate** manually from GitHub Actions and provide:
+
+- `source_ref`: the exact branch, tag, or commit SHA to test.
+- `version`: `1.0.0` for Stable or `1.0.0-beta.1` for Beta.
+- `channel`: `stable` or `beta`.
+
+The workflow builds and verifies the signed app before publishing. It then
+updates the target repository's `staging` anchor branch and uploads the DMG,
+ZIP, update metadata, blockmaps, and source metadata as a GitHub Release. The
+target artifact names intentionally omit the architecture because staging is
+currently arm64-only:
+
+```text
+BDIH-Launcher-Staging-Stable-1.0.0.dmg
+BDIH-Launcher-Staging-Stable-1.0.0.zip
+BDIH-Launcher-Staging-Beta-1.0.0-beta.1.dmg
+BDIH-Launcher-Staging-Beta-1.0.0-beta.1.zip
+```
+
+The TestProduction Git tags also identify the channel while remaining valid
+SemVer so electron-updater can still resolve prerelease channels correctly:
+
+```text
+v1.0.0+staging.stable
+v1.0.0-beta.1+staging.beta
+```
+
+All target tags are immutable. If a candidate needs a code change, publish the
+next Beta number instead of replacing the old tag:
+
+```text
+1.0.0-beta.1 -> 1.0.0-beta.2
+```
+
+Stable staging candidates use the `latest` update metadata and normal GitHub
+Release status. Beta candidates use `beta` metadata and GitHub prerelease
+status. The selected workflow channel becomes the first-run default, but the
+Staging app keeps the same bundle identifier and allows switching between
+Stable and Beta in Settings just like Production. Generated update metadata for
+both channels lets Beta candidates update to later Beta candidates or a final
+Stable candidate. The TestProduction repository must remain public because packaged
+clients cannot safely contain a private-repository access token.
+
+For the first Production version there is no real predecessor. The staging
+workflow therefore permits a version whose base differs from `package.json`.
+Test updating *to* `1.0.0` by first publishing and installing a synthetic
+`0.9.0` staging build, then publishing `1.0.0`. Testing an installed `1.0.0`
+updating *from* that version requires a semantically newer candidate such as
+`1.0.1-beta.1` or `1.0.1`.
 
 The first certificate-signed build cannot update an installation made with the
 old per-build ad-hoc signature. Install that first signed build manually once;
@@ -203,5 +264,3 @@ bridge configuration:
 ```bash
 pnpm test:signing-script
 ```
-
-
