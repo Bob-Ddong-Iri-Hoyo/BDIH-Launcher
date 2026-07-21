@@ -147,13 +147,13 @@ export function ImageButton({
       {preset === "desktop" ? (
         <Box className="mt-1 flex h-5 w-full shrink-0 items-center justify-center">
           {isRunning ? (
-            <Inline className="items-center rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-200/20">
+            <Inline className="items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 ring-1 ring-emerald-200/20">
               <RunningBeacon />
               {t("main.appContext.running")}
             </Inline>
           ) : null}
           {isLaunching ? (
-            <Inline className="app-launching-indicator items-center rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-semibold text-sky-200 ring-1 ring-sky-200/20">
+            <Inline className="app-launching-indicator items-center gap-1.5 whitespace-nowrap rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-semibold text-sky-200 ring-1 ring-sky-200/20">
               <RunningBeacon />
               {t("main.appContext.launching")}
             </Inline>
