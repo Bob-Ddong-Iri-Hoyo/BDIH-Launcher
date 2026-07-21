@@ -1,6 +1,6 @@
 import React from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { Copy, FolderOpen, Pencil, Play, Settings, Trash2 } from "lucide-react";
+import { Copy, FileText, FolderOpen, Pencil, Play, Settings, Square, Trash2 } from "lucide-react";
 import { ContextMenu, ContextMenuPosition } from "../../Component/ContextMenu";
 
 const meta: Meta<typeof ContextMenu> = {
@@ -17,7 +17,25 @@ type Story = StoryObj<typeof ContextMenu>;
 const menuItems = [
   { id: "open", label: "Open bottle", icon: Play, onSelect: () => undefined },
   { id: "recipe", label: "Recipe settings", icon: Settings, onSelect: () => undefined },
-  { id: "rename", label: "Rename", icon: Pencil, onSelect: () => undefined },
+  {
+    id: "stop",
+    label: "Stop entire Bottle",
+    icon: Square,
+    trailingIcon: Square,
+    iconTone: "danger" as const,
+    iconFill: true,
+    danger: true,
+    onSelect: () => undefined,
+  },
+  {
+    id: "edit",
+    label: "Edit Bottle information",
+    icon: Pencil,
+    children: [
+      { id: "rename", label: "Rename", icon: Pencil, onSelect: () => undefined },
+      { id: "description", label: "Edit description", icon: FileText, onSelect: () => undefined },
+    ],
+  },
   { id: "copy-path", label: "Copy path", icon: Copy, onSelect: () => undefined },
   { id: "reveal", label: "Reveal in folder", icon: FolderOpen, disabled: true, onSelect: () => undefined },
   { id: "delete", label: "Delete bottle", icon: Trash2, danger: true, separatorBefore: true, onSelect: () => undefined },
@@ -44,6 +62,30 @@ export const Open: Story = {
 export const RightClick: Story = {
   render: () => <RightClickStory />,
 };
+
+export const SubmenuNearRightEdge: Story = {
+  render: () => <RightEdgeStory />,
+};
+
+function RightEdgeStory() {
+  const [position, setPosition] = React.useState<ContextMenuPosition>();
+
+  React.useLayoutEffect(() => {
+    setPosition({ x: window.innerWidth - 20, y: 180 });
+  }, []);
+
+  return (
+    <div className="min-h-dvh bg-[#0b1020] p-10 text-slate-100">
+      <p className="text-sm text-slate-400">Open “Edit Bottle information” to verify that its submenu flips to the left.</p>
+      <ContextMenu
+        open={Boolean(position)}
+        position={position}
+        items={menuItems}
+        onClose={() => setPosition(undefined)}
+      />
+    </div>
+  );
+}
 
 function RightClickStory() {
   const [position, setPosition] = React.useState<ContextMenuPosition | undefined>();

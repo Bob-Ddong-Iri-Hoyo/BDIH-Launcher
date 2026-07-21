@@ -331,6 +331,11 @@ export interface StopBottleProcessPayload {
   appId?: string;
 }
 
+export interface StopBottleProcessesPayload {
+  bottleId: string;
+  bottlePath?: string;
+}
+
 export interface BottleExecutionStatePayload {
   isRunning: boolean;
 }
@@ -646,6 +651,7 @@ export interface BottleChannelSchema {
   readonly DELETE_PREFIX: IpcChannelUnit<DeleteBottlePrefixPayload>;
   readonly RUN_EXECUTABLE: IpcChannelUnit<RunBottleExecutablePayload>;
   readonly STOP_PROCESS: IpcChannelUnit<StopBottleProcessPayload>;
+  readonly STOP_BOTTLE_PROCESSES: IpcChannelUnit<StopBottleProcessesPayload>;
   readonly GET_EXECUTION_STATE: IpcChannelUnit<BottleExecutionStateRequestPayload | void>;
   readonly STOP_ALL_PROCESSES: IpcChannelUnit<void>;
   readonly SETUP_PREFIX: IpcChannelUnit<SetupBottlePrefixPayload>;
@@ -813,6 +819,12 @@ export const BOTTLE = {
     method: "invoke",
     direction: "RENDERER_TO_MAIN",
     payload: {} as StopBottleProcessPayload,
+  },
+  STOP_BOTTLE_PROCESSES: {
+    channelName: "bottle:stop-bottle-processes",
+    method: "invoke",
+    direction: "RENDERER_TO_MAIN",
+    payload: {} as StopBottleProcessesPayload,
   },
   GET_EXECUTION_STATE: {
     channelName: "bottle:get-execution-state",

@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Check, CheckCircle2, Copy, Download, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, CheckCircle2, Copy, Download, RefreshCw, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AppUpdateStatusPayload } from "../../Common/Types/IPC";
 import dialogCheckUpdateImage from "../../../resouces/app/images/update/dialog-check-update.png";
@@ -12,7 +12,7 @@ import updateAvailableImage from "../../../resouces/app/images/update/update-ava
 import { classify_app_update_failure } from "../Logic/AppUpdateError";
 import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
-import { Box, Button, Checkbox, IconSlot, Inline, InlineText, Stack, Text } from "./Primitives";
+import { Badge, Box, Button, Checkbox, IconSlot, Inline, InlineText, Stack, Text } from "./Primitives";
 import { StatusBadge, StatusTone } from "./StatusBadge";
 
 /**
@@ -110,6 +110,54 @@ function dialog_tone_from_status(status?: AppUpdateStatusPayload["status"]) {
   }
 
   return "info";
+}
+
+function display_version(version?: string): string | undefined {
+  const normalized = version?.trim();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.toLowerCase().startsWith("v") ? normalized : `v${normalized}`;
+}
+
+function AppUpdateVersionFlow({ status }: { status?: AppUpdateStatusPayload }) {
+  const { t } = useTranslation();
+  const currentVersion = display_version(status?.currentVersion);
+  const targetVersion = display_version(status?.version);
+
+  if (!targetVersion) {
+    return null;
+  }
+
+  const hasVersionChange = Boolean(currentVersion && currentVersion.toLowerCase() !== targetVersion.toLowerCase());
+  const targetTone = status?.status === "not-available"
+    ? "success"
+    : status?.status === "error" ? "danger" : "warning";
+  const accessibleLabel = hasVersionChange && currentVersion
+    ? t("preferences.appUpdate.versionTransition", { currentVersion, targetVersion })
+    : t("preferences.appUpdate.versionCurrent", { version: targetVersion });
+
+  return (
+    <Inline
+      className="flex-wrap items-center gap-2 pt-1"
+      title={accessibleLabel}
+    >
+      <Text as="span" className="sr-only">{accessibleLabel}</Text>
+      {hasVersionChange && currentVersion ? (
+        <>
+          <Badge tone="neutral" aria-hidden="true" className="max-w-full break-all font-mono text-slate-300">
+            {currentVersion}
+          </Badge>
+          <ArrowRight size={14} aria-hidden="true" className="shrink-0 text-slate-500" />
+        </>
+      ) : null}
+      <Badge tone={targetTone} aria-hidden="true" className="max-w-full break-all font-mono">
+        {targetVersion}
+      </Badge>
+    </Inline>
+  );
 }
 
 interface AppUpdateErrorDetailsProps {
@@ -337,43 +385,41 @@ export function AppUpdatePanel({
             </Box>
           ) : null}
           <Stack className="min-w-0 flex-1 gap-4 md:flex-row md:items-start md:justify-between">
-          <Inline className="min-w-0 gap-3">
+            <Inline className="min-w-0 gap-3">
               {!statusArtwork ? (
                 <IconSlot className={`grid h-10 w-10 shrink-0 place-items-center rounded-md border ${STATUS_ICON_SLOT_CLASS_MAP[STATUS_TONE_MAP[statusKey]]}`}>
-                <Icon size={19} className={status?.status === "error" ? "text-red-300" : "accent-text"} />
+                  <Icon size={19} className={status?.status === "error" ? "text-red-300" : "accent-text"} />
                 </IconSlot>
               ) : null}
-            <Stack className="min-w-0 gap-1">
-              <Inline className="flex-wrap items-center gap-2">
-                <Text className="text-sm font-semibold text-slate-100">{t("preferences.appUpdate.title")}</Text>
-                <StatusBadge label={t(`preferences.appUpdate.status.${statusKey}`)} tone={STATUS_TONE_MAP[statusKey]} />
-              </Inline>
-              <Text className="text-xs leading-5 text-slate-500">
-                {statusDescription}
-              </Text>
-              {status?.version ? (
-                <Text className="text-xs text-slate-400">{t("preferences.appUpdate.version", { version: status.version })}</Text>
-              ) : null}
-            </Stack>
-          </Inline>
+              <Stack className="min-w-0 gap-1">
+                <Inline className="flex-wrap items-center gap-2">
+                  <Text className="text-sm font-semibold text-slate-100">{t("preferences.appUpdate.title")}</Text>
+                  <StatusBadge label={t(`preferences.appUpdate.status.${statusKey}`)} tone={STATUS_TONE_MAP[statusKey]} />
+                </Inline>
+                <Text className="text-xs leading-5 text-slate-500">
+                  {statusDescription}
+                </Text>
+                <AppUpdateVersionFlow status={status} />
+              </Stack>
+            </Inline>
 
-          <Inline className="shrink-0 items-center gap-2">
-            <Checkbox
-              checked={autoUpdateEnabled}
-              onCheckedChange={(checked) => onAutoUpdateChange?.(checked)}
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-slate-200"
-              label={t("preferences.appUpdate.autoCheck")}
-            />
-            <Button
-              type="button"
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={isChecking || isDownloading || isRequestingCheck}
-              onClick={() => void handle_check_for_updates()}
-            >
-              <RefreshCw size={14} className={isChecking || isRequestingCheck ? "animate-spin" : ""} />
-              {t("preferences.appUpdate.check")}
-            </Button>
-          </Inline>
+            <Inline className="shrink-0 items-center gap-2">
+              <Checkbox
+                checked={autoUpdateEnabled}
+                onCheckedChange={(checked) => onAutoUpdateChange?.(checked)}
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-slate-200"
+                label={t("preferences.appUpdate.autoCheck")}
+              />
+              <Button
+                type="button"
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isChecking || isDownloading || isRequestingCheck}
+                onClick={() => void handle_check_for_updates()}
+              >
+                <RefreshCw size={14} className={isChecking || isRequestingCheck ? "animate-spin" : ""} />
+                {t("preferences.appUpdate.check")}
+              </Button>
+            </Inline>
           </Stack>
         </Stack>
 
@@ -441,9 +487,9 @@ export function AppUpdatePanel({
           </Inline>
 
           {dialogStatus?.version ? (
-            <Text className="rounded-lg border border-white/10 bg-[#050914] px-3 py-2 text-xs text-slate-300">
-              {t("preferences.appUpdate.version", { version: dialogStatus.version })}
-            </Text>
+            <Box className="rounded-lg border border-white/10 bg-[#050914] px-3 py-2">
+              <AppUpdateVersionFlow status={dialogStatus} />
+            </Box>
           ) : null}
 
           {dialogStatus?.error ? <AppUpdateErrorDetails error={dialogStatus.error} /> : null}

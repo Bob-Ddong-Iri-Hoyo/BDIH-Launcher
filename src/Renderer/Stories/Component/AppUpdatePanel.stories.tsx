@@ -111,13 +111,15 @@ function UpdateFailedScenario({
             status: "error",
             message: "Update failed while downloading.",
             error: "Update download failed: connection interrupted.",
-            version: "1.2.0",
+            currentVersion: "1.2.0",
+            version: "1.3.0",
           }
           : {
             status: "downloading",
             message: "Downloading launcher update.",
             progress: 64,
-            version: "1.2.0",
+            currentVersion: "1.2.0",
+            version: "1.3.0",
           }}
       />
     </div>
@@ -192,7 +194,8 @@ export const UpdateProgress: Story = {
       status: "downloading",
       message: "Downloading launcher update.",
       progress: 64,
-      version: "1.2.0",
+      currentVersion: "1.2.0",
+      version: "1.3.0",
     },
   },
   render: (args) => (
@@ -227,7 +230,8 @@ export const UpdateConfirmation: Story = {
     status: {
       status: "available",
       message: "Update is available.",
-      version: "1.2.0",
+      currentVersion: "1.2.0",
+      version: "1.3.0",
     },
   },
   render: (args) => (

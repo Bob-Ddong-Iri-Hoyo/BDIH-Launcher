@@ -275,7 +275,7 @@ describe("UpdateManager", () => {
   });
 
   it("maps updater download progress into the 30 to 88 install-progress range", async () => {
-    const { manager, updater } = create_harness();
+    const { manager, updater, sendToWebContents } = create_harness();
     const progressHandler = jest.fn((_payload: AppUpdateInstallProgressPayload) => undefined);
 
     manager.init();
@@ -301,6 +301,10 @@ describe("UpdateManager", () => {
 
     expect(downloadingProgress).toEqual([30, 30, 30, 59, 88, 88]);
     expect(downloadingProgress.every((progress) => progress >= 30 && progress <= 88)).toBe(true);
+    expect(emitted_statuses(sendToWebContents)
+      .filter((status) => status.status === "downloading")
+      .every((status) => status.currentVersion === "1.2.0" && status.version === "1.2.1"))
+      .toBe(true);
   });
 
   it("notifies cleanup failure and permits a later retry", async () => {

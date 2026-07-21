@@ -221,6 +221,8 @@
         "openBottle": "Open bottle",
         "launchOptions": "Launch options",
         "recipeSettings": "Recipe settings",
+        "stopBottle": "Stop entire Bottle",
+        "editBottleInfo": "Edit Bottle information",
         "rename": "Rename",
         "editDescription": "Edit description",
         "copyPath": "Copy path",
@@ -233,6 +235,16 @@
         "deleteRunningBottleDescription": "Wine apps or launchers are still running in this Bottle. Stop them all and delete the Bottle?",
         "deleteBottleAction": "Delete Bottle",
         "stopAndDeleteBottle": "Stop Wine and delete"
+      },
+      "stopBottle": {
+        "title": "Stop everything running in {{name}}?",
+        "description": "This stops every game, launcher, and Wine process running in this Bottle. Unsaved work may be lost.",
+        "confirm": "Stop entire Bottle",
+        "stopping": "Stopping...",
+        "successTitle": "Bottle stopped",
+        "successDescription": "Every Wine process running in {{name}} was stopped.",
+        "errorTitle": "Could not stop the Bottle",
+        "errorDescription": "Some Wine processes are still running: {{error}}"
       },
       "renameBottle": {
         "title": "Rename bottle",
@@ -681,6 +693,8 @@
           "updateNow": "Update"
         },
         "version": "Version {{version}}",
+        "versionCurrent": "Current version {{version}}",
+        "versionTransition": "Update from {{currentVersion}} to {{targetVersion}}",
         "dialog": {
           "disabled": {
             "title": "Update check unavailable",

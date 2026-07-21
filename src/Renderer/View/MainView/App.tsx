@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../../style/index.css";
 import { BDIH_YOUTUBE_HANDLE, STEAM_GAME_LAUNCH_ARGUMENT } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateInstallProgressPayload, AppUpdateStatusPayload, BottleExecutionAvailabilityPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
+import { AppUpdateInstallProgressPayload, AppUpdateStatusPayload, BottleExecutionAvailabilityPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskResultPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
 import {
   bottle_name_to_slug,
   create_bottle_app_prefix_path,
@@ -2424,6 +2424,54 @@ const App: React.FC = () => {
     );
   };
 
+  const handle_stop_bottle = async (bottleId: string) => {
+    const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
+
+    if (!bottle) {
+      throw new Error("Bottle could not be found.");
+    }
+
+    const result = await window.BTIH_API?.invoke(
+      IPC_CHANNELS.BOTTLE.STOP_BOTTLE_PROCESSES.channelName,
+      {
+        bottleId: bottle.id,
+        bottlePath: bottle.path,
+      },
+    ) as BottleTaskResultPayload | undefined;
+
+    if (!result?.ok) {
+      throw new Error(result?.error ?? "Bottle processes could not be stopped.");
+    }
+
+    for (const [processId, session] of activePrefixSessionsRef.current.entries()) {
+      if (session.bottleId === bottleId) {
+        activePrefixSessionsRef.current.delete(processId);
+      }
+    }
+
+    for (const launchKey of launchingAppsRef.current) {
+      if (launchKey.startsWith(`${bottleId}:`)) {
+        launchingAppsRef.current.delete(launchKey);
+      }
+    }
+
+    update_bottles((currentBottles) =>
+      currentBottles.map((currentBottle) =>
+        currentBottle.id === bottleId
+          ? {
+              ...currentBottle,
+              apps: currentBottle.apps.map((currentApp) => ({
+                ...currentApp,
+                processId: undefined,
+                isLaunching: false,
+                launchError: undefined,
+              })),
+            }
+          : currentBottle,
+      ),
+    );
+  };
+
   const remove_bottle_app_locally = (bottleId: string, appId: string, hideFromDiscovery = false) => {
     update_bottles((currentBottles) =>
       currentBottles.map((currentBottle) =>
@@ -2946,6 +2994,7 @@ const App: React.FC = () => {
       onRenameBottle={handle_rename_bottle}
       onChangeBottleDescription={handle_change_bottle_description}
       onRevealBottle={handle_reveal_bottle}
+      onStopBottle={handle_stop_bottle}
       onDeleteBottle={handle_delete_bottle}
       onClearBottleDxmtShaderCaches={handle_clear_bottle_dxmt_shader_caches}
       onSelectBottlePrefixPath={handle_select_bottle_prefix_path}

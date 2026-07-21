@@ -1,5 +1,5 @@
 ﻿import React from "react";
-import { Copy, FolderOpen, Pencil, Settings, Trash2 } from "lucide-react";
+import { Copy, FileText, FolderOpen, Pencil, Settings, Square, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AppUpdateStatusPayload, BottleExecutionStatePayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload, DebugFlagMode, DeleteLauncherDataResultPayload, LauncherDataDeleteTarget, LauncherLogLevel, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RendererThemeMode } from "../../../Common/Types/IPC";
 import { IPC_CHANNELS } from "../../../Common/Types/IPC";
@@ -44,6 +44,7 @@ export interface DashboardViewProps {
   onRenameBottle?: (bottleId: string, name: string) => void;
   onChangeBottleDescription?: (bottleId: string, description: string) => void;
   onRevealBottle?: (path: string) => void;
+  onStopBottle?: (bottleId: string) => Promise<void> | void;
   onDeleteBottle?: (bottleId: string) => Promise<void> | void;
   onClearBottleDxmtShaderCaches?: (bottleId: string, prefixPaths?: string[]) => Promise<DeleteLauncherDataResultPayload | undefined>;
   onSelectBottlePrefixPath?: (currentPath: string) => Promise<string | undefined>;
@@ -165,6 +166,7 @@ export function DashboardView({
   onRenameBottle,
   onChangeBottleDescription,
   onRevealBottle,
+  onStopBottle,
   onDeleteBottle,
   onClearBottleDxmtShaderCaches,
   onSelectBottlePrefixPath,
@@ -209,6 +211,8 @@ export function DashboardView({
   } | null>(null);
   const [deleteBottleId, setDeleteBottleId] = React.useState<string | null>(null);
   const [deleteBottleWasRunning, setDeleteBottleWasRunning] = React.useState(false);
+  const [stopBottleId, setStopBottleId] = React.useState<string | null>(null);
+  const [isStoppingBottle, setIsStoppingBottle] = React.useState(false);
   const [launchOptionsBottleId, setLaunchOptionsBottleId] = React.useState<string | null>(null);
   const [noticeDialog, setNoticeDialog] = React.useState<{
     title: string;
@@ -258,19 +262,42 @@ export function DashboardView({
         iconTone: "violet",
         onSelect: () => setLaunchOptionsBottleId(contextBottle.id),
       },
+      ...(is_bottle_running(contextBottle)
+        ? [
+            {
+              id: "stop-bottle",
+              label: t("main.contextMenu.stopBottle"),
+              icon: Square,
+              trailingIcon: Square,
+              iconTone: "danger",
+              iconFill: true,
+              danger: true,
+              disabled: !onStopBottle,
+              onSelect: () => setStopBottleId(contextBottle.id),
+            } satisfies ContextMenuItem,
+          ]
+        : []),
       {
-        id: "rename",
-        label: t("main.contextMenu.rename"),
+        id: "edit-bottle-info",
+        label: t("main.contextMenu.editBottleInfo"),
         icon: Pencil,
         iconTone: "info",
-        onSelect: () => open_rename_bottle(contextBottle),
-      },
-      {
-        id: "edit-description",
-        label: t("main.contextMenu.editDescription"),
-        icon: Pencil,
-        iconTone: "default",
-        onSelect: () => open_edit_bottle_description(contextBottle),
+        children: [
+          {
+            id: "rename",
+            label: t("main.contextMenu.rename"),
+            icon: Pencil,
+            iconTone: "info",
+            onSelect: () => open_rename_bottle(contextBottle),
+          },
+          {
+            id: "edit-description",
+            label: t("main.contextMenu.editDescription"),
+            icon: FileText,
+            iconTone: "default",
+            onSelect: () => open_edit_bottle_description(contextBottle),
+          },
+        ],
       },
       {
         id: "copy-path",
@@ -315,7 +342,7 @@ export function DashboardView({
         },
       },
     ];
-  }, [contextBottle, onClearBottleDxmtShaderCaches, onDeleteBottle, onRevealBottle, onSelectBottle, t]);
+  }, [contextBottle, onClearBottleDxmtShaderCaches, onDeleteBottle, onRevealBottle, onSelectBottle, onStopBottle, t]);
 
   const renameBottle = React.useMemo(
     () => bottles.find((bottle) => bottle.id === renameDraft?.bottleId),
@@ -330,6 +357,10 @@ export function DashboardView({
   const deleteBottle = React.useMemo(
     () => bottles.find((bottle) => bottle.id === deleteBottleId),
     [bottles, deleteBottleId],
+  );
+  const stopBottle = React.useMemo(
+    () => bottles.find((bottle) => bottle.id === stopBottleId),
+    [bottles, stopBottleId],
   );
   const isDeleteBottleRunning = deleteBottleWasRunning || Boolean(deleteBottle && is_bottle_running(deleteBottle));
   const normalizedDescriptionDraft = descriptionDraft?.description.trim() ?? "";
@@ -446,6 +477,35 @@ export function DashboardView({
     setDeleteBottleId(bottle.id);
   }
 
+  async function confirm_stop_bottle() {
+    if (!stopBottle || !onStopBottle || isStoppingBottle) {
+      return;
+    }
+
+    setIsStoppingBottle(true);
+
+    try {
+      await onStopBottle(stopBottle.id);
+      setStopBottleId(null);
+      setNoticeDialog({
+        title: t("main.stopBottle.successTitle"),
+        description: t("main.stopBottle.successDescription", { name: stopBottle.name }),
+        tone: "success",
+      });
+    } catch (error) {
+      setNoticeDialog({
+        title: t("main.stopBottle.errorTitle"),
+        description: t("main.stopBottle.errorDescription", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        tone: "danger",
+      });
+      setStopBottleId(null);
+    } finally {
+      setIsStoppingBottle(false);
+    }
+  }
+
   function handle_bottle_context_menu(event: React.MouseEvent<HTMLButtonElement>, bottle: Bottle) {
     event.preventDefault();
     setContextMenuState({
@@ -535,6 +595,33 @@ export function DashboardView({
         launcherOptionsManifest={launchOptionsManifest}
         onClose={() => setLaunchOptionsBottleId(null)}
         onSave={onChangeBottleAppLaunchOptions}
+      />
+      <Dialog
+        open={Boolean(stopBottleId && stopBottle)}
+        title={t("main.stopBottle.title", { name: stopBottle?.name ?? "" })}
+        description={t("main.stopBottle.description")}
+        tone="warning"
+        icon={Square}
+        placement="center"
+        onClose={() => {
+          if (!isStoppingBottle) {
+            setStopBottleId(null);
+          }
+        }}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "secondary",
+            disabled: isStoppingBottle,
+            onClick: () => setStopBottleId(null),
+          },
+          {
+            label: t(isStoppingBottle ? "main.stopBottle.stopping" : "main.stopBottle.confirm"),
+            variant: "danger",
+            disabled: isStoppingBottle,
+            onClick: () => void confirm_stop_bottle(),
+          },
+        ]}
       />
       <Dialog
         open={Boolean(deleteBottleId && deleteBottle)}
@@ -731,6 +818,7 @@ export function LauncherView({
   onRenameBottle,
   onChangeBottleDescription,
   onRevealBottle,
+  onStopBottle,
   onDeleteBottle,
   onClearBottleDxmtShaderCaches,
   onSelectBottlePrefixPath,
@@ -846,6 +934,7 @@ export function LauncherView({
           onRenameBottle={onRenameBottle}
           onChangeBottleDescription={onChangeBottleDescription}
           onRevealBottle={onRevealBottle}
+          onStopBottle={onStopBottle}
           onDeleteBottle={(bottleId) => {
             if (selectedBottleId === bottleId) {
               setSelectedBottleId(undefined);

@@ -221,6 +221,8 @@
         "openBottle": "Bottle 열기",
         "launchOptions": "Launch 옵션",
         "recipeSettings": "Recipe 설정",
+        "stopBottle": "Bottle 전체 실행 중지",
+        "editBottleInfo": "Bottle 정보 수정",
         "rename": "이름 바꾸기",
         "editDescription": "설명 바꾸기",
         "copyPath": "경로 복사",
@@ -233,6 +235,16 @@
         "deleteRunningBottleDescription": "현재 이 Bottle에서 Wine 앱이나 런처가 실행 중입니다. 실행 중인 Wine을 모두 종료한 뒤 Bottle을 삭제하시겠습니까?",
         "deleteBottleAction": "Bottle 삭제",
         "stopAndDeleteBottle": "Wine 종료 후 삭제"
+      },
+      "stopBottle": {
+        "title": "{{name}} Bottle의 실행을 모두 중지할까요?",
+        "description": "이 Bottle에서 실행 중인 게임, 런처 및 Wine 프로세스를 모두 종료합니다. 저장하지 않은 내용은 유실될 수 있습니다.",
+        "confirm": "전체 실행 중지",
+        "stopping": "종료 중...",
+        "successTitle": "Bottle 실행을 중지했습니다",
+        "successDescription": "{{name}}에서 실행 중이던 Wine 프로세스를 모두 종료했습니다.",
+        "errorTitle": "Bottle 실행을 중지하지 못했습니다",
+        "errorDescription": "일부 Wine 프로세스가 남아 있습니다: {{error}}"
       },
       "renameBottle": {
         "title": "Bottle 이름 바꾸기",
@@ -681,6 +693,8 @@
           "updateNow": "업데이트하기"
         },
         "version": "버전 {{version}}",
+        "versionCurrent": "현재 버전 {{version}}",
+        "versionTransition": "{{currentVersion}}에서 {{targetVersion}}로 업데이트",
         "dialog": {
           "disabled": {
             "title": "업데이트 확인 불가",

@@ -221,6 +221,8 @@
         "openBottle": "打开 Bottle",
         "launchOptions": "启动选项",
         "recipeSettings": "Recipe 设置",
+        "stopBottle": "停止整个 Bottle",
+        "editBottleInfo": "编辑 Bottle 信息",
         "rename": "重命名",
         "editDescription": "修改说明",
         "copyPath": "复制路径",
@@ -233,6 +235,16 @@
         "deleteRunningBottleDescription": "此 Bottle 中仍有 Wine 应用或启动器正在运行。是否全部停止后删除 Bottle？",
         "deleteBottleAction": "删除 Bottle",
         "stopAndDeleteBottle": "停止 Wine 并删除"
+      },
+      "stopBottle": {
+        "title": "停止 {{name}} 中运行的所有内容？",
+        "description": "这将停止此 Bottle 中运行的所有游戏、启动器和 Wine 进程。未保存的内容可能会丢失。",
+        "confirm": "停止整个 Bottle",
+        "stopping": "正在停止...",
+        "successTitle": "Bottle 已停止",
+        "successDescription": "已停止 {{name}} 中运行的所有 Wine 进程。",
+        "errorTitle": "无法停止 Bottle",
+        "errorDescription": "仍有部分 Wine 进程正在运行：{{error}}"
       },
       "renameBottle": {
         "title": "重命名 Bottle",
@@ -681,6 +693,8 @@
           "updateNow": "立即更新"
         },
         "version": "版本 {{version}}",
+        "versionCurrent": "当前版本 {{version}}",
+        "versionTransition": "从 {{currentVersion}} 更新到 {{targetVersion}}",
         "dialog": {
           "disabled": {
             "title": "无法检查更新",

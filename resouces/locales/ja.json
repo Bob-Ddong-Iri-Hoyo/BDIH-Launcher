@@ -221,6 +221,8 @@
         "openBottle": "ボトルを開く",
         "launchOptions": "起動オプション",
         "recipeSettings": "レシピ設定",
+        "stopBottle": "ボトル全体を停止",
+        "editBottleInfo": "ボトル情報を編集",
         "rename": "名前を変更",
         "editDescription": "説明を変更",
         "copyPath": "パスをコピー",
@@ -233,6 +235,16 @@
         "deleteRunningBottleDescription": "このボトルではWineアプリまたはランチャーが実行中です。すべて終了してからボトルを削除しますか？",
         "deleteBottleAction": "ボトルを削除",
         "stopAndDeleteBottle": "Wineを終了して削除"
+      },
+      "stopBottle": {
+        "title": "{{name}}で実行中のすべてを停止しますか？",
+        "description": "このボトルで実行中のゲーム、ランチャー、Wineプロセスをすべて終了します。保存していない内容は失われる可能性があります。",
+        "confirm": "ボトル全体を停止",
+        "stopping": "終了中...",
+        "successTitle": "ボトルを停止しました",
+        "successDescription": "{{name}}で実行中のWineプロセスをすべて終了しました。",
+        "errorTitle": "ボトルを停止できませんでした",
+        "errorDescription": "一部のWineプロセスがまだ実行中です: {{error}}"
       },
       "renameBottle": {
         "title": "ボトル名を変更",
@@ -681,6 +693,8 @@
           "updateNow": "アップデート"
         },
         "version": "バージョン {{version}}",
+        "versionCurrent": "現在のバージョン {{version}}",
+        "versionTransition": "{{currentVersion}}から{{targetVersion}}へアップデート",
         "dialog": {
           "disabled": {
             "title": "更新チェックは利用できません",

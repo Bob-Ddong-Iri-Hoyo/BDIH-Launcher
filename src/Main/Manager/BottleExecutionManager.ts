@@ -2809,7 +2809,7 @@ export class BottleExecutionManager {
       return;
     }
 
-    this.logger.info("stopping Wine processes before Bottle deletion", {
+    this.logger.info("stopping Wine processes for Bottle", {
       bottleId,
       prefixes: [...prefixContexts.keys()],
     });

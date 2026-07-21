@@ -93,6 +93,7 @@ export class UpdateManager {
 
       this.emitStatus({
         status: "downloading",
+        version: this.lastStatus.version,
         progress: progress.percent ?? 0,
         message: "Downloading update.",
       });

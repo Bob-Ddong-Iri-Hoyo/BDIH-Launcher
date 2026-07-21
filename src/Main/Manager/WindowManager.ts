@@ -3,6 +3,7 @@ import path from "path";
 import { AppUpdateInstallProgressPayload, IPC_CHANNELS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_PRESET_SIZES, LauncherPreferencePayload } from "../../Common/Types/IPC";
 import { get_app_icon_path } from "../Environment/AppIcon";
 import { send_to_web_contents } from "../Util/SafeWebContents";
+import { isCloseWindowShortcut } from "../Util/WindowShortcut";
 import { bottleManager } from "./BottleManager";
 import { dxmtManager } from "./DxmtManager";
 import { jadeiteManager } from "./JadeiteManager";
@@ -431,6 +432,7 @@ export class WindowManager {
     this.bindWindowDebugEvents(window);
     this.bindNavigationGuards(window);
     this.bindLauncherWindowStatePersistence(window);
+    this.disableCloseWindowShortcut(window);
 
     if (startupState.maximized && !startupState.fullscreen) {
       window.maximize();
@@ -448,6 +450,14 @@ export class WindowManager {
     });
 
     return window;
+  }
+
+  private disableCloseWindowShortcut(window: BrowserWindow): void {
+    window.webContents.on("before-input-event", (event, input) => {
+      if (isCloseWindowShortcut(input)) {
+        event.preventDefault();
+      }
+    });
   }
 
   applyLauncherWindowStartupSize(preference: LauncherPreferencePayload): void {
