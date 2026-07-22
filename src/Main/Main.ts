@@ -6,6 +6,7 @@ import { BDIH_YOUTUBE_HANDLE } from "../Common/Constant/RuntimeSources";
 import { get_update_test_runtime_paths, is_nightly_launcher_build, is_staging_launcher_build, is_update_test_build } from "./Environment/AppPaths";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
+import { bottleManager } from "./Manager/BottleManager";
 import { bottleExecutionManager } from "./Manager/BottleExecutionManager";
 import { discordPresenceManager } from "./Manager/DiscordPresenceManager";
 import { downloadManager } from "./Manager/DownloadManager";
@@ -215,7 +216,10 @@ async function cleanupBeforeQuit(): Promise<void> {
 
   shortcutManager.unregisterAll();
   await windowManager.flushLauncherWindowState();
-  await preferenceManager.flushPendingWrites();
+  await Promise.all([
+    preferenceManager.flushPendingWrites(),
+    bottleManager.flushPendingWrites(),
+  ]);
 
   await Promise.all([
     discordPresenceManager.shutdown(),
@@ -251,7 +255,10 @@ async function prepareForUpdateInstall(): Promise<void> {
   shortcutManager.unregisterAll();
   windowManager.sendUpdateInstallProgress({ stage: "saving-state", progress: 12 });
   await windowManager.flushLauncherWindowState();
-  await preferenceManager.flushPendingWrites();
+  await Promise.all([
+    preferenceManager.flushPendingWrites(),
+    bottleManager.flushPendingWrites(),
+  ]);
 
   windowManager.sendUpdateInstallProgress({ stage: "stopping-processes", progress: 20 });
   await Promise.all([

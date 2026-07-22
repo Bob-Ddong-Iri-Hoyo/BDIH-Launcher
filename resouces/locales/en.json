@@ -274,6 +274,7 @@
         "description": "Adjust launch preset and Wine options for {{name}}.",
         "emptyDescription": "Select an app in this bottle before editing launch options.",
         "empty": "No apps are registered in this bottle yet.",
+        "saveError": "Could not save the launch options. {{error}}",
         "targetApp": "Target app",
         "searchApps": "Search apps",
         "preset": "Preset",

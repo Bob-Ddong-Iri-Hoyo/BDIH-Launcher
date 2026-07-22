@@ -1031,12 +1031,12 @@ const App: React.FC = () => {
     return saveRequest;
   }
 
-  function update_bottles(updater: (currentBottles: Bottle[]) => Bottle[]) {
+  function update_bottles(updater: (currentBottles: Bottle[]) => Bottle[]): Promise<BottleListPayload | undefined> {
     const nextBottles = updater(bottlesRef.current);
 
     bottlesRef.current = nextBottles;
     setBottles(nextBottles);
-    void persist_bottles(nextBottles);
+    return persist_bottles(nextBottles);
   }
 
   function update_data_root_draft(nextDataRootPath: string) {
@@ -2529,12 +2529,12 @@ const App: React.FC = () => {
     });
   };
 
-  const handle_change_bottle_app_launch_options = (
+  const handle_change_bottle_app_launch_options = async (
     bottleId: string,
     appId: string,
     launchOptions: BottleLaunchOptionsPayload,
   ) => {
-    update_bottles((currentBottles) =>
+    await update_bottles((currentBottles) =>
       currentBottles.map((currentBottle) =>
         currentBottle.id === bottleId
           ? {

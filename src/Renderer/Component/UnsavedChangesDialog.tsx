@@ -8,6 +8,7 @@ export interface UnsavedChangesDialogProps {
   onContinueEditing: () => void;
   onDiscard: () => void;
   onSave: () => void;
+  disabled?: boolean;
 }
 
 /** Shared navigation guard for editable modal views. */
@@ -16,6 +17,7 @@ export function UnsavedChangesDialog({
   onContinueEditing,
   onDiscard,
   onSave,
+  disabled = false,
 }: UnsavedChangesDialogProps) {
   const { t } = useTranslation();
 
@@ -27,22 +29,25 @@ export function UnsavedChangesDialog({
       tone="warning"
       placement="center"
       widthClassName="max-w-md"
-      onClose={onContinueEditing}
+      onClose={disabled ? undefined : onContinueEditing}
       actions={[
         {
           label: t("main.unsavedChanges.continueEditing"),
           variant: "secondary",
+          disabled,
           onClick: onContinueEditing,
         },
         {
           label: t("main.unsavedChanges.discard"),
           variant: "danger",
+          disabled,
           onClick: onDiscard,
         },
         {
           label: t("main.unsavedChanges.save"),
           icon: Save,
           variant: "primary",
+          disabled,
           autoFocus: true,
           onClick: onSave,
         },

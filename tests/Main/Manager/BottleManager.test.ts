@@ -298,6 +298,66 @@ describe("BottleManager", () => {
       ?.apps.map((app) => app.id)).toEqual([`steam:${steamAppId}`, "steam"]);
   });
 
+  it("preserves user launch options across save, prefix rescan, and manager restart", async () => {
+    await write_legacy_preference(environment);
+    const bottlePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "launch-options", {
+      wineVersionId: "wine-fixture-10",
+    });
+
+    await create_steam_fixture(bottlePath);
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+    const initialResult = await manager.getBottleList(true);
+    const bottle = initialResult.bottles.find((candidate) => candidate.id === "fixture:launch-options");
+
+    expect(bottle).toBeDefined();
+    const savedResult = await manager.saveBottleList({
+      bottles: [{
+        ...bottle!,
+        apps: bottle!.apps.map((app) => app.id === "steam"
+          ? {
+              ...app,
+              launchOptions: {
+                presetId: "custom",
+                enableMsync: true,
+                metalHud: true,
+              },
+            }
+          : app),
+      }],
+    });
+    const savedSteam = savedResult.bottles
+      .find((candidate) => candidate.id === "fixture:launch-options")
+      ?.apps.find((app) => app.id === "steam");
+
+    expect(savedSteam?.launchOptions).toEqual(expect.objectContaining({
+      presetId: "custom",
+      enableMsync: true,
+      metalHud: true,
+    }));
+
+    const reloadedResult = await new BottleManager().getBottleList(true);
+    const reloadedSteam = reloadedResult.bottles
+      .find((candidate) => candidate.id === "fixture:launch-options")
+      ?.apps.find((app) => app.id === "steam");
+    const prefixMetadata = await read_json<{
+      apps: Array<{ id: string; launchOptions?: { enableMsync?: boolean; metalHud?: boolean } }>;
+    }>(path.join(bottlePath, "bdih-bottle.json"));
+
+    expect(reloadedSteam?.launchOptions).toEqual(expect.objectContaining({
+      presetId: "custom",
+      enableMsync: true,
+      metalHud: true,
+    }));
+    expect(prefixMetadata.apps.find((app) => app.id === "steam")?.launchOptions).toEqual(
+      expect.objectContaining({
+        enableMsync: true,
+        metalHud: true,
+      }),
+    );
+  });
+
   it("restores a list-hidden Steam game when Steam launches it again", async () => {
     await write_legacy_preference(environment);
     const bottlePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "steam-game-restore", {

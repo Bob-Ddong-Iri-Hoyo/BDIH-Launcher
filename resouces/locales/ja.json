@@ -274,6 +274,7 @@
         "description": "{{name}} の起動プリセットとWineオプションを調整します。",
         "emptyDescription": "起動オプションを編集するアプリを選択してください。",
         "empty": "このボトルにはまだ登録済みアプリがありません。",
+        "saveError": "起動オプションを保存できませんでした。{{error}}",
         "targetApp": "対象アプリ",
         "searchApps": "アプリを検索",
         "preset": "プリセット",

@@ -274,6 +274,7 @@
         "description": "{{name}} 실행 프리셋과 Wine 옵션을 조정합니다.",
         "emptyDescription": "Launch 옵션을 수정할 앱을 선택하세요.",
         "empty": "이 Bottle에 등록된 앱이 아직 없습니다.",
+        "saveError": "Launch 옵션을 저장하지 못했습니다. {{error}}",
         "targetApp": "대상 앱",
         "searchApps": "앱 검색",
         "preset": "프리셋",

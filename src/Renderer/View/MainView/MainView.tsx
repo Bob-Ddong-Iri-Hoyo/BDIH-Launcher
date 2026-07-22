@@ -59,7 +59,11 @@ export interface DashboardViewProps {
   onRegisterBottleExecutable?: (bottleId: string, executablePath: string, prefixPath: string, launchOptions?: BottleLaunchOptionsPayload) => void;
   onUpdateBottlePrefixes?: (bottleId: string, prefixes: BottlePrefixMetadataPayload[]) => void;
   onDeleteBottlePrefix?: (bottleId: string, prefix: BottlePrefixMetadataPayload) => Promise<void> | void;
-  onChangeBottleAppLaunchOptions?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
+  onChangeBottleAppLaunchOptions?: (
+    bottleId: string,
+    appId: string,
+    launchOptions: BottleLaunchOptionsPayload,
+  ) => Promise<void> | void;
   onChangeBottleRecipe?: (bottleId: string, patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>) => void;
   onApplyBottleRecipe?: (
     bottleId: string,

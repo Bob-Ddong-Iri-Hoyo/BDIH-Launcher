@@ -706,6 +706,10 @@ export class BottleManager {
     this.cache = null;
   }
 
+  async flushPendingWrites(): Promise<void> {
+    await this.registryOperationQueue;
+  }
+
   private async buildBottleList(
     incomingBottles: BottleMetadataPayload[] = [],
     registry?: BottleRegistryState,
@@ -1286,7 +1290,10 @@ function merge_bottles(
       ...previous,
       ...bottle,
       apps: reorder_apps_by_preferred_ids(
-        merge_apps(previous.apps, bottle.apps),
+        // `bottle` is the authoritative registry/renderer record while
+        // `previous` is supplemental prefix-scan data. merge_apps preserves
+        // user-owned state such as launchOptions from its first argument.
+        merge_apps(bottle.apps, previous.apps),
         bottle.apps.map((app) => app.id),
       ),
     } : bottle;

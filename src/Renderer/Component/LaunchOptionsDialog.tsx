@@ -63,7 +63,11 @@ export interface LaunchOptionsDialogProps {
   initialAppId?: string;
   launcherOptionsManifest?: WineLauncherOptionsManifest;
   onClose: () => void;
-  onSave?: (bottleId: string, appId: string, launchOptions: BottleLaunchOptionsPayload) => void;
+  onSave?: (
+    bottleId: string,
+    appId: string,
+    launchOptions: BottleLaunchOptionsPayload,
+  ) => Promise<void> | void;
 }
 
 export function LaunchOptionsDialog({
@@ -90,6 +94,8 @@ export function LaunchOptionsDialog({
   const [activeSection, setActiveSection] = React.useState<LaunchOptionSectionId>("general");
   const [isUnsavedDialogOpen, setIsUnsavedDialogOpen] = React.useState(false);
   const [pendingAppId, setPendingAppId] = React.useState<string | null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string>();
   const runtimeProfile = React.useMemo(() => resolve_app_runtime_profile(selectedApp), [selectedApp]);
   const allowedOptionKeys = React.useMemo(
     () => new Set<RuntimeLaunchOptionKey>(launch_option_keys_for_app(selectedApp)),
@@ -129,6 +135,8 @@ export function LaunchOptionsDialog({
     setActiveSection("general");
     setIsUnsavedDialogOpen(false);
     setPendingAppId(null);
+    setIsSaving(false);
+    setSaveError(undefined);
   }, [open]);
 
   React.useEffect(() => {
@@ -253,8 +261,8 @@ export function LaunchOptionsDialog({
     onClose();
   }
 
-  function save_current_draft(): boolean {
-    if (!bottle || !selectedApp) {
+  async function save_current_draft(): Promise<boolean> {
+    if (!bottle || !selectedApp || isSaving) {
       return false;
     }
 
@@ -263,18 +271,28 @@ export function LaunchOptionsDialog({
       allowedOptionKeys,
     );
 
-    onSave?.(
-      bottle.id,
-      selectedApp.id,
-      nextDraft,
-    );
-    setDraft(nextDraft);
-    setSavedDraft(nextDraft);
-    return true;
+    setIsSaving(true);
+    setSaveError(undefined);
+
+    try {
+      await onSave?.(
+        bottle.id,
+        selectedApp.id,
+        nextDraft,
+      );
+      setDraft(nextDraft);
+      setSavedDraft(nextDraft);
+      return true;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function save() {
-    if (!save_current_draft()) {
+  async function save() {
+    if (!await save_current_draft()) {
       return;
     }
 
@@ -282,6 +300,10 @@ export function LaunchOptionsDialog({
   }
 
   function request_close() {
+    if (isSaving) {
+      return;
+    }
+
     setPendingAppId(null);
 
     if (hasUnsavedChanges) {
@@ -293,7 +315,7 @@ export function LaunchOptionsDialog({
   }
 
   function request_app_change(nextAppId: string) {
-    if (nextAppId === selectedAppId) {
+    if (nextAppId === selectedAppId || isSaving) {
       return;
     }
 
@@ -320,10 +342,13 @@ export function LaunchOptionsDialog({
     close_dialog();
   }
 
-  function save_and_navigate() {
-    if (save_current_draft()) {
+  async function save_and_navigate() {
+    if (await save_current_draft()) {
       finish_pending_navigation();
+      return;
     }
+
+    setIsUnsavedDialogOpen(false);
   }
 
   function normalize_dialog_launch_options(options?: BottleLaunchOptionsPayload): BottleLaunchOptionsPayload {
@@ -367,23 +392,29 @@ export function LaunchOptionsDialog({
         {
           label: t("common.actions.reset"),
           variant: "secondary",
-          disabled: !selectedApp,
+          disabled: !selectedApp || isSaving,
           onClick: reset_to_auto,
         },
         {
           label: t("common.actions.cancel"),
           variant: "secondary",
+          disabled: isSaving,
           onClick: request_close,
         },
         {
           label: t("common.actions.save"),
           variant: "primary",
-          disabled: !selectedApp || !environment_variables_are_valid(draft.environmentVariables),
+          disabled: isSaving || !selectedApp || !environment_variables_are_valid(draft.environmentVariables),
           autoFocus: true,
-          onClick: save,
+          onClick: () => void save(),
         },
       ]}
     >
+      {saveError ? (
+        <Text className="mb-3 select-text rounded-lg border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs leading-5 text-red-200">
+          {t("main.launchOptions.saveError", { error: saveError })}
+        </Text>
+      ) : null}
       {!bottle || bottle.apps.length === 0 ? (
         <Box className="rounded-lg border border-dashed border-white/10 px-4 py-6 text-center text-sm text-slate-500">
           {t("main.launchOptions.empty")}
@@ -580,7 +611,8 @@ export function LaunchOptionsDialog({
         setPendingAppId(null);
       }}
       onDiscard={finish_pending_navigation}
-      onSave={save_and_navigate}
+      onSave={() => void save_and_navigate()}
+      disabled={isSaving}
     />
     </>
   );

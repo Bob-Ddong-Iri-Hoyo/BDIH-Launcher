@@ -274,6 +274,7 @@
         "description": "调整 {{name}} 的启动预设和 Wine 选项。",
         "emptyDescription": "请选择此 Bottle 中的应用后再编辑启动选项。",
         "empty": "此 Bottle 中还没有已注册的应用。",
+        "saveError": "无法保存启动选项。{{error}}",
         "targetApp": "目标应用",
         "searchApps": "搜索应用",
         "preset": "预设",
