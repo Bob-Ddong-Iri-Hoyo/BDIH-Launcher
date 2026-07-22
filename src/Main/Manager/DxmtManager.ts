@@ -93,6 +93,7 @@ export class DxmtManager {
         status: "installed",
         progress: 100,
         message: `${request.versionId} is already downloaded.`,
+        path: targetPath,
       });
       this.cachedVersions = this.cachedVersions.map((version) =>
         version.id === request.versionId
@@ -121,6 +122,7 @@ export class DxmtManager {
         status: "installed",
         progress: 100,
         message: `${request.versionId} download completed.`,
+        path: targetPath,
       });
       this.cachedVersions = this.cachedVersions.map((version) =>
         version.id === request.versionId
@@ -170,6 +172,7 @@ export class DxmtManager {
               status: "installed",
               progress: 100,
               message: `${request.versionId} download completed.`,
+              path: targetPath,
             });
             this.cachedVersions = this.cachedVersions.map((version) =>
               version.id === request.versionId

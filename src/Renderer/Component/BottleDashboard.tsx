@@ -233,7 +233,11 @@ export function DashboardBreadcrumb({
 }
 
 function is_runtime_version_ready(version?: WineVersion | DxmtVersion | JadeiteVersion): boolean {
-  return Boolean(version?.path) || version?.status === "installed" || version?.status === "completed";
+  // A completed status without a resolved host path cannot be used to build a
+  // Bottle runtime request. Requiring the path prevents a transient download
+  // event from creating Bottle metadata that only contains a version id.
+  return Boolean(version?.path)
+    && (version?.status === "installed" || version?.status === "completed");
 }
 
 export function is_bottle_running(bottle: Bottle): boolean {
