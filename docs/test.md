@@ -218,20 +218,38 @@ flow below.
 5. Build Beta `1.1.0-beta.1`.
 6. Reopen the same fixed app in Finder. Do not run `install:test` again.
 7. Select the Beta channel in App information.
-8. Check for updates. When the confirmation dialog appears, click **Update**. The launcher now checks and closes running apps and Bottles while showing download and installation progress in a blocking dialog over the main view.
-9. Confirm that the app relaunches with the updated version. Use **Later** when verifying that dismissing the confirmation leaves the installed app unchanged.
+8. Confirm the Beta warning. The Stable app records its compiled data contract,
+   snapshots settings and `appmeta.json`, and creates a lazy recovery boundary
+   for each Prefix before Beta first mutates it.
+9. Check for updates. When the confirmation dialog appears, click **Update**. The launcher now checks and closes running apps and Bottles while showing download and installation progress in a blocking dialog over the main view.
+10. Confirm that the app relaunches with the updated version. Use **Later** when verifying that dismissing the confirmation leaves the installed app unchanged.
 
 ## Manual Beta to Stable downgrade test
 
-The Stable build and `latest-mac.yml` from the earlier build remain in the
-local feed.
+The earlier Stable build must remain below
+`tests/Release/builds/stable/<version>`. The updater pins the return feed to
+that directory instead of whatever build the current `latest-mac.yml` selects.
 
 1. Start the installed Beta test app.
 2. Select the Stable channel.
-3. Confirm that the UI identifies the lower Stable target as a downgrade.
-4. Approve the transition.
-5. Confirm that the app restarts as Stable `1.0.0`.
-6. Confirm that only the update-test settings and app-data directories changed.
+3. Confirm that compatible data changes channel immediately. To exercise the
+   guarded path, edit a fixture schema version upward or remove
+   `channel-transition.json`, then verify the compatibility dialog reports
+   **incompatible** or **unknown**.
+4. Confirm that the dialog states that Wine/DXMT choices and other user metadata
+   are preserved, and explicitly approve the guarded transition when shown.
+5. Check for updates and confirm that the offered target is the recorded Stable
+   return version (`1.0.0`), even when another Stable build is selected in the
+   normal local feed.
+6. Install the offered update and confirm that the app restarts as Stable
+   `1.0.0`.
+7. Confirm that the return point is completed only after Bottle metadata and the
+   main view open successfully.
+8. Confirm that only the update-test settings and app-data directories changed.
+
+The local server exposes normal selected feeds at `/` and immutable test build
+feeds at `/builds/<channel>/<version>/`. This makes exact Stable-return tests
+independent of the currently selected Stable/Beta feed.
 
 ## Manual Beta version switching
 
@@ -293,8 +311,9 @@ race the installer.
   downgrade policy, but not GitHub permissions or Release asset naming.
 - Perform one final smoke test in a separate GitHub test repository before
   enabling a production channel.
-- SnapshotManager rollback behavior requires separate fixture Prefixes and must
-  never use production Bottle data.
+- Snapshot and compatibility tests must use the isolated Prefixes below
+  `tests/Release/state/stable-beta`. Never point an update-test build at
+  production Bottle data.
 
 ## Cleanup
 

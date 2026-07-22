@@ -1,7 +1,7 @@
 # BDIH Launcher
 
 <p align="center">
-  <a href="../../README.md">English</a> |
+  <a href="../../README.MD">English</a> |
   <a href="./KR.MD">한국어</a> |
   <b>日本語</b> |
   <a href="./CN.MD">简体中文</a>
@@ -63,6 +63,19 @@
       </td>
     </tr>
     <tr>
+      <td align="center"><b>Staging</b></td>
+      <td align="left">
+        <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction/releases">
+          <img alt="最新のStaging版" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction?include_prereleases=true&amp;display_name=tag&amp;sort=date&amp;label=Staging&amp;color=7c3aed&amp;style=flat-square"/>
+        </a>
+      </td>
+      <td align="left">
+        <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction/releases">
+          <img alt="Staging版のダウンロード数" src="https://img.shields.io/github/downloads/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction/total?label=Downloads&amp;color=7c3aed&amp;style=flat-square"/>
+        </a>
+      </td>
+    </tr>
+    <tr>
       <td align="center"><b>Nightly</b></td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-nightly/releases">
@@ -87,8 +100,14 @@
 <h3 align="center">ビルド状況</h3>
 
 <p align="center">
-  <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/release.yml">
-    <img alt="リリースワークフローの状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/release.yml/badge.svg"/>
+  <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/promote-production-candidate.yml">
+    <img alt="Production候補承認の状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/promote-production-candidate.yml/badge.svg"/>
+  </a>
+  <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/publish-production-draft.yml">
+    <img alt="Production公開ワークフローの状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/publish-production-draft.yml/badge.svg"/>
+  </a>
+  <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/staging.yml">
+    <img alt="Stagingワークフローの状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/staging.yml/badge.svg"/>
   </a>
   <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/nightly.yml">
     <img alt="Nightlyワークフローの状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/nightly.yml/badge.svg"/>

@@ -8,18 +8,15 @@ on:
         required: true
         default: "main"
         type: string
-      version:
-        description: "Candidate version, e.g. 1.0.0 or 1.0.0-beta.1"
+      target_version:
+        description: "Production target, e.g. 1.0.0 or 1.0.0-beta.1"
         required: true
         type: string
-      channel:
-        description: "Update channel exposed by the staging app"
+      attempt:
+        description: "Candidate attempt number; 1 becomes rc.1 or staging.1"
         required: true
-        default: "beta"
-        type: choice
-        options:
-          - beta
-          - stable
+        default: 1
+        type: number
 
 concurrency:
   group: staging-testproduction
@@ -31,10 +28,19 @@ env:
 
 jobs:
   staging:
-    name: Stage ${{ inputs.version }} (${{ inputs.channel }})
+    name: Stage ${{ inputs.target_version }} attempt ${{ inputs.attempt }}
     runs-on: macos-latest
     permissions:
       contents: read
+    outputs:
+      version: ${{ steps.candidate.outputs.version }}
+      target_version: ${{ steps.candidate.outputs.target_version }}
+      attempt: ${{ steps.candidate.outputs.attempt }}
+      channel: ${{ steps.candidate.outputs.channel }}
+      promotable: ${{ steps.candidate.outputs.promotable }}
+      tag: ${{ steps.candidate.outputs.tag }}
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
+      source_run_url: ${{ steps.candidate.outputs.source_run_url }}
 
     steps:
       - name: Checkout candidate source
@@ -55,12 +61,40 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Validate candidate
+      - name: Resolve candidate
         id: candidate
         shell: bash
         env:
-          STAGING_VERSION: ${{ inputs.version }}
-          STAGING_CHANNEL: ${{ inputs.channel }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          STAGING_ATTEMPT: ${{ inputs.attempt }}
+        run: |
+          set -euo pipefail
+
+          node scripts/staging-promotion-policy.mjs resolve \
+            --target-version "$TARGET_VERSION" \
+            --attempt "$STAGING_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
+          source_sha="$(git rev-parse HEAD)"
+          source_short_sha="$(git rev-parse --short=8 HEAD)"
+          source_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          package_version="$(node -p "require('./package.json').version")"
+          promotable="$([[ "$package_version" == "$TARGET_VERSION" ]] && echo true || echo false)"
+          {
+            echo "source_sha=$source_sha"
+            echo "source_short_sha=$source_short_sha"
+            echo "source_run_url=$source_run_url"
+            echo "created_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "promotable=$promotable"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate candidate
+        shell: bash
+        env:
+          STAGING_VERSION: ${{ steps.candidate.outputs.version }}
+          TARGET_VERSION: ${{ steps.candidate.outputs.target_version }}
+          STAGING_ATTEMPT: ${{ steps.candidate.outputs.attempt }}
+          STAGING_TAG: ${{ steps.candidate.outputs.tag }}
           GH_TOKEN: ${{ secrets.STAGING_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
@@ -70,27 +104,15 @@ jobs:
             exit 1
           fi
 
-          if [[ ! "$STAGING_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Version must look like 1.0.0 or 1.0.0-beta.1. Got: $STAGING_VERSION"
-            exit 1
-          fi
-
           package_version="$(node -p "require('./package.json').version")"
           package_base="${package_version%%-*}"
-          candidate_base="${STAGING_VERSION%%-*}"
+          candidate_base="${TARGET_VERSION%%-*}"
 
           if [[ "$package_base" != "$candidate_base" ]]; then
             echo "::warning::Using synthetic staging version $STAGING_VERSION while package.json is $package_version. This is allowed only because TestProduction is isolated from Production."
           fi
-
-          if [[ "$STAGING_CHANNEL" == "stable" && "$STAGING_VERSION" == *-* ]]; then
-            echo "::error::Stable staging versions cannot contain a prerelease suffix."
-            exit 1
-          fi
-
-          if [[ "$STAGING_CHANNEL" == "beta" && ! "$STAGING_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9A-Za-z.-]+$ ]]; then
-            echo "::error::Beta staging versions must look like 1.0.0-beta.1."
-            exit 1
+          if [[ "$package_version" != "$TARGET_VERSION" ]]; then
+            echo "::warning::This candidate is synthetic and will not queue a Production approval. Commit package.json version $TARGET_VERSION before creating a promotable candidate."
           fi
 
           visibility="$(gh api "repos/$TARGET_REPOSITORY" --jq '.visibility')"
@@ -99,24 +121,20 @@ jobs:
             exit 1
           fi
 
-          staging_tag="v${STAGING_VERSION}+staging.${STAGING_CHANNEL}"
-          if gh release view "$staging_tag" --repo "$TARGET_REPOSITORY" >/dev/null 2>&1 \
-            || gh api "repos/$TARGET_REPOSITORY/git/ref/tags/$staging_tag" >/dev/null 2>&1; then
-            echo "::error::Staging release or tag $staging_tag already exists. Tags are immutable; choose the next candidate version."
+          gh release list \
+            --repo "$TARGET_REPOSITORY" \
+            --limit 100 \
+            --json tagName,isDraft > "$RUNNER_TEMP/staging-releases.json"
+          node scripts/staging-promotion-policy.mjs assert-next-attempt \
+            --releases "$RUNNER_TEMP/staging-releases.json" \
+            --target-version "$TARGET_VERSION" \
+            --attempt "$STAGING_ATTEMPT"
+
+          if gh release view "$STAGING_TAG" --repo "$TARGET_REPOSITORY" >/dev/null 2>&1 \
+            || gh api "repos/$TARGET_REPOSITORY/git/ref/tags/$STAGING_TAG" >/dev/null 2>&1; then
+            echo "::error::Staging release or tag $STAGING_TAG already exists. Tags are immutable; choose the next candidate version."
             exit 1
           fi
-
-          source_sha="$(git rev-parse HEAD)"
-          source_short_sha="$(git rev-parse --short=8 HEAD)"
-          channel_label="$([[ "$STAGING_CHANNEL" == "stable" ]] && echo Stable || echo Beta)"
-
-          {
-            echo "version=$STAGING_VERSION"
-            echo "tag=$staging_tag"
-            echo "source_sha=$source_sha"
-            echo "source_short_sha=$source_short_sha"
-            echo "channel_label=$channel_label"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -147,7 +165,7 @@ jobs:
         env:
           PUBLISH_REPOSITORY: ${{ env.TARGET_REPOSITORY }}
           BDIH_STAGING_VERSION: ${{ steps.candidate.outputs.version }}
-          BDIH_STAGING_CHANNEL: ${{ inputs.channel }}
+          BDIH_STAGING_CHANNEL: ${{ steps.candidate.outputs.channel }}
           BDIH_STAGING_SOURCE_COMMIT: ${{ steps.candidate.outputs.source_sha }}
           BDIH_DISCORD_CLIENT_ID: ""
         run: |
@@ -162,7 +180,7 @@ jobs:
       - name: Verify staging package
         env:
           MACOS_SIGNING_IDENTITY: BDIH Launcher Update Signing
-          STAGING_CHANNEL: ${{ inputs.channel }}
+          STAGING_CHANNEL: ${{ steps.candidate.outputs.channel }}
         run: |
           set -euo pipefail
 
@@ -211,8 +229,13 @@ jobs:
           GH_TOKEN: ${{ secrets.STAGING_RELEASE_TOKEN }}
           STAGING_TAG: ${{ steps.candidate.outputs.tag }}
           STAGING_VERSION: ${{ steps.candidate.outputs.version }}
-          STAGING_CHANNEL: ${{ inputs.channel }}
+          STAGING_TARGET_VERSION: ${{ steps.candidate.outputs.target_version }}
+          STAGING_ATTEMPT: ${{ steps.candidate.outputs.attempt }}
+          STAGING_CHANNEL: ${{ steps.candidate.outputs.channel }}
           SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          SOURCE_RUN_URL: ${{ steps.candidate.outputs.source_run_url }}
+          CREATED_AT: ${{ steps.candidate.outputs.created_at }}
         run: |
           set -euo pipefail
 
@@ -237,11 +260,17 @@ jobs:
           const fs = require("fs");
 
           const metadata = {
+            schemaVersion: 1,
             version: process.env.STAGING_VERSION,
+            targetVersion: process.env.STAGING_TARGET_VERSION,
+            attempt: Number(process.env.STAGING_ATTEMPT),
             tag: process.env.STAGING_TAG,
             channel: process.env.STAGING_CHANNEL,
             sourceRepository: process.env.GITHUB_REPOSITORY,
             sourceCommit: process.env.SOURCE_SHA,
+            sourceRunId: process.env.SOURCE_RUN_ID,
+            sourceRunUrl: process.env.SOURCE_RUN_URL,
+            createdAt: process.env.CREATED_AT,
           };
 
           fs.writeFileSync("candidate-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
@@ -269,10 +298,15 @@ jobs:
           GH_TOKEN: ${{ secrets.STAGING_RELEASE_TOKEN }}
           STAGING_TAG: ${{ steps.candidate.outputs.tag }}
           STAGING_VERSION: ${{ steps.candidate.outputs.version }}
-          STAGING_CHANNEL: ${{ inputs.channel }}
+          STAGING_TARGET_VERSION: ${{ steps.candidate.outputs.target_version }}
+          STAGING_ATTEMPT: ${{ steps.candidate.outputs.attempt }}
+          STAGING_CHANNEL: ${{ steps.candidate.outputs.channel }}
           STAGING_CHANNEL_LABEL: ${{ steps.candidate.outputs.channel_label }}
           SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
           SOURCE_SHORT_SHA: ${{ steps.candidate.outputs.source_short_sha }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          SOURCE_RUN_URL: ${{ steps.candidate.outputs.source_run_url }}
+          CREATED_AT: ${{ steps.candidate.outputs.created_at }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -281,11 +315,17 @@ jobs:
           const fs = require("fs");
 
           const metadata = {
+            schemaVersion: 1,
             version: process.env.STAGING_VERSION,
+            targetVersion: process.env.STAGING_TARGET_VERSION,
+            attempt: Number(process.env.STAGING_ATTEMPT),
             tag: process.env.STAGING_TAG,
             channel: process.env.STAGING_CHANNEL,
             sourceRepository: process.env.GITHUB_REPOSITORY,
             sourceCommit: process.env.SOURCE_SHA,
+            sourceRunId: process.env.SOURCE_RUN_ID,
+            sourceRunUrl: process.env.SOURCE_RUN_URL,
+            createdAt: process.env.CREATED_AT,
           };
 
           fs.writeFileSync("release/staging-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
@@ -294,6 +334,8 @@ jobs:
             "",
             `Source repository: ${metadata.sourceRepository}`,
             `Source commit: ${metadata.sourceCommit}`,
+            `Production target: ${metadata.targetVersion}`,
+            `Attempt: ${metadata.attempt}`,
             `Version: ${metadata.version}`,
             "",
           ].join("\n"));
@@ -317,6 +359,52 @@ jobs:
             --notes-file release-notes.md \
             "${release_args[@]}"
 
+          publish_args=(--draft=false)
+          if [[ "$STAGING_CHANNEL" == "stable" ]]; then
+            publish_args+=(--latest)
+          fi
           gh release edit "$STAGING_TAG" \
             --repo "$TARGET_REPOSITORY" \
-            --draft=false
+            "${publish_args[@]}"
+
+  queue_production_promotion:
+    name: Queue Production approval for ${{ needs.staging.outputs.version }}
+    needs: staging
+    if: ${{ needs.staging.outputs.promotable == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Queue the Stable candidate for approval
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_TAG: ${{ needs.staging.outputs.tag }}
+          CANDIDATE_VERSION: ${{ needs.staging.outputs.version }}
+          TARGET_VERSION: ${{ needs.staging.outputs.target_version }}
+          CANDIDATE_CHANNEL: ${{ needs.staging.outputs.channel }}
+          CANDIDATE_ATTEMPT: ${{ needs.staging.outputs.attempt }}
+          SOURCE_SHA: ${{ needs.staging.outputs.source_sha }}
+          SOURCE_RUN_URL: ${{ needs.staging.outputs.source_run_url }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("fs");
+          fs.writeFileSync("dispatch.json", `${JSON.stringify({
+            event_type: "production_candidate_created",
+            client_payload: {
+              candidate_tag: process.env.CANDIDATE_TAG,
+              candidate_version: process.env.CANDIDATE_VERSION,
+              target_version: process.env.TARGET_VERSION,
+              channel: process.env.CANDIDATE_CHANNEL,
+              attempt: Number(process.env.CANDIDATE_ATTEMPT),
+              source_commit: process.env.SOURCE_SHA,
+              source_run_url: process.env.SOURCE_RUN_URL,
+            },
+          })}\n`);
+          NODE
+
+          gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/dispatches" \
+            --input dispatch.json

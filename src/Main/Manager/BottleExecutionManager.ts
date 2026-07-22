@@ -83,6 +83,7 @@ import {
   type LauncherRuntimeBindingDescriptor,
   type LauncherSupervisorDescriptor,
 } from "../Execution/LauncherInstallPlan";
+import { snapshotManager } from "./SnapshotManager";
 
 const LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS = 10 * 60 * 1000;
 const LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS = 1000;
@@ -163,6 +164,10 @@ export class BottleExecutionManager {
     const bottlePath = expand_user_home_path(request.bottlePath);
 
     try {
+      await snapshotManager.ensurePrefixSnapshot({
+        bottleId: request.bottleId,
+        prefixPath: bottlePath,
+      });
       resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wineboot");
       const shouldPrepareDxmt = should_prepare_dxmt_runtime(request);
       mkdirSync(bottlePath, { recursive: true });
@@ -276,6 +281,12 @@ export class BottleExecutionManager {
     const bottlePath = expand_user_home_path(request.bottlePath);
 
     try {
+      if (!request.validateOnly) {
+        await snapshotManager.ensurePrefixSnapshot({
+          bottleId: request.bottleId,
+          prefixPath: bottlePath,
+        });
+      }
       const wineCommand = resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wine64");
       const shouldPrepareDxmt = should_prepare_dxmt_runtime(request);
 
@@ -381,6 +392,10 @@ export class BottleExecutionManager {
     sender?: WebContents,
   ): Promise<BottleTaskResultPayload> {
     try {
+      await snapshotManager.ensurePrefixSnapshot({
+        bottleId: request.bottleId,
+        prefixPath: expand_user_home_path(request.bottlePath),
+      });
       const strategy = resolve_launcher_install_strategy(request);
       const availability = await this.checkStrategyAvailability(
         request,
@@ -705,6 +720,10 @@ export class BottleExecutionManager {
     let wineCommand: string;
 
     try {
+      await snapshotManager.ensurePrefixSnapshot({
+        bottleId: request.bottleId,
+        prefixPath: bottlePath,
+      });
       wineCommand = resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wine64");
 
       if (should_validate_dxmt_for_executable(request)) {
@@ -2739,11 +2758,15 @@ export class BottleExecutionManager {
   ): Promise<void> {
     const resolvedPreference = preference ?? await preferenceManager.getPreference();
     const bottleList = await bottleManager.getBottleList();
-    const prefixPaths = [...new Set(
-      bottleList.bottles.flatMap((bottle) =>
-        find_existing_bottle_prefix_paths(expand_user_home_path(bottle.path)),
-      ),
-    )];
+    const prefixContexts = new Map<string, string>();
+
+    for (const bottle of bottleList.bottles) {
+      for (const prefixPath of find_existing_bottle_prefix_paths(expand_user_home_path(bottle.path))) {
+        prefixContexts.set(prefix_session_key(prefixPath), bottle.id);
+      }
+    }
+
+    const prefixPaths = [...prefixContexts.keys()];
     const activePrefixPaths = new Set([
       ...this.activeWinePrefixes.keys(),
       ...[...this.prefixSessionsByPrefixPath.values()]
@@ -2759,6 +2782,10 @@ export class BottleExecutionManager {
         continue;
       }
 
+      await snapshotManager.ensurePrefixSnapshot({
+        bottleId: prefixContexts.get(prefix_session_key(prefixPath)) ?? path.basename(prefixPath),
+        prefixPath,
+      });
       ensure_shared_games_drive(prefixPath, resolvedPreference, this.logger);
       updatedPrefixPaths.push(prefixPath);
     }

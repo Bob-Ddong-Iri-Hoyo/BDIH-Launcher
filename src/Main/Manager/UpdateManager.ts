@@ -8,10 +8,16 @@ import {
   IPC_CHANNELS,
   LauncherUpdateChannel,
 } from "../../Common/Types/IPC";
+import { BDIH_GITHUB_URL } from "../../Common/Constant/RuntimeSources";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
+import { snapshotManager } from "./SnapshotManager";
 import { send_to_web_contents } from "../Util/SafeWebContents";
-import { is_nightly_launcher_build, is_update_test_build } from "../Environment/AppPaths";
+import {
+  is_nightly_launcher_build,
+  is_staging_launcher_build,
+  is_update_test_build,
+} from "../Environment/AppPaths";
 
 interface UpdateInfoLike {
   version?: string;
@@ -38,6 +44,7 @@ export class UpdateManager {
   private checkPromise: Promise<void> | null = null;
   private window: BrowserWindow | null = null;
   private activeChannel: LauncherUpdateChannel = "stable";
+  private activePinnedStableVersion: string | undefined;
   private lastStatus: AppUpdateStatusPayload = { status: "idle" };
   private readonly logger = logManager.createLogger("UpdateManager");
 
@@ -264,6 +271,22 @@ export class UpdateManager {
     return this.withRuntimeInfo(this.lastStatus);
   }
 
+  async reconfigureAfterChannelChange(window?: BrowserWindow): Promise<void> {
+    this.init(window);
+
+    // Let a check that belongs to the previous channel finish before replacing
+    // its provider. Reconfiguring afterwards also clears any result emitted by
+    // that stale check, so it cannot be offered under the newly selected
+    // channel.
+    const inFlightCheck = this.checkPromise;
+
+    if (inFlightCheck) {
+      await inFlightCheck;
+    }
+
+    await this.configureUpdateChannel();
+  }
+
   private canCheckForUpdates(): boolean {
     if (app.isPackaged || this.options.checkInDevelopment) {
       return true;
@@ -379,16 +402,38 @@ export class UpdateManager {
     const channel = is_nightly_launcher_build()
       ? "nightly"
       : preference.updateChannel === "beta" ? "beta" : "stable";
+    const returnPoint = channel === "stable"
+      ? await snapshotManager.getActiveReturnPoint()
+      : undefined;
+    const pinnedStableVersion = returnPoint?.returnRequestedAt
+      ? returnPoint.stableVersion
+      : undefined;
 
-    if (channel !== this.activeChannel) {
+    if (
+      channel !== this.activeChannel
+      || pinnedStableVersion !== this.activePinnedStableVersion
+    ) {
       // An available result belongs to the channel that produced it. Do not
-      // offer a stale package after the user switches Stable/Beta channels.
+      // offer a stale package after the user switches channels or selects an
+      // exact Stable return target.
       this.lastStatus = { status: "idle" };
     }
 
     this.activeChannel = channel;
     autoUpdater.channel = channel === "stable" ? "latest" : channel;
     autoUpdater.allowPrerelease = channel !== "stable";
+    autoUpdater.allowDowngrade = channel === "stable"
+      && (Boolean(pinnedStableVersion) || is_beta_app_version(app.getVersion()));
+
+    if (pinnedStableVersion !== this.activePinnedStableVersion) {
+      if (pinnedStableVersion) {
+        autoUpdater.setFeedURL(pinned_stable_feed_url(pinnedStableVersion));
+      } else if (this.activePinnedStableVersion) {
+        restore_default_feed(channel);
+      }
+
+      this.activePinnedStableVersion = pinnedStableVersion;
+    }
   }
 
   private withRuntimeInfo(payload: AppUpdateStatusPayload): AppUpdateStatusPayload {
@@ -403,6 +448,47 @@ export class UpdateManager {
   private describeError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
   }
+}
+
+function pinned_stable_feed_url(version: string): string {
+  if (is_update_test_build()) {
+    const configuredPort = process.env.BDIH_UPDATE_TEST_PORT?.trim();
+    const port = configuredPort && /^\d+$/.test(configuredPort) ? configuredPort : "45678";
+
+    return `http://127.0.0.1:${port}/builds/stable/${encodeURIComponent(version)}/`;
+  }
+
+  const repositoryUrl = is_staging_launcher_build()
+    ? "https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction"
+    : BDIH_GITHUB_URL;
+  const tag = is_staging_launcher_build()
+    ? `v${version}+staging.stable`
+    : `v${version}`;
+
+  return `${repositoryUrl}/releases/download/${encodeURIComponent(tag)}/`;
+}
+
+function is_beta_app_version(version: string): boolean {
+  return /^\d+\.\d+\.\d+-beta\.[0-9A-Za-z.-]+(?:\+[0-9A-Za-z.-]+)?$/.test(version.trim());
+}
+
+function restore_default_feed(channel: LauncherUpdateChannel): void {
+  if (is_update_test_build()) {
+    const configuredPort = process.env.BDIH_UPDATE_TEST_PORT?.trim();
+    const port = configuredPort && /^\d+$/.test(configuredPort) ? configuredPort : "45678";
+
+    autoUpdater.setFeedURL(`http://127.0.0.1:${port}/`);
+    return;
+  }
+
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "Bob-Ddong-Iri-Hoyo",
+    repo: is_staging_launcher_build()
+      ? "BDIH-Launcher-TestProduction"
+      : "BDIH-Launcher",
+    channel: channel === "stable" ? "latest" : channel,
+  });
 }
 
 export const updateManager = new UpdateManager();

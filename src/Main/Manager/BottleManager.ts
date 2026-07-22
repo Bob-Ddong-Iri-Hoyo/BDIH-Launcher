@@ -17,6 +17,7 @@ import {
   InstalledBottleAppPayload,
 } from "../../Common/Types/IPC";
 import { HOYOPLAY_ICON_URL, STEAM_GAME_LAUNCH_ARGUMENT, STEAM_ICON_URL } from "../../Common/Constant/RuntimeSources";
+import { BOTTLE_REGISTRY_SCHEMA_VERSION } from "../../Common/Constant/DataSchema";
 import { assign_missing_bottle_icon_ids, is_bottle_icon_id } from "../../Common/Util/BottleIcon";
 import {
   bottle_name_to_slug,
@@ -42,8 +43,9 @@ import { logManager } from "./LogManager";
 import { iconManager } from "./IconManager";
 import { get_launcher_runtime_profile } from "../Data/GameProfile";
 import { find_runtime_profile_executable } from "../Util/RuntimeExecutableDiscovery";
+import { snapshotManager } from "./SnapshotManager";
 
-const REGISTRY_VERSION = 1;
+const REGISTRY_VERSION = BOTTLE_REGISTRY_SCHEMA_VERSION;
 const HOYO_EXE_SCAN_MAX_DEPTH = 8;
 const HOYO_EXE_SCAN_MAX_ENTRIES = 5000;
 const HOYO_EXCLUDED_EXE_PATTERN = /(crash|crashreport|unitycrashhandler|browser|helper|setup|install|uninstall|update|launcher|plugin|cef|zfgamebrowser|iexplore|explorer|winebrowser|notepad|wordpad|regedit|rundll32|cmd|conhost|msiexec|control)/i;
@@ -149,8 +151,21 @@ export class BottleManager {
     // scanned/legacy bottles during normal app updates. Use deleteBottle or
     // clearAllBottleData when data should actually disappear.
     const registry = await this.loadRegistryState();
+    const normalizedIncomingBottles = normalize_bottle_array(payload?.bottles);
+
+    for (const incomingBottle of normalizedIncomingBottles) {
+      const previousBottle = registry.bottles.find((bottle) => bottle.id === incomingBottle.id);
+
+      if (previousBottle && previousBottle.name.trim() !== incomingBottle.name.trim()) {
+        await snapshotManager.ensurePrefixSnapshot({
+          bottleId: previousBottle.id,
+          prefixPath: previousBottle.path,
+        });
+      }
+    }
+
     const incomingBottles = await rename_incoming_bottle_directories(
-      normalize_bottle_array(payload?.bottles),
+      normalizedIncomingBottles,
       registry.bottles,
     );
     const deletedBottleKeys = deleted_keys_without_incoming_bottles(
@@ -425,6 +440,10 @@ export class BottleManager {
     }
 
     try {
+      await snapshotManager.ensurePrefixSnapshot({
+        bottleId: payload.bottleId,
+        prefixPath: bottlePath,
+      });
       await rm(bottlePath, { recursive: true, force: true });
 
       const registry = await this.loadRegistryState();
@@ -489,6 +508,20 @@ export class BottleManager {
     const shouldHideFromDiscovery = mode === "list" || !app;
 
     if (mode === "files" && app) {
+      try {
+        await snapshotManager.ensurePrefixSnapshot({
+          bottleId: bottle.id,
+          prefixPath: bottlePath,
+        });
+      } catch (error) {
+        return {
+          ok: false,
+          deletedPaths,
+          skippedPaths,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+
       const preference = await preferenceManager.getPreference();
       const deletePlan = await resolve_bottle_app_delete_plan(bottle, app, preference.gameInstallPath);
 
@@ -569,6 +602,10 @@ export class BottleManager {
     }
 
     try {
+      await snapshotManager.ensurePrefixSnapshot({
+        bottleId: bottle.id,
+        prefixPath,
+      });
       if (existsSync(prefixPath)) {
         await rm(prefixPath, { recursive: true, force: true });
       }
@@ -643,6 +680,26 @@ export class BottleManager {
 
     this.cache = [];
     await this.writeRegistryBottles([], deletedBottleKeys);
+  }
+
+  async snapshotAllBottlePrefixesForRecovery(): Promise<void> {
+    const registry = await this.loadRegistryState();
+    const knownBottles = merge_bottles(registry.bottles, this.cache ?? []);
+
+    for (const bottle of knownBottles) {
+      const prefixPaths = new Set([
+        bottle.path,
+        ...(bottle.prefixes ?? []).map((prefix) => prefix.path),
+        ...bottle.apps.map((app) => app.prefixPath).filter((prefixPath): prefixPath is string => Boolean(prefixPath)),
+      ]);
+
+      for (const prefixPath of prefixPaths) {
+        await snapshotManager.ensurePrefixSnapshot({
+          bottleId: bottle.id,
+          prefixPath,
+        });
+      }
+    }
   }
 
   clearCache(): void {

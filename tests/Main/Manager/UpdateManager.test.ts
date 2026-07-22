@@ -11,7 +11,9 @@ interface MockAutoUpdater extends EventEmitter {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   allowPrerelease: boolean;
+  allowDowngrade: boolean;
   channel: string;
+  setFeedURL: ReturnType<typeof jest.fn>;
   checkForUpdates: AsyncMock;
   downloadUpdate: AsyncMock;
   quitAndInstall: ReturnType<typeof jest.fn>;
@@ -50,7 +52,9 @@ function create_mock_auto_updater(): MockAutoUpdater {
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true;
   updater.allowPrerelease = false;
+  updater.allowDowngrade = false;
   updater.channel = "latest";
+  updater.setFeedURL = jest.fn();
   updater.checkForUpdates = jest.fn(async () => undefined);
   updater.downloadUpdate = jest.fn(async () => undefined);
   updater.quitAndInstall = jest.fn();
@@ -58,7 +62,17 @@ function create_mock_auto_updater(): MockAutoUpdater {
   return updater;
 }
 
-function create_harness(preferenceChannel: "stable" | "beta" = "stable"): UpdateManagerHarness {
+function create_harness(
+  preferenceChannel: "stable" | "beta" = "stable",
+  options: {
+    appVersion?: string;
+    isStaging?: boolean;
+    returnPoint?: {
+      stableVersion: string;
+      returnRequestedAt: string;
+    };
+  } = {},
+): UpdateManagerHarness {
   const updater = create_mock_auto_updater();
   const sendToWebContents = jest.fn();
   const logger = {
@@ -71,7 +85,7 @@ function create_harness(preferenceChannel: "stable" | "beta" = "stable"): Update
   jest.doMock("electron", () => ({
     app: {
       isPackaged: true,
-      getVersion: jest.fn(() => "1.2.0"),
+      getVersion: jest.fn(() => options.appVersion ?? "1.2.0"),
     },
   }));
   jest.doMock("electron-updater", () => ({ autoUpdater: updater }));
@@ -82,7 +96,13 @@ function create_harness(preferenceChannel: "stable" | "beta" = "stable"): Update
   }));
   jest.doMock("../../../src/Main/Environment/AppPaths", () => ({
     is_nightly_launcher_build: jest.fn(() => false),
+    is_staging_launcher_build: jest.fn(() => options.isStaging ?? false),
     is_update_test_build: jest.fn(() => false),
+  }));
+  jest.doMock("../../../src/Main/Manager/SnapshotManager", () => ({
+    snapshotManager: {
+      getActiveReturnPoint: jest.fn(async () => options.returnPoint),
+    },
   }));
   jest.doMock("../../../src/Main/Manager/LogManager", () => ({
     logManager: {
@@ -134,6 +154,72 @@ describe("UpdateManager", () => {
     expect(updater.allowPrerelease).toBe(true);
     expect(status.channel).toBe("beta");
     expect(status.channelLocked).toBe(false);
+  });
+
+  it("keeps a Staging RC on the Stable feed without permitting an accidental downgrade", async () => {
+    const { manager, updater } = create_harness("stable", {
+      appVersion: "1.0.0-rc.1",
+      isStaging: true,
+    });
+
+    await manager.getStatus();
+
+    expect(updater.channel).toBe("latest");
+    expect(updater.allowPrerelease).toBe(false);
+    expect(updater.allowDowngrade).toBe(false);
+  });
+
+  it("pins a Stable return to the version recorded before entering Beta", async () => {
+    const { manager, updater } = create_harness("stable", {
+      appVersion: "1.1.0-beta.2",
+      returnPoint: {
+        stableVersion: "1.0.0",
+        returnRequestedAt: "2026-07-22T00:00:00.000Z",
+      },
+    });
+
+    await manager.getStatus();
+
+    expect(updater.channel).toBe("latest");
+    expect(updater.allowPrerelease).toBe(false);
+    expect(updater.allowDowngrade).toBe(true);
+    expect(updater.setFeedURL).toHaveBeenCalledWith(
+      "https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/releases/download/v1.0.0/",
+    );
+  });
+
+  it("pins a Staging return to the matching immutable Stable candidate tag", async () => {
+    const { manager, updater } = create_harness("stable", {
+      appVersion: "1.1.0-beta.2",
+      isStaging: true,
+      returnPoint: {
+        stableVersion: "1.0.0",
+        returnRequestedAt: "2026-07-22T00:00:00.000Z",
+      },
+    });
+
+    await manager.getStatus();
+
+    expect(updater.setFeedURL).toHaveBeenCalledWith(
+      "https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction/releases/download/v1.0.0%2Bstaging.stable/",
+    );
+  });
+
+  it("pins a Staging return to an immutable RC candidate tag", async () => {
+    const { manager, updater } = create_harness("stable", {
+      appVersion: "1.0.0-beta.1.staging.2",
+      isStaging: true,
+      returnPoint: {
+        stableVersion: "1.0.0-rc.2",
+        returnRequestedAt: "2026-07-22T00:00:00.000Z",
+      },
+    });
+
+    await manager.getStatus();
+
+    expect(updater.setFeedURL).toHaveBeenCalledWith(
+      "https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction/releases/download/v1.0.0-rc.2%2Bstaging.stable/",
+    );
   });
 
   it("automatically installs an update discovered by the startup check", async () => {

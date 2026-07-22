@@ -1,4 +1,5 @@
 import type { WineLauncherOptionsManifest } from "./Wine";
+import type { ChannelTransitionRequest } from "./Compatibility";
 import type {
   ExecutionAvailabilityIssue,
   ExecutionAvailabilityStatus,
@@ -144,6 +145,7 @@ export const LAUNCHER_WINDOW_PRESET_SIZES = {
 } as const;
 
 export interface LauncherPreferencePayload {
+  schemaVersion: number;
   language: string;
   accentColor: string;
   dataRootPath: string;
@@ -626,6 +628,7 @@ export interface AppChannelSchema {
   readonly UPDATE_INSTALL_PROGRESS: IpcChannelUnit<AppUpdateInstallProgressPayload>;
   readonly GET_PREFERENCE: IpcChannelUnit<void>;
   readonly UPDATE_PREFERENCE: IpcChannelUnit<LauncherPreferencePatch>;
+  readonly CHANGE_UPDATE_CHANNEL: IpcChannelUnit<ChannelTransitionRequest>;
   readonly SELECT_DIRECTORY: IpcChannelUnit<SelectDirectoryPayload>;
   readonly SELECT_FILE: IpcChannelUnit<SelectFilePayload>;
   readonly SUGGEST_PATHS: IpcChannelUnit<PathSuggestionPayload>;
@@ -975,6 +978,12 @@ export const APP = {
     direction: "RENDERER_TO_MAIN",
     method: "invoke",
     payload: {} as LauncherPreferencePatch,
+  },
+  CHANGE_UPDATE_CHANNEL: {
+    channelName: "app:change-update-channel",
+    direction: "RENDERER_TO_MAIN",
+    method: "invoke",
+    payload: {} as ChannelTransitionRequest,
   },
   SELECT_DIRECTORY: {
     channelName: "app:select-directory",

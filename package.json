@@ -41,6 +41,7 @@
     "screenshot": "pnpm build-storybook && node scripts/capture-storybook-screenshot.mjs",
     "test:jest": "jest",
     "test:update-build-script": "node --test tests/scripts/build-update-test.test.mjs",
+    "test:staging-promotion-policy": "node --test tests/scripts/staging-promotion-policy.test.mjs",
     "test:signing-script": "node --test tests/scripts/create-p12.test.mjs",
     "test:jest:watch": "jest --watch"
   },

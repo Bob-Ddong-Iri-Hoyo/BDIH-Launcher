@@ -4,7 +4,8 @@ import http from "node:http";
 import path from "node:path";
 import process from "node:process";
 
-const root = path.resolve(process.cwd(), "tests", "Release", "feed");
+const releaseRoot = path.resolve(process.cwd(), "tests", "Release");
+const feedRoot = path.join(releaseRoot, "feed");
 const portArgumentIndex = process.argv.indexOf("--port");
 const port = Number(portArgumentIndex >= 0
   ? process.argv[portArgumentIndex + 1]
@@ -30,11 +31,13 @@ const server = http.createServer(async (request, response) => {
   try {
     const requestPath = decodeURIComponent(new URL(request.url || "/", `http://127.0.0.1:${port}`).pathname);
     if (requestPath === "/") {
-      const files = await readdir(root);
+      const files = await readdir(feedRoot);
       send(response, 200, `${JSON.stringify({ files }, null, 2)}\n`, "application/json; charset=utf-8");
       return;
     }
 
+    const servesPinnedBuild = requestPath.startsWith("/builds/");
+    const root = servesPinnedBuild ? releaseRoot : feedRoot;
     const targetPath = path.resolve(root, `.${requestPath}`);
     const relativePath = path.relative(root, targetPath);
     if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
@@ -64,5 +67,6 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(port, "127.0.0.1", () => {
   process.stdout.write(`BDIH update test feed: http://127.0.0.1:${port}/\n`);
-  process.stdout.write(`Serving: ${root}\n`);
+  process.stdout.write(`Serving current feeds: ${feedRoot}\n`);
+  process.stdout.write(`Serving pinned builds: ${path.join(releaseRoot, "builds")}\n`);
 });

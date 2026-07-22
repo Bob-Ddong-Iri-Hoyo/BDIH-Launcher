@@ -669,9 +669,37 @@
           "nightly": { "label": "Nightly", "description": "Receive the newest experimental builds." }
         },
         "channelWarningTitle": "Switch to the {{channel}} channel?",
-        "channelWarningDescription": "Preview builds may be unstable, and returning directly to Stable may not be possible.",
-        "channelWarningBody": "New builds may change settings or data formats. Back up important Bottle data before switching channels.",
+        "channelWarningDescription": "Preview builds may be unstable, so a Stable return point and data contract will be prepared first.",
+        "channelWarningBody": "Settings and the Bottle registry are saved now. Each Prefix is preserved for recovery immediately before Beta first changes it.",
         "channelWarningConfirm": "Switch channel",
+        "channelTransition": {
+          "title": "Stable compatibility needs confirmation",
+          "status": {
+            "compatible": "The current data is compatible with the previous Stable data contract.",
+            "needs-transform": "Some data must be transformed before Stable can read it.",
+            "incompatible": "The current data format is outside the range supported by the previous Stable version.",
+            "unknown": "The launcher could not determine automatically whether the previous Stable version can safely read the current data."
+          },
+          "returnPoint": "Reference Stable version: v{{version}}",
+          "preserveUserSettings": "User changes such as selected Wine and DXMT versions, Bottle names, and app settings are preserved during the normal transition.",
+          "snapshotNotice": "Recovery snapshots never overwrite user data automatically. Continuing changes the update channel to Stable; the snapshot remains emergency recovery material only.",
+          "confirm": "Keep settings and switch to Stable",
+          "errorTitle": "Could not change the update channel",
+          "unknownError": "The channel transition result is unavailable.",
+          "resources": {
+            "settings": "Launcher settings",
+            "bottleRegistry": "Bottle registry",
+            "bottleMetadata": "Bottle metadata",
+            "executionDescriptor": "Execution descriptor",
+            "returnPoint": "Stable return point"
+          },
+          "issues": {
+            "schemaTooNew": "{{resource}} format v{{current}} is newer than Stable's readable maximum v{{maximum}}.",
+            "schemaTooOld": "{{resource}} format v{{current}} must be transformed to Stable's minimum v{{minimum}}.",
+            "invalidMetadata": "{{resource}} could not be read or validated.",
+            "missingReturnPoint": "No previous Stable return point was recorded. Only a transition to the latest Stable can be attempted."
+          }
+        },
         "runningGuard": {
           "title": "Quit running apps and Bottles?",
           "description": "Apps and Bottle sessions launched by BDIH Launcher must be stopped before changing the update channel.",

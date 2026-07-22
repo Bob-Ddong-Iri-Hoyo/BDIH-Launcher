@@ -33,6 +33,8 @@ import { youtubeManager, YouTubeManager } from "./YouTubeManager";
 import { rosettaManager, RosettaManager } from "./RosettaManager";
 import { processManager } from "./ProcessManager";
 import { send_to_web_contents } from "../Util/SafeWebContents";
+import { channelTransitionManager, ChannelTransitionManager } from "./ChannelTransitionManager";
+import type { ChannelTransitionRequest, ChannelTransitionResult } from "../../Common/Types/Compatibility";
 
 /**
  * Owns every Electron IPC boundary used by the launcher.
@@ -58,6 +60,7 @@ export class IPCManager {
     private readonly preferences: PreferenceManager,
     private readonly youtube: YouTubeManager,
     private readonly rosettas: RosettaManager,
+    private readonly channelTransitions: ChannelTransitionManager,
   ) {}
 
   init(): void {
@@ -414,10 +417,55 @@ export class IPCManager {
       return this.preferences.getPreference();
     });
 
+    ipcMain.removeHandler(IPC_CHANNELS.APP.CHANGE_UPDATE_CHANNEL.channelName);
+    ipcMain.handle(
+      IPC_CHANNELS.APP.CHANGE_UPDATE_CHANNEL.channelName,
+      async (_event, request: ChannelTransitionRequest): Promise<ChannelTransitionResult> => {
+        const previousChannel = (await this.preferences.getPreference()).updateChannel === "beta"
+          ? "beta"
+          : "stable";
+
+        if (request?.channel !== "stable" && request?.channel !== "beta") {
+          return {
+            ok: false,
+            applied: false,
+            previousChannel,
+            channel: previousChannel,
+            error: "Unsupported update channel.",
+          };
+        }
+
+        if (this.bottleExecutions.hasActiveWineProcesses()) {
+          return {
+            ok: false,
+            applied: false,
+            previousChannel,
+            channel: request.channel,
+            error: "Stop every running Wine app and Bottle before changing the update channel.",
+          };
+        }
+
+        const result = await this.channelTransitions.changeChannel(request);
+
+        if (result.applied && result.previousChannel !== result.channel) {
+          const window = this.windows.getMainWindow();
+          await this.updates.reconfigureAfterChannelChange(window ?? undefined);
+        }
+
+        return result;
+      },
+    );
+
     ipcMain.removeHandler(IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName);
     ipcMain.handle(
       IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName,
       async (_event, patch: LauncherPreferencePatch) => {
+        if (Object.prototype.hasOwnProperty.call(patch, "updateChannel")) {
+          throw new Error(
+            "Update channel changes must use the guarded app:change-update-channel operation.",
+          );
+        }
+
         const previousPreference = await this.preferences.getPreference();
         const preference = await this.preferences.updatePreference(patch);
 
@@ -526,6 +574,18 @@ export class IPCManager {
           skippedPaths: [],
           failedPaths: [],
         };
+
+        if (targets.includes("bottlePrefixes")) {
+          try {
+            await this.bottles.snapshotAllBottlePrefixesForRecovery();
+          } catch (error) {
+            result.failedPaths.push({
+              path: preference.bottlePrefixPath,
+              error: `Could not create the Stable recovery snapshot: ${error instanceof Error ? error.message : String(error)}`,
+            });
+            return result;
+          }
+        }
 
         if (targets.includes("metalPipelineCache")) {
           await processManager.stopAll();
@@ -1119,4 +1179,5 @@ export const ipcManager = new IPCManager(
   preferenceManager,
   youtubeManager,
   rosettaManager,
+  channelTransitionManager,
 );

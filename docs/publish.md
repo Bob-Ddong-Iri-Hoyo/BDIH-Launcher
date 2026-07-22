@@ -7,8 +7,8 @@ not provide Gatekeeper trust or notarization.
 
 ## GitHub Actions secrets
 
-Configure these repository secrets in the source repository that runs both
-`release.yml` and `nightly.yml`:
+Configure these repository secrets in the source repository that runs the
+Staging, promotion, Beta, and Nightly workflows:
 
 - `MACOS_SIGNING_P12_BASE64`: Base64 contents of
   `private/bdih-code-signing.p12`.
@@ -37,9 +37,22 @@ only for that reason.
 Never commit `private/`, the `.p12`, the PEM private key, its Base64 form, or the
 password. `private/` is ignored by Git.
 
+## Protected Production environments
+
+Create `production-candidate-approval` and `production-release` under GitHub
+**Settings → Environments**. Add at least one required reviewer to both. The
+workflows query the environment configuration and fail without a required
+reviewer, even if an unprotected environment would otherwise start the job.
+
+The first environment permits creation of an unpublished Production Draft. The
+second permits publishing the already-built and independently reverified Draft.
+Use separate approvals so selecting the wrong RC cannot immediately expose it
+to the update feed. With multiple maintainers, enable prevention of self-review
+and disable administrator bypass.
+
 ## Workflow behavior
 
-Both publish workflows install the identity in a temporary Keychain, require
+The publishing workflows install the identity in a temporary Keychain, require
 electron-builder to code-sign with `BDIH Launcher Update Signing`, verify the
 packaged `.app`, and then remove the Keychain and temporary trust entry. Missing
 or invalid secrets fail the build instead of falling back to ad-hoc signing.
@@ -66,8 +79,24 @@ the installed Production or Nightly app.
 Run **TestProduction Candidate** manually from GitHub Actions and provide:
 
 - `source_ref`: the exact branch, tag, or commit SHA to test.
-- `version`: `1.0.0` for Stable or `1.0.0-beta.1` for Beta.
-- `channel`: `stable` or `beta`.
+- `target_version`: `1.0.0` for a Production Stable target or
+  `1.0.0-beta.1` for a Production Beta target.
+- `attempt`: a positive candidate attempt number such as `1` or `2`.
+
+The workflow derives the update channel from `target_version`; there is no
+separate channel choice to enter incorrectly. A plain target becomes a Stable
+RC, while a Beta target becomes a Beta staging attempt:
+
+`RC` means **Release Candidate**. The Beta candidate suffix deliberately uses
+the full word `staging` instead of a project-specific abbreviation.
+
+```text
+target_version=1.0.0, attempt=2
+-> stable channel, version 1.0.0-rc.2
+
+target_version=1.0.0-beta.1, attempt=2
+-> beta channel, version 1.0.0-beta.1.staging.2
+```
 
 The workflow builds and verifies the signed app before publishing. It then
 updates the target repository's `staging` anchor branch and uploads the DMG,
@@ -76,42 +105,80 @@ target artifact names intentionally omit the architecture because staging is
 currently arm64-only:
 
 ```text
-BDIH-Launcher-Staging-Stable-1.0.0.dmg
-BDIH-Launcher-Staging-Stable-1.0.0.zip
-BDIH-Launcher-Staging-Beta-1.0.0-beta.1.dmg
-BDIH-Launcher-Staging-Beta-1.0.0-beta.1.zip
+BDIH-Launcher-Staging-Stable-1.0.0-rc.2.dmg
+BDIH-Launcher-Staging-Stable-1.0.0-rc.2.zip
+BDIH-Launcher-Staging-Beta-1.0.0-beta.1.staging.2.dmg
+BDIH-Launcher-Staging-Beta-1.0.0-beta.1.staging.2.zip
 ```
 
 The TestProduction Git tags also identify the channel while remaining valid
 SemVer so electron-updater can still resolve prerelease channels correctly:
 
 ```text
-v1.0.0+staging.stable
-v1.0.0-beta.1+staging.beta
+v1.0.0-rc.2+staging.stable
+v1.0.0-beta.1.staging.2+staging.beta
 ```
 
 All target tags are immutable. If a candidate needs a code change, publish the
-next Beta number instead of replacing the old tag:
+next attempt instead of replacing the old tag:
 
 ```text
-1.0.0-beta.1 -> 1.0.0-beta.2
+1.0.0-rc.1 -> 1.0.0-rc.2
+1.0.0-beta.1.staging.1 -> 1.0.0-beta.1.staging.2
 ```
+
+The workflow enforces the next attempt for the same target. A promotable Stable
+or Beta candidate must also have `package.json` set to the exact target version.
+After a promotable candidate is published, `repository_dispatch` queues
+**Approve Production Candidate** automatically; no Production version or tag
+is entered again.
+
+The candidate approval job accepts only the highest published attempt for the
+exact Stable or Beta target. It rebuilds the exact candidate source with the
+Production identity, verifies its signature and channel update metadata,
+records SHA-256 checksums in `promotion-source.json`, and creates a Draft.
+**Publish Production Draft** is queued automatically and waits on the separate
+`production-release` environment. It downloads everything again, confirms the
+candidate is still current, checks provenance, checksums, tag target, and the
+signed app from the ZIP, then publishes the Draft using the candidate channel.
+
+A newer attempt cancels the older pending candidate-selection run for the same
+target. If an old Draft exists for that target, approving the newer attempt
+replaces only that unpublished Draft after the replacement build passes
+verification. A published Production release is never replaced.
 
 Stable staging candidates use the `latest` update metadata and normal GitHub
 Release status. Beta candidates use `beta` metadata and GitHub prerelease
-status. The selected workflow channel becomes the first-run default, but the
-Staging app keeps the same bundle identifier and allows switching between
-Stable and Beta in Settings just like Production. Generated update metadata for
-both channels lets Beta candidates update to later Beta candidates or a final
-Stable candidate. The TestProduction repository must remain public because packaged
-clients cannot safely contain a private-repository access token.
+status. The channel derived from `target_version` becomes the first-run default,
+but the Staging app keeps the same bundle identifier and allows switching
+between Stable and Beta in Settings just like Production. Generated update
+metadata for both channels lets Beta candidates update to later Beta candidates
+or a final Stable candidate. The TestProduction repository must remain public
+because packaged clients cannot safely contain a private-repository access
+token.
+
+When Stable switches to Beta, the app records that exact Stable version as its
+return target. A later Stable return reads update metadata directly from that
+version's GitHub release instead of following the newest `latest` release. Do
+not delete the Stable release's `latest-mac.yml`, ZIP, or ZIP blockmap while a
+Beta build may still need to return to it. Production uses tag `v<version>`;
+Staging Stable uses `v<rc-version>+staging.stable`.
+
+The return check compares persisted schema versions with the compatibility
+contract compiled into the Stable build. Release authors do not maintain a
+separate Stable/Beta compatibility matrix. Schema-changing code must bump the
+corresponding constant in `src/Common/Constant/DataSchema.ts`; user choices such
+as Wine/DXMT versions are data, not schema versions, and remain untouched during
+the normal return.
 
 For the first Production version there is no real predecessor. The staging
-workflow therefore permits a version whose base differs from `package.json`.
-Test updating *to* `1.0.0` by first publishing and installing a synthetic
-`0.9.0` staging build, then publishing `1.0.0`. Testing an installed `1.0.0`
-updating *from* that version requires a semantically newer candidate such as
-`1.0.1-beta.1` or `1.0.1`.
+workflow permits a synthetic target that differs from `package.json` for update
+testing, but it does not queue Production approval. A real promotable Stable
+candidate requires `package.json: 1.0.0`; a real Beta candidate requires, for
+example, `package.json: 1.0.0-beta.1`. The approved Staging source is rebuilt as
+Production without the `rc.N` or `staging.N` candidate suffix. Production and
+Staging use different bundle identifiers and update repositories, so the
+Staging app does not update directly into the Production app.
 
 The first certificate-signed build cannot update an installation made with the
 old per-build ad-hoc signature. Install that first signed build manually once;

@@ -1,0 +1,281 @@
+name: Publish Production Draft
+
+on:
+  repository_dispatch:
+    types:
+      - production_draft_created
+
+concurrency:
+  group: production-publish-${{ github.event.client_payload.target_version }}
+  cancel-in-progress: true
+
+env:
+  STAGING_REPOSITORY: Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction
+  SOURCE_BRANCH: main
+
+jobs:
+  publish_production:
+    name: Publish ${{ github.event.client_payload.target_version }} from ${{ github.event.client_payload.candidate_version }} (${{ github.event.client_payload.channel }})
+    runs-on: macos-latest
+    permissions:
+      actions: read
+      contents: write
+      deployments: write
+    environment:
+      name: production-release
+      url: ${{ github.event.client_payload.draft_url }}
+
+    steps:
+      - name: Checkout trusted publication policy
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Require a protected Production environment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          gh api \
+            "repos/$GITHUB_REPOSITORY/environments/production-release" \
+            > "$RUNNER_TEMP/production-environment.json"
+          reviewer_count="$(node -e '
+            const fs = require("fs");
+            const environment = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const rule = environment.protection_rules?.find((entry) => entry.type === "required_reviewers");
+            process.stdout.write(String(rule?.reviewers?.length ?? 0));
+          ' "$RUNNER_TEMP/production-environment.json")"
+
+          if [[ "$reviewer_count" -lt 1 ]]; then
+            echo "::error::Configure at least one required reviewer on the production-release environment."
+            exit 1
+          fi
+
+      - name: Download and validate the candidate and Production Draft
+        id: validation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_TAG: ${{ github.event.client_payload.candidate_tag }}
+          CANDIDATE_VERSION: ${{ github.event.client_payload.candidate_version }}
+          TARGET_VERSION: ${{ github.event.client_payload.target_version }}
+          CANDIDATE_CHANNEL: ${{ github.event.client_payload.channel }}
+          PRODUCTION_TAG: ${{ github.event.client_payload.production_tag }}
+          SOURCE_SHA: ${{ github.event.client_payload.source_commit }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$PRODUCTION_TAG" != "v${TARGET_VERSION}" ]]; then
+            echo "::error::Production tag $PRODUCTION_TAG does not match target $TARGET_VERSION."
+            exit 1
+          fi
+
+          git fetch origin "refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH" --force
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" "origin/$SOURCE_BRANCH"; then
+            echo "::error::Approved source $SOURCE_SHA is no longer reachable from origin/$SOURCE_BRANCH."
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/production-draft"
+          gh release view "$CANDIDATE_TAG" \
+            --repo "$STAGING_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease \
+            > "$RUNNER_TEMP/candidate/release.json"
+          node - <<'NODE'
+          const fs = require("fs");
+          const release = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/candidate/release.json", "utf8"));
+          const expectedPrerelease = process.env.CANDIDATE_CHANNEL === "beta";
+          if (
+            release.tagName !== process.env.CANDIDATE_TAG
+            || release.isDraft
+            || release.isPrerelease !== expectedPrerelease
+          ) {
+            throw new Error(`The ${process.env.CANDIDATE_CHANNEL} candidate release state changed after Draft creation.`);
+          }
+          NODE
+          gh release list \
+            --repo "$STAGING_REPOSITORY" \
+            --limit 100 \
+            --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/candidate/releases.json"
+          node scripts/staging-promotion-policy.mjs assert-current-candidate \
+            --releases "$RUNNER_TEMP/candidate/releases.json" \
+            --target-version "$TARGET_VERSION" \
+            --candidate-tag "$CANDIDATE_TAG"
+          gh release download "$CANDIDATE_TAG" \
+            --repo "$STAGING_REPOSITORY" \
+            --pattern staging-source.json \
+            --dir "$RUNNER_TEMP/candidate"
+          node scripts/staging-promotion-policy.mjs validate-candidate \
+            --file "$RUNNER_TEMP/candidate/staging-source.json" \
+            --expected-tag "$CANDIDATE_TAG" \
+            --expected-version "$CANDIDATE_VERSION" \
+            --expected-target-version "$TARGET_VERSION" \
+            --expected-source-commit "$SOURCE_SHA" \
+            --expected-channel "$CANDIDATE_CHANNEL"
+
+          gh release view "$PRODUCTION_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,targetCommitish,url \
+            > "$RUNNER_TEMP/production-draft/release.json"
+          node - <<'NODE'
+          const fs = require("fs");
+          const release = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/production-draft/release.json", "utf8"));
+          const expectedPrerelease = process.env.CANDIDATE_CHANNEL === "beta";
+          if (
+            release.tagName !== process.env.PRODUCTION_TAG
+            || !release.isDraft
+            || release.isPrerelease !== expectedPrerelease
+          ) {
+            throw new Error(`The selected Production release must still be an unpublished ${process.env.CANDIDATE_CHANNEL} Draft.`);
+          }
+          if (release.targetCommitish !== process.env.SOURCE_SHA) {
+            throw new Error(`Production Draft target ${release.targetCommitish} does not match ${process.env.SOURCE_SHA}.`);
+          }
+          NODE
+
+          gh release download "$PRODUCTION_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/production-draft"
+          node scripts/staging-promotion-policy.mjs validate-provenance \
+            --provenance "$RUNNER_TEMP/production-draft/promotion-source.json" \
+            --candidate "$RUNNER_TEMP/candidate/staging-source.json" \
+            --asset-directory "$RUNNER_TEMP/production-draft" \
+            --production-tag "$PRODUCTION_TAG"
+
+          metadata_name="$([[ "$CANDIDATE_CHANNEL" == "beta" ]] && echo beta-mac.yml || echo latest-mac.yml)"
+          if ! grep -Eq "^version: ['\"]?${TARGET_VERSION//./\\.}['\"]?$" "$RUNNER_TEMP/production-draft/$metadata_name"; then
+            echo "::error::Draft $metadata_name does not describe Production $TARGET_VERSION."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$PRODUCTION_TAG" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$PRODUCTION_TAG:refs/tags/$PRODUCTION_TAG" --force
+            tag_commit="$(git rev-list -n 1 "$PRODUCTION_TAG")"
+            if [[ "$tag_commit" != "$SOURCE_SHA" ]]; then
+              echo "::error::Draft tag $PRODUCTION_TAG points to $tag_commit instead of $SOURCE_SHA."
+              exit 1
+            fi
+          fi
+
+          draft_url="$(node -e '
+            const fs = require("fs");
+            process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).url);
+          ' "$RUNNER_TEMP/production-draft/release.json")"
+          echo "draft_url=$draft_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Final Production Publish Approval"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Production release | [\`$TARGET_VERSION\`]($draft_url) |"
+            echo "| Channel | \`$CANDIDATE_CHANNEL\` |"
+            echo "| Verified candidate | [\`$CANDIDATE_VERSION\`](https://github.com/$STAGING_REPOSITORY/releases/tag/$CANDIDATE_TAG) |"
+            echo "| Source commit | \`$SOURCE_SHA\` |"
+            echo "| Asset integrity | SHA-256 verified |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout the exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.source_commit }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup macOS signing identity for final verification
+        id: macos_signing
+        uses: ./.github/actions/setup-macos-signing
+        with:
+          p12-base64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+          identity: BDIH Launcher Update Signing
+
+      - name: Verify the signed app from the Draft ZIP
+        env:
+          MACOS_SIGNING_IDENTITY: BDIH Launcher Update Signing
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          zips=("$RUNNER_TEMP"/production-draft/*.zip)
+          if (( ${#zips[@]} != 1 )); then
+            echo "::error::Expected exactly one Production ZIP, found ${#zips[@]}."
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/verified-app"
+          ditto -x -k "${zips[0]}" "$RUNNER_TEMP/verified-app"
+          app_path="$(find "$RUNNER_TEMP/verified-app" -maxdepth 2 -type d -name 'BDIH-Launcher.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "::error::Production ZIP does not contain BDIH-Launcher.app."
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          signature="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+          if [[ "$signature" != *"Authority=$MACOS_SIGNING_IDENTITY"* ]]; then
+            echo "::error::Draft ZIP is not signed by $MACOS_SIGNING_IDENTITY."
+            printf '%s\n' "$signature"
+            exit 1
+          fi
+          codesign -dr - "$app_path"
+          bash scripts/verifyMacosSigningBridge.sh "$app_path"
+
+      - name: Publish the verified Production Draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRODUCTION_TAG: ${{ github.event.client_payload.production_tag }}
+          TARGET_VERSION: ${{ github.event.client_payload.target_version }}
+          CANDIDATE_VERSION: ${{ github.event.client_payload.candidate_version }}
+          CANDIDATE_CHANNEL: ${{ github.event.client_payload.channel }}
+          SOURCE_SHA: ${{ github.event.client_payload.source_commit }}
+        run: |
+          set -euo pipefail
+
+          publish_args=(--draft=false)
+          if [[ "$CANDIDATE_CHANNEL" == "stable" ]]; then
+            publish_args+=(--latest)
+          else
+            publish_args+=(--latest=false)
+          fi
+          gh release edit "$PRODUCTION_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            "${publish_args[@]}"
+
+          release_state="$(gh release view "$PRODUCTION_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv')"
+          expected_state="$([[ "$CANDIDATE_CHANNEL" == "beta" ]] && printf 'false\ttrue' || printf 'false\tfalse')"
+          if [[ "$release_state" != "$expected_state" ]]; then
+            echo "::error::Production release did not publish as $CANDIDATE_CHANNEL: $release_state"
+            exit 1
+          fi
+
+          git fetch origin "refs/tags/$PRODUCTION_TAG:refs/tags/$PRODUCTION_TAG" --force
+          tag_commit="$(git rev-list -n 1 "$PRODUCTION_TAG")"
+          if [[ "$tag_commit" != "$SOURCE_SHA" ]]; then
+            echo "::error::Published tag $PRODUCTION_TAG points to $tag_commit instead of $SOURCE_SHA."
+            exit 1
+          fi
+
+          release_url="$(gh release view "$PRODUCTION_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq '.url')"
+          {
+            echo ""
+            echo "### Production published"
+            echo ""
+            echo "[$TARGET_VERSION]($release_url) was promoted from \`$CANDIDATE_VERSION\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup macOS signing identity
+        if: ${{ always() && steps.macos_signing.outcome == 'success' }}
+        env:
+          CERTIFICATE_SHA1: ${{ steps.macos_signing.outputs.certificate-sha1 }}
+          KEYCHAIN_PATH: ${{ steps.macos_signing.outputs.keychain-path }}
+          SIGNING_TEMP_DIR: ${{ steps.macos_signing.outputs.temp-dir }}
+        run: |
+          set +e
+          sudo -n security delete-certificate \
+            -Z "$CERTIFICATE_SHA1" \
+            /Library/Keychains/System.keychain >/dev/null 2>&1
+          security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1
+          find "$SIGNING_TEMP_DIR" -type f -delete >/dev/null 2>&1
+          rmdir "$SIGNING_TEMP_DIR" >/dev/null 2>&1

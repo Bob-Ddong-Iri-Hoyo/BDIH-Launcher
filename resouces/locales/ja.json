@@ -669,9 +669,37 @@
           "nightly": { "label": "Nightly", "description": "最新の実験的ビルドを受け取ります。" }
         },
         "channelWarningTitle": "{{channel}} チャンネルに変更しますか？",
-        "channelWarningDescription": "プレビュー版は不安定な場合があり、Stable へすぐ戻せない可能性があります。",
-        "channelWarningBody": "新しいビルドで設定やデータ形式が変更される場合があります。変更前に重要な Bottle データをバックアップしてください。",
+        "channelWarningDescription": "プレビュー版は不安定な場合があるため、先に Stable の復帰ポイントとデータ契約を準備します。",
+        "channelWarningBody": "設定と Bottle 一覧は今保存し、各 Prefix は Beta が初めて変更する直前に復旧用として保存します。",
         "channelWarningConfirm": "チャンネルを変更",
+        "channelTransition": {
+          "title": "Stable 互換性の確認が必要です",
+          "status": {
+            "compatible": "現在のデータは以前の Stable データ契約と互換性があります。",
+            "needs-transform": "Stable で読み込む前に一部のデータを変換する必要があります。",
+            "incompatible": "現在のデータ形式は以前の Stable が対応する範囲外です。",
+            "unknown": "以前の Stable が現在のデータを安全に読み込めるか自動判定できませんでした。"
+          },
+          "returnPoint": "基準 Stable バージョン: v{{version}}",
+          "preserveUserSettings": "選択した Wine・DXMT バージョン、Bottle 名、アプリ設定などのユーザー変更は通常の移行で維持されます。",
+          "snapshotNotice": "復旧用スナップショットがユーザーデータを自動的に上書きすることはありません。続行すると Stable チャンネルへ変更し、スナップショットは緊急時の復旧資料としてのみ残ります。",
+          "confirm": "設定を維持して Stable へ変更",
+          "errorTitle": "アップデートチャンネルを変更できませんでした",
+          "unknownError": "チャンネル移行の結果を確認できません。",
+          "resources": {
+            "settings": "ランチャー設定",
+            "bottleRegistry": "Bottle 一覧",
+            "bottleMetadata": "Bottle メタデータ",
+            "executionDescriptor": "実行記述子",
+            "returnPoint": "Stable 復帰ポイント"
+          },
+          "issues": {
+            "schemaTooNew": "{{resource}} 形式 v{{current}} は Stable が読める最大 v{{maximum}} より新しいです。",
+            "schemaTooOld": "{{resource}} 形式 v{{current}} は Stable が要求する最小 v{{minimum}} へ変換する必要があります。",
+            "invalidMetadata": "{{resource}}を読み取り、または検証できませんでした。",
+            "missingReturnPoint": "以前の Stable 復帰ポイントが記録されていません。最新 Stable への移行のみ試行できます。"
+          }
+        },
         "runningGuard": {
           "title": "実行中のアプリと Bottle を終了しますか？",
           "description": "更新チャンネルを変更するには、BDIH Launcher から起動したアプリと Bottle セッションを終了する必要があります。",

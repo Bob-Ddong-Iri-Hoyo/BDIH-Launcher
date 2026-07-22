@@ -29,7 +29,9 @@ describe("AppPaths", () => {
   it("routes dev resources into the fixture resource root while keeping legacy paths readable", async () => {
     const {
       get_default_bottle_prefix_path,
+      get_channel_transition_state_path,
       get_legacy_bottle_prefix_paths,
+      get_snapshot_root_path,
       get_legacy_settings_path,
       get_settings_path,
       is_dev_resource_environment,
@@ -37,7 +39,9 @@ describe("AppPaths", () => {
 
     expect(is_dev_resource_environment()).toBe(true);
     expect(get_settings_path()).toBe(environment.devSettingsPath);
+    expect(get_channel_transition_state_path()).toBe(path.join(environment.devResourceRoot, "channel-transition.json"));
     expect(get_default_bottle_prefix_path()).toBe(path.join(environment.devResourceRoot, "Bottles"));
+    expect(get_snapshot_root_path()).toBe(path.join(environment.devResourceRoot, "Snapshots"));
     expect(get_legacy_settings_path()).toBe(environment.legacySettingsPath);
     expect(get_legacy_bottle_prefix_paths()).toEqual([environment.legacyBottlePrefixRoot]);
   });
@@ -56,12 +60,14 @@ describe("AppPaths", () => {
 
     const {
       get_app_data_root,
+      get_channel_transition_state_path,
       get_default_bottle_prefix_path,
       get_default_dxmt_cache_path,
       get_default_icon_cache_path,
       get_default_log_dir,
       get_default_wine_install_path,
       get_settings_path,
+      get_snapshot_root_path,
       get_update_test_runtime_paths,
       is_nightly_update_test_build,
       is_update_test_build,
@@ -73,7 +79,9 @@ describe("AppPaths", () => {
     expect(is_nightly_update_test_build()).toBe(channel === "nightly");
     expect(get_update_test_runtime_paths().stateRoot).toBe(stateRoot);
     expect(get_settings_path()).toBe(path.join(stateRoot, "settings", "settings.json"));
+    expect(get_channel_transition_state_path()).toBe(path.join(stateRoot, "settings", "channel-transition.json"));
     expect(get_app_data_root()).toBe(dataRoot);
+    expect(get_snapshot_root_path()).toBe(path.join(dataRoot, "Snapshots"));
     expect(get_default_wine_install_path()).toBe(path.join(dataRoot, "Wine"));
     expect(get_default_bottle_prefix_path()).toBe(path.join(dataRoot, "Bottles"));
     expect(get_default_dxmt_cache_path()).toBe(path.join(dataRoot, "DXMT"));

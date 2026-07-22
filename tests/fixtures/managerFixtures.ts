@@ -99,6 +99,7 @@ export async function write_legacy_preference(
   patch: Record<string, unknown> = {},
 ): Promise<void> {
   await write_json(environment.legacySettingsPath, {
+    schemaVersion: 1,
     language: "ko",
     wineInstallPath: environment.legacyWineRoot,
     bottlePrefixPath: environment.legacyBottlePrefixRoot,

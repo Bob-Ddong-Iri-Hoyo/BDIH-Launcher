@@ -16,6 +16,7 @@ import { shortcutManager } from "./Manager/ShortcutManager";
 import { updateManager } from "./Manager/UpdateManager";
 import { windowManager } from "./Manager/WindowManager";
 import { youtubeManager } from "./Manager/YouTubeManager";
+import { channelTransitionManager } from "./Manager/ChannelTransitionManager";
 
 // Main-process entry state used to make the asynchronous quit cleanup idempotent.
 let isQuitCleanupComplete = false;
@@ -110,6 +111,11 @@ async function createApp(): Promise<void> {
   void youtubeManager.getLiveStatus({ handle: BDIH_YOUTUBE_HANDLE });
 
   const mainWindow = await windowManager.createMainWindow();
+
+  // A Stable return is only considered successful after metadata bootstrap and
+  // the main renderer have both opened. If startup fails earlier, the recovery
+  // point remains active for diagnosis or recovery.
+  await channelTransitionManager.reconcileStartup();
 
   if (preference.autoCheckUpdates) {
     // Startup checks only discover updates. Downloading and installation must

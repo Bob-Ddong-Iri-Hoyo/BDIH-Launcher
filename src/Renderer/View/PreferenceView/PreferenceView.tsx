@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from "react";
 import { AlertTriangle, FolderOpen, Info, Keyboard, MonitorCog, RotateCcw, Save, Trash2, Wine } from "lucide-react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { BDIH_DISCORD_URL, BDIH_GITHUB_URL, BDIH_SITE_URL, BDIH_YOUTUBE_URL } from "../../../Common/Constant/RuntimeSources";
 import { AppUpdateStatusPayload, BottleExecutionStatePayload, BottleTaskResultPayload, DebugFlagMode, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_PUBLIC_UPDATE_CHANNELS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherUpdateChannel, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode } from "../../../Common/Types/IPC";
+import type { ChannelTransitionResult, CompatibilityIssue } from "../../../Common/Types/Compatibility";
 import { I18N_RESOURCES } from "../../I18n/Resources";
 import { AppUpdatePanel } from "../../Component/AppUpdatePanel";
 import { DeveloperLinkGroup } from "../../Component/DeveloperLinks";
@@ -18,7 +20,11 @@ import appIconImage from "../../../../resouces/app/icon/icon.png";
 
 type PreferenceCategory = "general" | "wine" | "shortcut" | "appInfo";
 export type PreferencePathKey = "dataRootPath" | "bottlePrefixPath" | "gameInstallPath";
-type PendingBottleStopAction = { kind: "channel"; channel: LauncherUpdateChannel };
+type PendingBottleStopAction = {
+  kind: "channel";
+  channel: LauncherUpdateChannel;
+  allowUnsafe?: boolean;
+};
 
 const DEFAULT_SHORTCUTS: LauncherShortcutMap = {
   launch: "Command + Return",
@@ -77,6 +83,29 @@ export interface PreferenceViewProps {
   onResetPath?: (pathKey: PreferencePathKey) => void;
   onDeleteLauncherData?: (targets: LauncherDataDeleteTarget[]) => Promise<DeleteLauncherDataResultPayload | undefined> | DeleteLauncherDataResultPayload | undefined;
   onSave?: () => void;
+}
+
+function compatibility_issue_text(t: TFunction, issue: CompatibilityIssue): string {
+  const resource = t(`preferences.appInfo.channelTransition.resources.${issue.resource}`);
+
+  switch (issue.code) {
+    case "schema-too-new":
+      return t("preferences.appInfo.channelTransition.issues.schemaTooNew", {
+        resource,
+        current: issue.currentVersion,
+        maximum: issue.supportedMaximum,
+      });
+    case "schema-too-old":
+      return t("preferences.appInfo.channelTransition.issues.schemaTooOld", {
+        resource,
+        current: issue.currentVersion,
+        minimum: issue.supportedMinimum,
+      });
+    case "invalid-metadata":
+      return t("preferences.appInfo.channelTransition.issues.invalidMetadata", { resource });
+    case "missing-return-point":
+      return t("preferences.appInfo.channelTransition.issues.missingReturnPoint");
+  }
 }
 
 function SettingField({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
@@ -490,6 +519,8 @@ export function PreferenceView({
   const [updateChannel, setUpdateChannel] = useState<LauncherUpdateChannel>("stable");
   const [pendingUpdateChannel, setPendingUpdateChannel] = useState<LauncherUpdateChannel>();
   const [pendingBottleStopAction, setPendingBottleStopAction] = useState<PendingBottleStopAction>();
+  const [pendingCompatibilityTransition, setPendingCompatibilityTransition] = useState<ChannelTransitionResult>();
+  const [channelTransitionError, setChannelTransitionError] = useState<string>();
   const [isStoppingBottleProcesses, setIsStoppingBottleProcesses] = useState(false);
   const [stopBottleProcessesError, setStopBottleProcessesError] = useState<string>();
   const defaultBottlePrefixPath = useMemo(() => create_data_root_child_path(dataRootPath, "Bottles"), [dataRootPath]);
@@ -618,16 +649,48 @@ export function PreferenceView({
     setLocalHasChanges(false);
   }
 
-  async function apply_update_channel(channel: LauncherUpdateChannel) {
-    setUpdateChannel(channel);
+  async function apply_update_channel(channel: LauncherUpdateChannel, allowUnsafe = false) {
     setPendingUpdateChannel(undefined);
-    await window.BTIH_API?.invoke(IPC_CHANNELS.APP.UPDATE_PREFERENCE.channelName, { updateChannel: channel });
-    const status = await window.BTIH_API?.invoke(
-      IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName,
-      undefined as never,
-    ) as AppUpdateStatusPayload | undefined;
-    setAppInfoStatus(status);
-    setUpdateChannel(status?.channel ?? channel);
+    setChannelTransitionError(undefined);
+    let result: ChannelTransitionResult | undefined;
+
+    try {
+      result = await window.BTIH_API?.invoke(
+        IPC_CHANNELS.APP.CHANGE_UPDATE_CHANNEL.channelName,
+        { channel, allowUnsafe },
+      ) as ChannelTransitionResult | undefined;
+    } catch (error) {
+      setChannelTransitionError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    if (!result?.ok) {
+      setChannelTransitionError(result?.error ?? t("preferences.appInfo.channelTransition.unknownError"));
+      return;
+    }
+
+    if (result.requiresConfirmation && !result.applied) {
+      setPendingCompatibilityTransition(result);
+      return;
+    }
+
+    if (!result.applied) {
+      return;
+    }
+
+    setPendingCompatibilityTransition(undefined);
+    setUpdateChannel(channel);
+    try {
+      const status = await window.BTIH_API?.invoke(
+        IPC_CHANNELS.APP.GET_UPDATE_STATUS.channelName,
+        undefined as never,
+      ) as AppUpdateStatusPayload | undefined;
+      setAppInfoStatus(status);
+      setUpdateChannel(status?.channel ?? channel);
+    } catch {
+      // The preference transition already succeeded. A later status refresh can
+      // reconnect to the updater without reverting the selected channel.
+    }
   }
 
   async function has_active_bottle_execution() {
@@ -639,16 +702,21 @@ export function PreferenceView({
     return state?.isRunning === true;
   }
 
-  async function request_apply_update_channel(channel: LauncherUpdateChannel) {
+  async function request_apply_update_channel(channel: LauncherUpdateChannel, allowUnsafe = false) {
     setPendingUpdateChannel(undefined);
+    setChannelTransitionError(undefined);
 
-    if (await has_active_bottle_execution()) {
-      setStopBottleProcessesError(undefined);
-      setPendingBottleStopAction({ kind: "channel", channel });
-      return;
+    try {
+      if (await has_active_bottle_execution()) {
+        setStopBottleProcessesError(undefined);
+        setPendingBottleStopAction({ kind: "channel", channel, allowUnsafe });
+        return;
+      }
+
+      await apply_update_channel(channel, allowUnsafe);
+    } catch (error) {
+      setChannelTransitionError(error instanceof Error ? error.message : String(error));
     }
-
-    await apply_update_channel(channel);
   }
 
   function request_update_channel(channel: LauncherUpdateChannel) {
@@ -695,7 +763,7 @@ export function PreferenceView({
       setPendingBottleStopAction(undefined);
 
       if (action.kind === "channel") {
-        await apply_update_channel(action.channel);
+        await apply_update_channel(action.channel, action.allowUnsafe);
       }
     } catch (error) {
       setStopBottleProcessesError(error instanceof Error ? error.message : String(error));
@@ -1437,6 +1505,77 @@ export function PreferenceView({
           {t("preferences.appInfo.channelWarningBody")}
         </Box>
       </Dialog>
+
+      <Dialog
+        open={Boolean(pendingCompatibilityTransition)}
+        title={t("preferences.appInfo.channelTransition.title")}
+        description={t(`preferences.appInfo.channelTransition.status.${pendingCompatibilityTransition?.compatibility?.status ?? "unknown"}`)}
+        tone="warning"
+        icon={AlertTriangle}
+        placement="center"
+        widthClassName="max-w-2xl"
+        onClose={() => setPendingCompatibilityTransition(undefined)}
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "secondary",
+            onClick: () => setPendingCompatibilityTransition(undefined),
+          },
+          {
+            label: t("preferences.appInfo.channelTransition.confirm"),
+            variant: "primary",
+            onClick: () => {
+              setPendingCompatibilityTransition(undefined);
+              void request_apply_update_channel("stable", true);
+            },
+          },
+        ]}
+      >
+        <Box className="grid gap-3">
+          {pendingCompatibilityTransition?.returnPoint ? (
+            <Box className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs leading-5 text-slate-300">
+              <Text className="font-semibold text-slate-100">
+                {t("preferences.appInfo.channelTransition.returnPoint", {
+                  version: pendingCompatibilityTransition.returnPoint.stableVersion,
+                })}
+              </Text>
+              <Text className="mt-1 text-slate-400">
+                {t("preferences.appInfo.channelTransition.preserveUserSettings")}
+              </Text>
+            </Box>
+          ) : null}
+          {(pendingCompatibilityTransition?.compatibility?.issues ?? []).length > 0 ? (
+            <Box as="ul" className="grid gap-2 rounded-lg border border-amber-400/20 bg-amber-500/10 p-3">
+              {(pendingCompatibilityTransition?.compatibility?.issues ?? []).map((issue, index) => (
+                <Box as="li" key={`${issue.resource}-${issue.resourceId ?? index}`} className="text-xs leading-5 text-amber-100">
+                  {compatibility_issue_text(t, issue)}
+                </Box>
+              ))}
+            </Box>
+          ) : null}
+          <Box className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-400">
+            {t("preferences.appInfo.channelTransition.snapshotNotice")}
+          </Box>
+        </Box>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(channelTransitionError)}
+        title={t("preferences.appInfo.channelTransition.errorTitle")}
+        description={channelTransitionError}
+        tone="danger"
+        icon={AlertTriangle}
+        placement="center"
+        widthClassName="max-w-lg"
+        onClose={() => setChannelTransitionError(undefined)}
+        actions={[
+          {
+            label: t("common.actions.close"),
+            variant: "secondary",
+            onClick: () => setChannelTransitionError(undefined),
+          },
+        ]}
+      />
 
       <Dialog
         open={Boolean(pendingBottleStopAction)}

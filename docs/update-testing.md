@@ -10,7 +10,11 @@ When `autoCheckUpdates` is enabled, app startup should call the update checker a
 
 1. Real prerelease test
 
-Use a small prerelease tag such as `v1.0.1-beta.1`, publish it through `.github/workflows/release.yml`, then run an older local app build with update checks enabled.
+Create a Beta TestProduction candidate such as
+`1.0.1-beta.1.staging.1` through `.github/workflows/staging.yml`, test it in the
+isolated Staging app, and promote it through the two Production approvals only
+when a real Production prerelease is required. Then run an older matching app
+build with update checks enabled.
 
 This is closest to production, but it creates a GitHub prerelease.
 

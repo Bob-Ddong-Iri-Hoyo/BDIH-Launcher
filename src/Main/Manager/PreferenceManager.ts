@@ -1,6 +1,7 @@
 import { backupInvalidUserSettings, readConfigFile, readUserSettings, writeUserSettings } from "../FileIO/IO";
 import { DEBUG_FLAG_MODES, DebugFlagMode, LAUNCHER_LOG_LEVELS, LAUNCHER_PUBLIC_UPDATE_CHANNELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherLogLevel, LauncherPreferencePayload, LauncherShortcutMap, LauncherUpdateChannel, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode } from "../../Common/Types/IPC";
 import path from "path";
+import { SETTINGS_SCHEMA_VERSION } from "../../Common/Constant/DataSchema";
 import {
   get_default_data_root_path,
   get_default_bottle_prefix_path,
@@ -32,6 +33,7 @@ const ACCENT_COLORS = ["rose", "sky", "emerald", "violet", "amber"] as const;
 type AccentColorPreference = (typeof ACCENT_COLORS)[number];
 
 export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
+  schemaVersion: SETTINGS_SCHEMA_VERSION,
   language: "ko",
   accentColor: "rose",
   dataRootPath: DEFAULT_DATA_ROOT_PATH,
@@ -163,6 +165,7 @@ export class PreferenceManager {
     );
 
     return {
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
       language: this.stringOrDefault(record.language, "ko"),
       accentColor: this.accentColorOrDefault(record.accentColor, "rose"),
       dataRootPath,
