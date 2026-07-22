@@ -39,6 +39,42 @@ export function resolve_staging_candidate(targetVersion, attemptValue) {
   };
 }
 
+export function validate_source_train_version(sourceVersion, targetVersion) {
+  const source = String(sourceVersion ?? "").trim();
+  const target = resolve_staging_candidate(targetVersion, 1);
+  const expectedSourceVersion = target.targetVersion.split("-")[0];
+
+  if (source !== expectedSourceVersion) {
+    throw new Error(
+      `Source package.json must stay at release train ${expectedSourceVersion} for target ${target.targetVersion}. Got: ${source || "<empty>"}`,
+    );
+  }
+
+  return {
+    sourceVersion: source,
+    targetVersion: target.targetVersion,
+    targetChannel: target.channel,
+    releaseTrain: expectedSourceVersion,
+  };
+}
+
+export async function prepare_production_package_version(packagePath, targetVersion) {
+  const filePath = required_string(packagePath, "package path");
+  const pkg = JSON.parse(await readFile(filePath, "utf8"));
+  if (!is_record(pkg)) {
+    throw new Error("package.json must contain a JSON object.");
+  }
+
+  const train = validate_source_train_version(pkg.version, targetVersion);
+  pkg.version = train.targetVersion;
+  await writeFile(filePath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
+
+  return {
+    ...train,
+    packagedVersion: pkg.version,
+  };
+}
+
 export function validate_candidate_metadata(value) {
   if (!is_record(value)) {
     throw new Error("Candidate metadata must be a JSON object.");
@@ -87,7 +123,31 @@ export function validate_candidate_metadata(value) {
     throw new Error(`Invalid candidate creation date: ${candidate.createdAt}`);
   }
 
-  return candidate;
+  if (candidate.channel === "beta") {
+    if (value.promotedFrom !== undefined && value.promotedFrom !== null) {
+      throw new Error("A Beta staging candidate cannot be promoted from another candidate.");
+    }
+    return { ...candidate, promotedFrom: null };
+  }
+
+  if (!is_record(value.promotedFrom)) {
+    throw new Error("A Stable RC must record the Beta candidate it was promoted from.");
+  }
+
+  const promotedFrom = validate_candidate_metadata(value.promotedFrom);
+  if (promotedFrom.channel !== "beta") {
+    throw new Error("A Stable RC can only be promoted from a Beta staging candidate.");
+  }
+  if (promotedFrom.targetVersion.split("-")[0] !== candidate.targetVersion) {
+    throw new Error(
+      `Promoted Beta target ${promotedFrom.targetVersion} does not belong to Stable ${candidate.targetVersion}.`,
+    );
+  }
+  if (promotedFrom.sourceRepository !== candidate.sourceRepository) {
+    throw new Error("Beta and Stable candidates must come from the same source repository.");
+  }
+
+  return { ...candidate, promotedFrom };
 }
 
 export function assert_next_attempt(releases, targetVersion, attemptValue) {
@@ -154,6 +214,20 @@ export function assert_current_candidate(releases, targetVersion, candidateTag) 
     ...resolve_staging_candidate(target.targetVersion, current.attempt),
     currentTag: current.tag,
   };
+}
+
+export function validate_candidate_lineage(candidateValue, promotedFromValue) {
+  const candidate = validate_candidate_metadata(candidateValue);
+  const promotedFrom = validate_candidate_metadata(promotedFromValue);
+
+  if (candidate.channel !== "stable" || promotedFrom.channel !== "beta") {
+    throw new Error("Lineage validation requires a Stable RC and its Beta parent.");
+  }
+  if (JSON.stringify(candidate.promotedFrom) !== JSON.stringify(promotedFrom)) {
+    throw new Error("Stable RC lineage does not match the selected Beta release metadata.");
+  }
+
+  return { candidate, promotedFrom };
 }
 
 export async function create_promotion_provenance({
@@ -256,6 +330,22 @@ async function run_cli(argv) {
       }
       return;
     }
+    case "validate-source-train": {
+      const result = validate_source_train_version(
+        options["source-version"],
+        options["target-version"],
+      );
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+    case "prepare-production-package": {
+      const result = await prepare_production_package_version(
+        required_option(options, "file"),
+        options["target-version"],
+      );
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
     case "assert-next-attempt": {
       const releases = await read_json(options.releases);
       const result = assert_next_attempt(releases, options["target-version"], options.attempt);
@@ -278,6 +368,14 @@ async function run_cli(argv) {
       process.stdout.write(`${JSON.stringify(candidate, null, 2)}\n`);
       return;
     }
+    case "validate-lineage": {
+      const result = validate_candidate_lineage(
+        await read_json(options.candidate),
+        await read_json(options["promoted-from"]),
+      );
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
     case "field": {
       const candidate = validate_candidate_metadata(await read_json(options.file));
       const allowed = new Set([
@@ -291,11 +389,22 @@ async function run_cli(argv) {
         "sourceRunId",
         "sourceRunUrl",
         "createdAt",
+        "promotedFrom.tag",
+        "promotedFrom.version",
+        "promotedFrom.targetVersion",
+        "promotedFrom.sourceCommit",
+        "promotedFrom.sourceRunUrl",
       ]);
       if (!allowed.has(options.name)) {
         throw new Error(`Unsupported candidate field: ${options.name}`);
       }
-      process.stdout.write(`${candidate[options.name]}\n`);
+      const value = options.name.startsWith("promotedFrom.")
+        ? candidate.promotedFrom?.[options.name.slice("promotedFrom.".length)]
+        : candidate[options.name];
+      if (value === undefined || value === null) {
+        throw new Error(`Candidate field is unavailable: ${options.name}`);
+      }
+      process.stdout.write(`${value}\n`);
       return;
     }
     case "create-provenance": {

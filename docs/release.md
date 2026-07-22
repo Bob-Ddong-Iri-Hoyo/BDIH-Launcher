@@ -30,9 +30,14 @@ Run **TestProduction Candidate**:
 source_ref: main or an exact commit SHA
 target_version: 1.2.3
 attempt: 1
+promoted_from_beta_tag: v1.2.3-beta.2.staging.3+staging.beta
 ```
 
-This publishes `1.2.3-rc.1` to TestProduction. After the candidate is tested:
+The selected Beta source commit must be an ancestor of `source_ref`, and both
+must belong to the `1.2.3` version line. The workflow records the complete Beta
+metadata in the Stable RC and shows every changed file since that Beta in the
+run summary. This publishes `1.2.3-rc.1` to TestProduction. After the candidate
+is tested:
 
 1. Open the automatically queued **Approve Production Candidate** run.
 2. Verify the job title says `Draft 1.2.3 from 1.2.3-rc.1` and follow its
@@ -52,6 +57,37 @@ The Production app is rebuilt from the RC's exact source commit because
 Staging and Production use different bundle identifiers and update providers.
 The Staging binary itself is never copied into Production.
 
+### How to use the two approval workflows
+
+Do not run **Approve Production Candidate** or **Publish Production Draft**
+manually. They have no `Run workflow` form. A promotable TestProduction
+candidate creates them automatically through `repository_dispatch`.
+
+For **Approve Production Candidate**:
+
+1. Open **Actions → Approve Production Candidate** after the Staging build.
+2. Open the run whose title contains the exact target, candidate, and channel.
+3. Follow the Environment link to the TestProduction release and inspect its
+   source SHA. For Stable, inspect the Beta parent and the Beta→RC file diff.
+4. Click **Review deployments**, select `production-candidate-approval`, enter
+   a comment if needed, and choose **Approve and deploy**.
+5. This builds and verifies Production assets but creates only an unpublished
+   Draft.
+
+For **Publish Production Draft**:
+
+1. It appears automatically after the first workflow creates the Draft.
+2. Open the run and use its Environment link to inspect the exact Draft,
+   candidate, channel, source SHA, and assets.
+3. Click **Review deployments**, select `production-release`, then choose
+   **Approve and deploy**.
+4. The job re-downloads and verifies the Draft before making it public.
+
+Reject the deployment instead of approving it when the candidate is wrong. A
+newer attempt cancels or supersedes the older pending run. If **Prevent
+self-review** is enabled, the person who triggered the workflow cannot approve
+it; use another required reviewer.
+
 ### Candidate safety rules
 
 - Attempts for one target must be monotonic: `rc.1`, `rc.2`, `rc.3`.
@@ -64,6 +100,12 @@ The Staging binary itself is never copied into Production.
   version. Published releases are never replaced.
 - Direct Production tags do not publish assets; the promotion workflow creates
   the tag only after the verified Draft is approved.
+
+Do not use **Re-run jobs** to apply a workflow fix to an existing candidate:
+GitHub reruns the workflow stored at that candidate's original source commit.
+When its TestProduction Release or tag already exists, push the fix and create
+the next attempt. The same attempt number becomes reusable only if both the
+Release and tag are intentionally deleted.
 
 GitHub represents candidate state without a mutable custom status file:
 
@@ -81,13 +123,16 @@ unpublished Draft after the new build has passed verification.
 
 ## Production Beta
 
-Set `package.json` to the intended Beta version and commit it. Then run
-**TestProduction Candidate** without creating a Production tag:
+Keep `package.json` at the release train version, such as `1.2.3`. The workflow
+injects the selected Beta version only into the packaged Staging and Production
+apps, so no Beta-only version commit is required. Run **TestProduction
+Candidate** without creating a Production tag:
 
 ```text
 source_ref: main or an exact commit SHA
 target_version: 1.2.3-beta.1
 attempt: 1
+promoted_from_beta_tag: leave empty
 ```
 
 This produces `1.2.3-beta.1.staging.1`. If it fails testing, keep the same
@@ -112,7 +157,11 @@ Production release:       1.2.3
 Production Beta:
 
 ```text
-package.json:             1.2.3-beta.2
+package.json:             1.2.3
 TestProduction candidate: 1.2.3-beta.2.staging.3
 Production release:       1.2.3-beta.2
 ```
+
+`package.json` defines the release train, not the channel build. A `1.2.3`
+source may produce `1.2.3-beta.N`, `1.2.3-rc.N`, and final `1.2.3`, but it
+cannot produce a `1.2.4` or `1.3.0` target.

@@ -17,6 +17,11 @@ on:
         required: true
         default: 1
         type: number
+      promoted_from_beta_tag:
+        description: "Stable only: exact Beta staging tag promoted into this RC"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: staging-testproduction
@@ -79,7 +84,12 @@ jobs:
           source_short_sha="$(git rev-parse --short=8 HEAD)"
           source_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           package_version="$(node -p "require('./package.json').version")"
-          promotable="$([[ "$package_version" == "$TARGET_VERSION" ]] && echo true || echo false)"
+          promotable="false"
+          if node scripts/staging-promotion-policy.mjs validate-source-train \
+            --source-version "$package_version" \
+            --target-version "$TARGET_VERSION" >/dev/null; then
+            promotable="true"
+          fi
           {
             echo "source_sha=$source_sha"
             echo "source_short_sha=$source_short_sha"
@@ -89,12 +99,16 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Validate candidate
+        id: lineage
         shell: bash
         env:
           STAGING_VERSION: ${{ steps.candidate.outputs.version }}
           TARGET_VERSION: ${{ steps.candidate.outputs.target_version }}
           STAGING_ATTEMPT: ${{ steps.candidate.outputs.attempt }}
           STAGING_TAG: ${{ steps.candidate.outputs.tag }}
+          STAGING_CHANNEL: ${{ steps.candidate.outputs.channel }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          PROMOTED_FROM_BETA_TAG: ${{ inputs.promoted_from_beta_tag }}
           GH_TOKEN: ${{ secrets.STAGING_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
@@ -105,14 +119,16 @@ jobs:
           fi
 
           package_version="$(node -p "require('./package.json').version")"
-          package_base="${package_version%%-*}"
           candidate_base="${TARGET_VERSION%%-*}"
 
-          if [[ "$package_base" != "$candidate_base" ]]; then
+          if [[ "$package_version" != "$candidate_base" ]]; then
             echo "::warning::Using synthetic staging version $STAGING_VERSION while package.json is $package_version. This is allowed only because TestProduction is isolated from Production."
-          fi
-          if [[ "$package_version" != "$TARGET_VERSION" ]]; then
-            echo "::warning::This candidate is synthetic and will not queue a Production approval. Commit package.json version $TARGET_VERSION before creating a promotable candidate."
+            {
+              echo "## Test-only candidate"
+              echo ""
+              echo "This candidate will not queue Production approval."
+              echo "Source package.json must be \`$candidate_base\` for target \`$TARGET_VERSION\`, but it is \`$package_version\`."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
           visibility="$(gh api "repos/$TARGET_REPOSITORY" --jq '.visibility')"
@@ -124,7 +140,7 @@ jobs:
           gh release list \
             --repo "$TARGET_REPOSITORY" \
             --limit 100 \
-            --json tagName,isDraft > "$RUNNER_TEMP/staging-releases.json"
+            --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/staging-releases.json"
           node scripts/staging-promotion-policy.mjs assert-next-attempt \
             --releases "$RUNNER_TEMP/staging-releases.json" \
             --target-version "$TARGET_VERSION" \
@@ -135,6 +151,86 @@ jobs:
             echo "::error::Staging release or tag $STAGING_TAG already exists. Tags are immutable; choose the next candidate version."
             exit 1
           fi
+
+          promoted_from_file=""
+          if [[ "$STAGING_CHANNEL" == "stable" ]]; then
+            if [[ -z "$PROMOTED_FROM_BETA_TAG" ]]; then
+              echo "::error::A Stable RC requires promoted_from_beta_tag. Select the exact tested Beta staging release."
+              exit 1
+            fi
+
+            promoted_dir="$RUNNER_TEMP/promoted-from-beta"
+            mkdir -p "$promoted_dir"
+            gh release view "$PROMOTED_FROM_BETA_TAG" \
+              --repo "$TARGET_REPOSITORY" \
+              --json tagName,isDraft,isPrerelease,url \
+              > "$promoted_dir/release.json"
+            node - <<'NODE'
+            const fs = require("fs");
+            const release = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/promoted-from-beta/release.json", "utf8"));
+            if (
+              release.tagName !== process.env.PROMOTED_FROM_BETA_TAG
+              || release.isDraft
+              || !release.isPrerelease
+            ) {
+              throw new Error("The selected Beta parent must be a published TestProduction prerelease.");
+            }
+          NODE
+
+            gh release download "$PROMOTED_FROM_BETA_TAG" \
+              --repo "$TARGET_REPOSITORY" \
+              --pattern staging-source.json \
+              --dir "$promoted_dir"
+            node scripts/staging-promotion-policy.mjs validate-candidate \
+              --file "$promoted_dir/staging-source.json" \
+              --expected-tag "$PROMOTED_FROM_BETA_TAG" \
+              --expected-channel beta >/dev/null
+
+            beta_target="$(node scripts/staging-promotion-policy.mjs field --file "$promoted_dir/staging-source.json" --name targetVersion)"
+            beta_source="$(node scripts/staging-promotion-policy.mjs field --file "$promoted_dir/staging-source.json" --name sourceCommit)"
+            beta_repository="$(node scripts/staging-promotion-policy.mjs field --file "$promoted_dir/staging-source.json" --name sourceRepository)"
+            if [[ "${beta_target%%-*}" != "$TARGET_VERSION" ]]; then
+              echo "::error::Beta target $beta_target cannot be promoted to Stable $TARGET_VERSION."
+              exit 1
+            fi
+            if [[ "$beta_repository" != "$GITHUB_REPOSITORY" ]]; then
+              echo "::error::Beta candidate source repository mismatch: $beta_repository"
+              exit 1
+            fi
+            node scripts/staging-promotion-policy.mjs assert-current-candidate \
+              --releases "$RUNNER_TEMP/staging-releases.json" \
+              --target-version "$beta_target" \
+              --candidate-tag "$PROMOTED_FROM_BETA_TAG" >/dev/null
+            if ! git merge-base --is-ancestor "$beta_source" "$SOURCE_SHA"; then
+              echo "::error::Stable source $SOURCE_SHA does not descend from Beta source $beta_source."
+              exit 1
+            fi
+
+            promoted_from_file="$promoted_dir/staging-source.json"
+            changed_files="$(git diff --name-status "$beta_source" "$SOURCE_SHA" || true)"
+            {
+              echo "## Beta → Stable RC lineage"
+              echo ""
+              echo "- Beta candidate: \`$PROMOTED_FROM_BETA_TAG\`"
+              echo "- Beta source: \`$beta_source\`"
+              echo "- Stable RC source: \`$SOURCE_SHA\`"
+              echo ""
+              echo "### Changes after the tested Beta"
+              echo ""
+              echo '```text'
+              if [[ -n "$changed_files" ]]; then
+                printf '%s\n' "$changed_files"
+              else
+                echo "No source-tree changes."
+              fi
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [[ -n "$PROMOTED_FROM_BETA_TAG" ]]; then
+            echo "::error::promoted_from_beta_tag is only valid for a Stable target."
+            exit 1
+          fi
+
+          echo "promoted_from_file=$promoted_from_file" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -236,6 +332,7 @@ jobs:
           SOURCE_RUN_ID: ${{ github.run_id }}
           SOURCE_RUN_URL: ${{ steps.candidate.outputs.source_run_url }}
           CREATED_AT: ${{ steps.candidate.outputs.created_at }}
+          PROMOTED_FROM_FILE: ${{ steps.lineage.outputs.promoted_from_file }}
         run: |
           set -euo pipefail
 
@@ -259,6 +356,10 @@ jobs:
           node <<'NODE'
           const fs = require("fs");
 
+          const promotedFrom = process.env.PROMOTED_FROM_FILE
+            ? JSON.parse(fs.readFileSync(process.env.PROMOTED_FROM_FILE, "utf8"))
+            : null;
+
           const metadata = {
             schemaVersion: 1,
             version: process.env.STAGING_VERSION,
@@ -271,6 +372,7 @@ jobs:
             sourceRunId: process.env.SOURCE_RUN_ID,
             sourceRunUrl: process.env.SOURCE_RUN_URL,
             createdAt: process.env.CREATED_AT,
+            promotedFrom,
           };
 
           fs.writeFileSync("candidate-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
@@ -284,6 +386,8 @@ jobs:
             ].join("\n"));
           }
           NODE
+          node "$GITHUB_WORKSPACE/scripts/staging-promotion-policy.mjs" validate-candidate \
+            --file candidate-source.json >/dev/null
 
           git add README.md candidate-source.json
           if git diff --cached --quiet; then
@@ -307,12 +411,17 @@ jobs:
           SOURCE_RUN_ID: ${{ github.run_id }}
           SOURCE_RUN_URL: ${{ steps.candidate.outputs.source_run_url }}
           CREATED_AT: ${{ steps.candidate.outputs.created_at }}
+          PROMOTED_FROM_FILE: ${{ steps.lineage.outputs.promoted_from_file }}
         run: |
           set -euo pipefail
           shopt -s nullglob
 
           node <<'NODE'
           const fs = require("fs");
+
+          const promotedFrom = process.env.PROMOTED_FROM_FILE
+            ? JSON.parse(fs.readFileSync(process.env.PROMOTED_FROM_FILE, "utf8"))
+            : null;
 
           const metadata = {
             schemaVersion: 1,
@@ -326,6 +435,7 @@ jobs:
             sourceRunId: process.env.SOURCE_RUN_ID,
             sourceRunUrl: process.env.SOURCE_RUN_URL,
             createdAt: process.env.CREATED_AT,
+            promotedFrom,
           };
 
           fs.writeFileSync("release/staging-source.json", `${JSON.stringify(metadata, null, 2)}\n`);
@@ -337,9 +447,15 @@ jobs:
             `Production target: ${metadata.targetVersion}`,
             `Attempt: ${metadata.attempt}`,
             `Version: ${metadata.version}`,
+            ...(metadata.promotedFrom ? [
+              `Promoted from Beta: ${metadata.promotedFrom.tag}`,
+              `Beta source commit: ${metadata.promotedFrom.sourceCommit}`,
+            ] : []),
             "",
           ].join("\n"));
           NODE
+          node scripts/staging-promotion-policy.mjs validate-candidate \
+            --file release/staging-source.json >/dev/null
 
           assets=(release/*.dmg release/*.zip release/*.yml release/*.blockmap release/staging-source.json)
           if (( ${#assets[@]} == 0 )); then
@@ -368,14 +484,14 @@ jobs:
             "${publish_args[@]}"
 
   queue_production_promotion:
-    name: Queue Production approval for ${{ needs.staging.outputs.version }}
+    name: Queue Production approval
     needs: staging
     if: ${{ needs.staging.outputs.promotable == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Queue the Stable candidate for approval
+      - name: Queue the candidate for approval
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CANDIDATE_TAG: ${{ needs.staging.outputs.tag }}

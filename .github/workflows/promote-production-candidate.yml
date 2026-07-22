@@ -119,15 +119,62 @@ jobs:
             exit 1
           fi
 
+          if [[ "$CANDIDATE_CHANNEL" == "stable" ]]; then
+            promoted_tag="$(node scripts/staging-promotion-policy.mjs field --file "$RUNNER_TEMP/candidate/staging-source.json" --name promotedFrom.tag)"
+            promoted_source="$(node scripts/staging-promotion-policy.mjs field --file "$RUNNER_TEMP/candidate/staging-source.json" --name promotedFrom.sourceCommit)"
+            promoted_version="$(node scripts/staging-promotion-policy.mjs field --file "$RUNNER_TEMP/candidate/staging-source.json" --name promotedFrom.version)"
+            promoted_dir="$RUNNER_TEMP/promoted-from-beta"
+            mkdir -p "$promoted_dir"
+            gh release view "$promoted_tag" \
+              --repo "$STAGING_REPOSITORY" \
+              --json tagName,isDraft,isPrerelease \
+              > "$promoted_dir/release.json"
+            node - <<'NODE'
+            const fs = require("fs");
+            const release = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/promoted-from-beta/release.json", "utf8"));
+            if (release.isDraft || !release.isPrerelease) {
+              throw new Error("Promoted Beta lineage must still reference a published prerelease.");
+            }
+          NODE
+            gh release download "$promoted_tag" \
+              --repo "$STAGING_REPOSITORY" \
+              --pattern staging-source.json \
+              --dir "$promoted_dir"
+            node scripts/staging-promotion-policy.mjs validate-lineage \
+              --candidate "$RUNNER_TEMP/candidate/staging-source.json" \
+              --promoted-from "$promoted_dir/staging-source.json" >/dev/null
+            if ! git merge-base --is-ancestor "$promoted_source" "$SOURCE_SHA"; then
+              echo "::error::Stable source $SOURCE_SHA no longer descends from promoted Beta source $promoted_source."
+              exit 1
+            fi
+
+            changed_files="$(git diff --name-status "$promoted_source" "$SOURCE_SHA" || true)"
+            {
+              echo ""
+              echo "### Beta → Stable source lineage"
+              echo ""
+              echo "- Beta candidate: [\`$promoted_version\`](https://github.com/$STAGING_REPOSITORY/releases/tag/$promoted_tag)"
+              echo "- Beta source: \`$promoted_source\`"
+              echo "- Stable RC source: \`$SOURCE_SHA\`"
+              echo ""
+              echo '```text'
+              if [[ -n "$changed_files" ]]; then
+                printf '%s\n' "$changed_files"
+              else
+                echo "No source-tree changes."
+              fi
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           git show "$SOURCE_SHA:package.json" > "$RUNNER_TEMP/candidate-package.json"
           package_version="$(node -e '
             const fs = require("fs");
             process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version);
           ' "$RUNNER_TEMP/candidate-package.json")"
-          if [[ "$package_version" != "$TARGET_VERSION" ]]; then
-            echo "::error::Synthetic candidate cannot be promoted. package.json is $package_version, target is $TARGET_VERSION."
-            exit 1
-          fi
+          node scripts/staging-promotion-policy.mjs validate-source-train \
+            --source-version "$package_version" \
+            --target-version "$TARGET_VERSION" >/dev/null
 
           production_tag="v${TARGET_VERSION}"
           replace_draft="false"
@@ -187,6 +234,22 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prepare Production package version
+        env:
+          TARGET_VERSION: ${{ github.event.client_payload.target_version }}
+        run: |
+          set -euo pipefail
+
+          node scripts/staging-promotion-policy.mjs prepare-production-package \
+            --file package.json \
+            --target-version "$TARGET_VERSION"
+
+          actual_version="$(node -p "require('./package.json').version")"
+          if [[ "$actual_version" != "$TARGET_VERSION" ]]; then
+            echo "::error::Failed to inject Production version $TARGET_VERSION into package.json."
+            exit 1
+          fi
 
       - name: Setup macOS signing identity
         id: macos_signing

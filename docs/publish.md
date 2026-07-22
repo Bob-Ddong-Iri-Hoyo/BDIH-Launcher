@@ -82,6 +82,8 @@ Run **TestProduction Candidate** manually from GitHub Actions and provide:
 - `target_version`: `1.0.0` for a Production Stable target or
   `1.0.0-beta.1` for a Production Beta target.
 - `attempt`: a positive candidate attempt number such as `1` or `2`.
+- `promoted_from_beta_tag`: leave empty for Beta. For Stable, enter the exact
+  tested Beta staging tag that becomes the RC's source baseline.
 
 The workflow derives the update channel from `target_version`; there is no
 separate channel choice to enter incorrectly. A plain target becomes a Stable
@@ -92,9 +94,11 @@ the full word `staging` instead of a project-specific abbreviation.
 
 ```text
 target_version=1.0.0, attempt=2
+promoted_from_beta_tag=v1.0.0-beta.2.staging.3+staging.beta
 -> stable channel, version 1.0.0-rc.2
 
 target_version=1.0.0-beta.1, attempt=2
+promoted_from_beta_tag=
 -> beta channel, version 1.0.0-beta.1.staging.2
 ```
 
@@ -127,11 +131,31 @@ next attempt instead of replacing the old tag:
 1.0.0-beta.1.staging.1 -> 1.0.0-beta.1.staging.2
 ```
 
-The workflow enforces the next attempt for the same target. A promotable Stable
-or Beta candidate must also have `package.json` set to the exact target version.
-After a promotable candidate is published, `repository_dispatch` queues
-**Approve Production Candidate** automatically; no Production version or tag
-is entered again.
+GitHub's **Re-run jobs** action uses the workflow definition from the original
+source commit; it does not pick up a newer workflow from `main`. If an attempt
+already published its TestProduction Release or tag, push the workflow fix and
+start the next attempt. Reusing the same attempt is possible only after
+deliberately deleting both that TestProduction Release and its Git tag, which
+should be reserved for pre-release repository cleanup rather than normal
+candidate iteration.
+
+The workflow enforces the next attempt for the same target. `package.json`
+stores the release train only: source `1.0.0` may produce `1.0.0-beta.N`,
+`1.0.0-rc.N`, or final `1.0.0`. A different train such as `1.1.0` is rejected.
+The candidate version is injected into the Staging package, and its target
+version is injected again when the exact source commit is rebuilt for
+Production. After a promotable candidate is published, `repository_dispatch`
+queues **Approve Production Candidate** automatically; no Production version
+or tag is entered again.
+
+A Stable RC additionally embeds the complete selected Beta candidate metadata.
+The Staging workflow rejects a Beta from another final-version line, a
+superseded attempt for that Beta target, or a Stable source commit that does not
+descend from the Beta source commit. The candidate and final publication gates
+download the Beta metadata again, verify the lineage, and show the Beta and RC
+source SHAs. Source changes after Beta are allowed because release metadata or
+fixes may be necessary, but the file diff is displayed and the Stable RC must
+be tested again.
 
 The candidate approval job accepts only the highest published attempt for the
 exact Stable or Beta target. It rebuilds the exact candidate source with the
@@ -172,13 +196,13 @@ as Wine/DXMT versions are data, not schema versions, and remain untouched during
 the normal return.
 
 For the first Production version there is no real predecessor. The staging
-workflow permits a synthetic target that differs from `package.json` for update
-testing, but it does not queue Production approval. A real promotable Stable
-candidate requires `package.json: 1.0.0`; a real Beta candidate requires, for
-example, `package.json: 1.0.0-beta.1`. The approved Staging source is rebuilt as
-Production without the `rc.N` or `staging.N` candidate suffix. Production and
-Staging use different bundle identifiers and update repositories, so the
-Staging app does not update directly into the Production app.
+workflow permits a synthetic target from another release train for update
+testing, but it does not queue Production approval. Both real Stable and Beta
+candidates for the `1.0.0` train require `package.json: 1.0.0`. The approved
+Staging source is rebuilt as Production with the target version injected and
+without the `rc.N` or `staging.N` candidate suffix. Production and Staging use
+different bundle identifiers and update repositories, so the Staging app does
+not update directly into the Production app.
 
 The first certificate-signed build cannot update an installation made with the
 old per-build ad-hoc signature. Install that first signed build manually once;

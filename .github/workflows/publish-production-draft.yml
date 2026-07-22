@@ -115,6 +115,46 @@ jobs:
             --expected-source-commit "$SOURCE_SHA" \
             --expected-channel "$CANDIDATE_CHANNEL"
 
+          if [[ "$CANDIDATE_CHANNEL" == "stable" ]]; then
+            promoted_tag="$(node scripts/staging-promotion-policy.mjs field --file "$RUNNER_TEMP/candidate/staging-source.json" --name promotedFrom.tag)"
+            promoted_source="$(node scripts/staging-promotion-policy.mjs field --file "$RUNNER_TEMP/candidate/staging-source.json" --name promotedFrom.sourceCommit)"
+            promoted_version="$(node scripts/staging-promotion-policy.mjs field --file "$RUNNER_TEMP/candidate/staging-source.json" --name promotedFrom.version)"
+            promoted_dir="$RUNNER_TEMP/promoted-from-beta"
+            mkdir -p "$promoted_dir"
+            gh release view "$promoted_tag" \
+              --repo "$STAGING_REPOSITORY" \
+              --json isDraft,isPrerelease > "$promoted_dir/release.json"
+            promoted_state="$(node -e '
+              const fs = require("fs");
+              const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              process.stdout.write(`${release.isDraft}\t${release.isPrerelease}`);
+            ' "$promoted_dir/release.json")"
+            if [[ "$promoted_state" != $'false\ttrue' ]]; then
+              echo "::error::Promoted Beta lineage no longer references a published prerelease."
+              exit 1
+            fi
+            gh release download "$promoted_tag" \
+              --repo "$STAGING_REPOSITORY" \
+              --pattern staging-source.json \
+              --dir "$promoted_dir"
+            node scripts/staging-promotion-policy.mjs validate-lineage \
+              --candidate "$RUNNER_TEMP/candidate/staging-source.json" \
+              --promoted-from "$promoted_dir/staging-source.json" >/dev/null
+            if ! git merge-base --is-ancestor "$promoted_source" "$SOURCE_SHA"; then
+              echo "::error::Stable source $SOURCE_SHA no longer descends from Beta source $promoted_source."
+              exit 1
+            fi
+
+            {
+              echo ""
+              echo "### Verified Beta → Stable lineage"
+              echo ""
+              echo "- Beta candidate: [\`$promoted_version\`](https://github.com/$STAGING_REPOSITORY/releases/tag/$promoted_tag)"
+              echo "- Beta source: \`$promoted_source\`"
+              echo "- Stable RC source: \`$SOURCE_SHA\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           gh release view "$PRODUCTION_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --json tagName,isDraft,isPrerelease,targetCommitish,url \
