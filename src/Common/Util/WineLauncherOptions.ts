@@ -4,6 +4,7 @@ import type {
   WineLauncherOptionPreset,
   WineLauncherOptionsManifest,
   WineLauncherOptionValue,
+  WineRuntimeCapabilities,
 } from "../Types/Wine";
 
 /**
@@ -47,6 +48,7 @@ export function normalize_wine_launcher_options_manifest(value: unknown): WineLa
     launcherContract: is_record(value.launcherContract)
       ? { ...value.launcherContract }
       : undefined,
+    capabilities: normalize_runtime_capabilities(value.capabilities),
     groups,
   };
 }
@@ -152,6 +154,47 @@ function launcher_option_value(value: unknown): WineLauncherOptionValue | undefi
   }
 
   return undefined;
+}
+
+function normalize_runtime_capabilities(value: unknown): WineRuntimeCapabilities | undefined {
+  if (!is_record(value)) {
+    return undefined;
+  }
+
+  const telemetry = value.bdihProcessTelemetry;
+  const proxy = value.hoyoPlayProxy;
+  const capabilities: WineRuntimeCapabilities = {};
+
+  if (
+    is_record(telemetry)
+    && telemetry.protocol === 1
+    && telemetry.transport === "fifo"
+    && telemetry.activationEnvironment === "WINE_BDIH_PROCESS_TELEMETRY"
+    && telemetry.pipeEnvironment === "WINE_BDIH_PROCESS_PIPE"
+  ) {
+    capabilities.bdihProcessTelemetry = {
+      protocol: 1,
+      transport: "fifo",
+      activationEnvironment: "WINE_BDIH_PROCESS_TELEMETRY",
+      pipeEnvironment: "WINE_BDIH_PROCESS_PIPE",
+    };
+  }
+
+  if (
+    capabilities.bdihProcessTelemetry
+    && is_record(proxy)
+    && proxy.protocol === 1
+    && proxy.relativePath === "share/bdhi/helpers/hoyoplay-proxy.exe"
+    && proxy.requiresProcessTelemetry === true
+  ) {
+    capabilities.hoyoPlayProxy = {
+      protocol: 1,
+      relativePath: "share/bdhi/helpers/hoyoplay-proxy.exe",
+      requiresProcessTelemetry: true,
+    };
+  }
+
+  return Object.keys(capabilities).length > 0 ? capabilities : undefined;
 }
 
 function array_of_strings(value: unknown): string[] | undefined {

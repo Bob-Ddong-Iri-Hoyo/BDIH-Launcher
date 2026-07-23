@@ -75,6 +75,10 @@ module.exports = {
       from: "resouces/locales",
       to: "locales",
     },
+    {
+      from: "build/native/bdih-guardian",
+      to: "native/bdih-guardian",
+    },
     ...(isNightly ? [
       {
         from: "build/nightly-build.json",
@@ -95,6 +99,7 @@ module.exports = {
   ],
   mac: {
     icon: "build/icon.icns",
+    binaries: ["Contents/Resources/native/bdih-guardian"],
     ...(bridgeRequirements ? { requirements: bridgeRequirements } : {}),
     ...(isNightly ? {
       extendInfo: {

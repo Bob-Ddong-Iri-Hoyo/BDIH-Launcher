@@ -39,12 +39,31 @@ export interface WineLauncherOptionGroup {
   options: WineLauncherOptionDefinition[];
 }
 
+export interface WineProcessTelemetryCapability {
+  protocol: number;
+  transport: "fifo";
+  activationEnvironment: string;
+  pipeEnvironment: string;
+}
+
+export interface WineHoyoPlayProxyCapability {
+  protocol: number;
+  relativePath: "share/bdhi/helpers/hoyoplay-proxy.exe";
+  requiresProcessTelemetry: true;
+}
+
+export interface WineRuntimeCapabilities {
+  bdihProcessTelemetry?: WineProcessTelemetryCapability;
+  hoyoPlayProxy?: WineHoyoPlayProxyCapability;
+}
+
 export interface WineLauncherOptionsManifest {
   schemaVersion: number;
   id: string;
   name: string;
   wineFamilies?: string[];
   launcherContract?: Record<string, unknown>;
+  capabilities?: WineRuntimeCapabilities;
   groups: WineLauncherOptionGroup[];
 }
 

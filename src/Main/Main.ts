@@ -18,10 +18,13 @@ import { updateManager } from "./Manager/UpdateManager";
 import { windowManager } from "./Manager/WindowManager";
 import { youtubeManager } from "./Manager/YouTubeManager";
 import { channelTransitionManager } from "./Manager/ChannelTransitionManager";
+import { guardianManager } from "./Manager/GuardianManager";
 
 // Main-process entry state used to make the asynchronous quit cleanup idempotent.
 let isQuitCleanupComplete = false;
 let quitCleanupPromise: Promise<void> | null = null;
+let processProtectionPromise: Promise<void> | null = null;
+let appCreationPromise: Promise<void> | null = null;
 const UPDATE_INSTALL_HANDOFF_DELAY_MS = 350;
 const IS_UPDATE_TEST_BUILD = is_update_test_build();
 const IS_NIGHTLY_BUILD = is_nightly_launcher_build();
@@ -72,6 +75,16 @@ if (IS_UPDATE_TEST_BUILD) {
 
 load_dotenv_config({ quiet: true });
 
+// Acquire the lock only after update-test builds have moved Electron's
+// userData path. A secondary launcher must never run orphan recovery because
+// it could otherwise terminate Wine owned by the primary launcher.
+const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
+
+if (!HAS_SINGLE_INSTANCE_LOCK) {
+  isQuitCleanupComplete = true;
+  app.quit();
+}
+
 /**
  * Applies user-facing app identity after preferences have loaded.
  *
@@ -102,6 +115,7 @@ async function createApp(): Promise<void> {
     logDir: path.join(expand_user_home_path(preference.dataRootPath), "logs"),
     minLevel: log_level_from_preference(preference.appLoggingLevel),
   });
+  await ensure_process_protection(preference);
   if (!IS_UPDATE_TEST_BUILD && !IS_STAGING_BUILD) {
     discordPresenceManager.init(preference.language);
   }
@@ -123,6 +137,38 @@ async function createApp(): Promise<void> {
     // remain behind the renderer's explicit user-confirmation flow.
     void updateManager.checkForUpdates(mainWindow);
   }
+}
+
+async function ensure_process_protection(
+  preference: Awaited<ReturnType<typeof preferenceManager.getPreference>>,
+): Promise<void> {
+  processProtectionPromise ??= (async () => {
+    const roots = await bottleExecutionManager.getManagedWineRoots(preference);
+
+    // Start the independent Guardian first. If Electron dies while startup
+    // recovery is running, the Guardian still finishes cleanup.
+    await guardianManager.start(roots);
+    const recovery = await bottleExecutionManager.recoverOrphanedWineProcesses(preference);
+
+    if (recovery.detectedPids.length > 0) {
+      logManager.warn("Main", "recovered Wine processes from a previous launcher crash", {
+        ...recovery,
+      });
+    }
+  })();
+
+  await processProtectionPromise;
+}
+
+function ensure_app_created(): Promise<void> {
+  if (appCreationPromise) {
+    return appCreationPromise;
+  }
+
+  appCreationPromise = createApp().finally(() => {
+    appCreationPromise = null;
+  });
+  return appCreationPromise;
 }
 
 // Expands only the launcher-supported home shorthand before handing paths to Node APIs.
@@ -226,6 +272,7 @@ async function cleanupBeforeQuit(): Promise<void> {
     downloadManager.stopAll(),
     bottleExecutionManager.stopAllWineProcesses(),
   ]);
+  await guardianManager.disarm();
 
   const minimumVisibleMs = 600;
   const remainingVisibleMs = minimumVisibleMs - (Date.now() - shutdownWindowShownAt);
@@ -277,6 +324,7 @@ updateManager.setInstallProgressHandler(async (payload) => {
   // Give the renderer one paint at the final handoff stage before Squirrel
   // closes Electron and replaces the application bundle.
   if (payload.stage === "installing" && payload.progress >= 96) {
+    await guardianManager.disarm();
     await new Promise((resolve) => setTimeout(resolve, UPDATE_INSTALL_HANDOFF_DELAY_MS));
   }
 });
@@ -286,17 +334,36 @@ function handleStartupFailure(error: unknown): void {
   app.exit(1);
 }
 
-app.whenReady().then(async () => {
-  await createApp();
+if (HAS_SINGLE_INSTANCE_LOCK) {
+  app.on("second-instance", () => {
+    const mainWindow = windowManager.getMainWindow();
 
-  // macOS keeps apps alive after the last window closes, so recreate the window
-  // when the dock icon is clicked and no main window exists.
-  app.on("activate", () => {
-    if (!windowManager.getMainWindow()) {
-      void createApp().catch(handleStartupFailure);
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+      return;
+    }
+
+    if (app.isReady()) {
+      void ensure_app_created().catch(handleStartupFailure);
     }
   });
-}).catch(handleStartupFailure);
+
+  app.whenReady().then(async () => {
+    await ensure_app_created();
+
+    // macOS keeps apps alive after the last window closes, so recreate the window
+    // when the dock icon is clicked and no main window exists.
+    app.on("activate", () => {
+      if (!windowManager.getMainWindow()) {
+        void ensure_app_created().catch(handleStartupFailure);
+      }
+    });
+  }).catch(handleStartupFailure);
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

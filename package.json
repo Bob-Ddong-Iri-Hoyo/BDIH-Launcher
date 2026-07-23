@@ -17,7 +17,8 @@
     "build:preload": "webpack --config src/Preload/webpack.prod.ts",
     "build:renderer:dev": "webpack --config src/Renderer/webpack.dev.ts",
     "build:renderer": "webpack --config src/Renderer/webpack.prod.ts",
-    "build": "pnpm build:preload && pnpm build:renderer && pnpm build:main",
+    "build:guardian": "node scripts/build-guardian.mjs",
+    "build": "pnpm build:guardian && pnpm build:preload && pnpm build:renderer && pnpm build:main",
     "build:test": "node scripts/build-update-test.mjs",
     "build:test:stable": "node scripts/build-update-test.mjs --channel stable",
     "build:test:beta": "node scripts/build-update-test.mjs --channel beta",
@@ -43,6 +44,10 @@
     "test:update-build-script": "node --test tests/scripts/build-update-test.test.mjs",
     "test:staging-promotion-policy": "node --test tests/scripts/staging-promotion-policy.test.mjs",
     "test:signing-script": "node --test tests/scripts/create-p12.test.mjs",
+    "test:guardian": "node --test tests/scripts/guardian.test.mjs",
+    "test:guardian:app": "pnpm build && node --test tests/scripts/guardian-app.integration.test.mjs",
+    "test:hoyo-proxy:build": "bash ../wine-build/BDIH-HelperProgram/hoyoplay-proxy/build.sh",
+    "start:hoyo-proxy": "pnpm test:hoyo-proxy:build && BDIH_HOYO_PROXY_TEST=1 BDIH_HOYO_PROXY_TEST_EXE=../wine-build/BDIH-HelperProgram/hoyoplay-proxy/build/hoyoplay-proxy.exe pnpm start:all",
     "test:jest:watch": "jest --watch"
   },
   "keywords": [
@@ -76,6 +81,10 @@
       {
         "from": "resouces/locales",
         "to": "locales"
+      },
+      {
+        "from": "build/native/bdih-guardian",
+        "to": "native/bdih-guardian"
       }
     ],
     "files": [
@@ -98,7 +107,10 @@
           ]
         }
       ],
-      "category": "public.app-category.games"
+      "category": "public.app-category.games",
+      "binaries": [
+        "Contents/Resources/native/bdih-guardian"
+      ]
     }
   },
   "devDependencies": {

@@ -9,3 +9,4 @@ screenshots/
 tmp*
 .env
 private/
+build/native/bdih-guardian

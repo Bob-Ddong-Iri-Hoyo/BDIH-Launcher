@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { realpathSync } from "fs";
 import path from "path";
 
 const COMMAND_CAPTURE_TIMEOUT_MS = 5000;
@@ -185,8 +186,18 @@ function normalize_roots(roots: string[]): string[] {
   return [...new Set(roots
     .map((root) => root.trim())
     .filter(Boolean)
-    .map((root) => path.resolve(expand_user_home_path(root))),
+    .map((root) => canonicalize_existing_path(expand_user_home_path(root))),
   )];
+}
+
+function canonicalize_existing_path(targetPath: string): string {
+  const resolvedPath = path.resolve(targetPath);
+
+  try {
+    return realpathSync.native(resolvedPath);
+  } catch {
+    return resolvedPath;
+  }
 }
 
 function path_is_within_root(root: string, targetPath: string): boolean {

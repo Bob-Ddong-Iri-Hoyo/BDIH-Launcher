@@ -35,6 +35,7 @@ import { processManager } from "./ProcessManager";
 import { send_to_web_contents } from "../Util/SafeWebContents";
 import { channelTransitionManager, ChannelTransitionManager } from "./ChannelTransitionManager";
 import type { ChannelTransitionRequest, ChannelTransitionResult } from "../../Common/Types/Compatibility";
+import { guardianManager, GuardianManager } from "./GuardianManager";
 
 /**
  * Owns every Electron IPC boundary used by the launcher.
@@ -61,6 +62,7 @@ export class IPCManager {
     private readonly youtube: YouTubeManager,
     private readonly rosettas: RosettaManager,
     private readonly channelTransitions: ChannelTransitionManager,
+    private readonly guardian: GuardianManager,
   ) {}
 
   init(): void {
@@ -481,6 +483,9 @@ export class IPCManager {
           Object.prototype.hasOwnProperty.call(patch, "dataRootPath")
           || Object.prototype.hasOwnProperty.call(patch, "bottlePrefixPath")
         ) {
+          const previousRoots = await this.bottleExecutions.getManagedWineRoots(previousPreference);
+          const nextRoots = await this.bottleExecutions.getManagedWineRoots(preference);
+          await this.guardian.updateRoots([...previousRoots, ...nextRoots]);
           this.bottles.clearCache();
         }
 
@@ -1180,4 +1185,5 @@ export const ipcManager = new IPCManager(
   youtubeManager,
   rosettaManager,
   channelTransitionManager,
+  guardianManager,
 );

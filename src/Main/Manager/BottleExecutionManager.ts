@@ -46,6 +46,13 @@ import type { LauncherPreference } from "./PreferenceManager";
 import { discordPresenceManager } from "./DiscordPresenceManager";
 import { wineOverseer } from "./WineOverseer";
 import type { HoyoOverseerEvent } from "./WineOverseer";
+import {
+  wineProcessMonitor,
+  type WineProcessEvent,
+  type WineProcessSnapshot,
+  type WineTelemetryEvent,
+} from "./WineProcessMonitor";
+import { hoyoPlayProxyManager } from "./HoyoPlayProxyManager";
 import { bottleManager } from "./BottleManager";
 import { get_hoyo_game_profile, type HoyoGameProfile } from "../Data/Hoyoverse/HoyoGameProfile";
 import { get_launcher_runtime_profile } from "../Data/GameProfile";
@@ -54,6 +61,7 @@ import { send_to_web_contents } from "../Util/SafeWebContents";
 import {
   find_managed_wine_process_ids,
   has_managed_wine_executable_process,
+  type ManagedWineProcessCleanupResult,
   terminate_managed_wine_processes,
 } from "../Util/ManagedWineProcesses";
 import { ensure_shared_games_drive, inspect_symlink } from "../Util/SharedGamesDrive";
@@ -92,8 +100,19 @@ const HOYOPLAY_FOREGROUND_TIMEOUT_MS = 120_000;
 const LAUNCHER_EXECUTABLE_STABLE_MS = 2000;
 const LAUNCHER_EXECUTABLE_POST_INSTALLER_EXIT_GRACE_MS = 30_000;
 const PREFIX_SESSION_WATCH_DELAY_MS = 500;
+const WINE_PROCESS_TELEMETRY_STARTUP_FALLBACK_MS = 10_000;
 const STEAM_GAME_PROCESS_LOG_POLL_MS = 750;
 const HOYO_STEAM_STUB_WIN_PATH = "C:\\windows\\system32\\steam.exe";
+const HOYO_PROXY_TEST_ENV = "BDIH_HOYO_PROXY_TEST";
+const HOYO_PROXY_TEST_EXE_ENV = "BDIH_HOYO_PROXY_TEST_EXE";
+const HOYO_PROXY_TEST_RELATIVE_PATH = path.join(
+  "..",
+  "wine-build",
+  "BDIH-HelperProgram",
+  "hoyoplay-proxy",
+  "build",
+  "hoyoplay-proxy.exe",
+);
 const DXMT_RUNTIME_CACHE_DIR_NAME = ".cache/dxmt";
 const DXMT_SHADER_CACHE_DIR_NAME = ".cache/dxmt-shaders";
 
@@ -113,6 +132,11 @@ interface PrefixSession {
   waiter?: ParamRunProgramReturn;
   overseerProcessIds?: Set<string>;
   steamGameProcessWatcher?: SteamGameProcessWatcher;
+  wineProcessUnsubscribe?: () => void;
+  wineProcessTelemetryActive?: boolean;
+  wineProcessTelemetryFallbackTimer?: NodeJS.Timeout;
+  wineTrackedSteamPidsByAppId?: Map<string, Set<number>>;
+  wineTrackedSteamAppIdByPid?: Map<number, string>;
   steamLauncherOwnerAppId?: string;
   ended: boolean;
 }
@@ -916,21 +940,25 @@ export class BottleExecutionManager {
         onLog: (data) => appLogger.info("stdout", data.trim()),
         onError: (data) => appLogger.warn("stderr", data.trim()),
       });
-      const prefixSessionProcessId = isInstallerMode || launcherSessionKind
+      const processTelemetrySupported = supports_wine_process_telemetry(
+        effectiveLauncherOptionsManifest,
+      );
+      const prefixSessionProcessId = isInstallerMode || launcherSessionKind || processTelemetrySupported
         ? this.startPrefixSession(
             {
               ...request,
               wineRuntimePath: effectiveWineRuntimePath,
+              launcherOptionsManifest: effectiveLauncherOptionsManifest,
             },
-          {
-            launcher: launcherSessionKind,
-            appId: isInstallerMode ? undefined : request.appId ?? launcherSessionKind,
-            appName: isInstallerMode ? undefined : appName,
-            executionMode,
-            steamGameProcessLogPath: launcherSessionKind === "steam"
-              ? steam_game_process_log_path(bottlePath, executablePath)
-              : undefined,
-          },
+            {
+              launcher: launcherSessionKind,
+              appId: isInstallerMode ? undefined : request.appId ?? launcherSessionKind,
+              appName: isInstallerMode ? undefined : appName,
+              executionMode,
+              steamGameProcessLogPath: launcherSessionKind === "steam"
+                ? steam_game_process_log_path(bottlePath, executablePath)
+                : undefined,
+            },
             sender,
           )
         : undefined;
@@ -1150,8 +1178,11 @@ export class BottleExecutionManager {
       apply_launch_options_to_env(env, launchOptions);
       apply_hoyo_overseer_routing_environment(env, {
         dataRootPath: expand_user_home_path(preference.dataRootPath),
+        wineRoot,
+        launcherOptionsManifest,
         wineBinCommand,
         wineserverCommand,
+        processTelemetrySupported: supports_wine_process_telemetry(launcherOptionsManifest),
       });
       await apply_wine_registry_launch_options(
         effectiveWineCommand,
@@ -1173,6 +1204,10 @@ export class BottleExecutionManager {
           ? "dxmt-wine"
           : "base-wine",
         hasLauncherOptionsManifest: Boolean(launcherOptionsManifest),
+        hoyoRoutingMode: env.WINE_HOYO_STUB_LOG_ONLY === "1"
+          ? "event-only"
+          : "proxy",
+        hoyoRoutingStub: env.WINE_HOYO_STUB_GENSHIN,
         appliedLaunchEnv: pick_launch_option_env(env),
       });
 
@@ -1328,6 +1363,37 @@ export class BottleExecutionManager {
       executablePath: event.targetWin,
       executableArgs,
     };
+    const launcherPrefixPath = create_launcher_prefix_path(context.bottleRootPath, "hoyoplay");
+    const proxyRoute = hoyoPlayProxyManager.registerRoute({
+      bottleId: context.request.bottleId,
+      game: event.game,
+      launcherPrefixPath,
+      gamePrefixPath: eventRequest.bottlePath,
+      wineCommand: context.wineCommand,
+      sourceWinePid: optional_wine_pid(event.raw.sourcePid),
+      stubPath: optional_record_string(event.raw.stub),
+      targetWin: event.targetWin,
+      launcherSnapshot: wineProcessMonitor.snapshot(launcherPrefixPath),
+      gameSnapshot: wineProcessMonitor.snapshot(eventRequest.bottlePath),
+    });
+    if (proxyRoute?.status === "duplicate") {
+      appLogger.info("HoYoPlay duplicate game launch was blocked", {
+        bottleId: context.request.bottleId,
+        game: event.game,
+        targetWin: event.targetWin,
+        bindingId: proxyRoute.bindingId,
+        activeBindingId: proxyRoute.activeBindingId,
+        targetUnixPids: proxyRoute.targetUnixPids,
+      });
+      macOSWineWindowFocusManager.requestFocus({
+        prefixPath: eventRequest.bottlePath,
+        executableNames: [event.targetWin],
+        preferredPids: proxyRoute.targetUnixPids,
+        label: appName,
+      }, appLogger);
+      return;
+    }
+    const proxyBindingId = proxyRoute?.bindingId;
     const eventLaunchOptions = filter_launch_options_by_manifest(
       resolve_launch_options_for_app(
         {
@@ -1356,6 +1422,21 @@ export class BottleExecutionManager {
       : event.game === "hsr"
         ? await this.runHoyoHsrExecutable(strategyContext, sender)
         : await this.runHoyoGenshinExecutable(strategyContext, sender);
+
+    if (proxyBindingId) {
+      if (result.ok && result.processId) {
+        hoyoPlayProxyManager.attachGameSession(
+          proxyBindingId,
+          result.processId,
+          wineProcessMonitor.snapshot(eventRequest.bottlePath),
+        );
+      } else {
+        hoyoPlayProxyManager.failRoute(
+          proxyBindingId,
+          result.error ?? `${appName} launch failed before a game session was attached.`,
+        );
+      }
+    }
 
     if (!result.ok) {
       send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
@@ -2909,6 +2990,54 @@ export class BottleExecutionManager {
     return (await find_managed_wine_process_ids(await this.getManagedWineRoots())).length > 0;
   }
 
+  async recoverOrphanedWineProcesses(
+    preference?: LauncherPreference,
+  ): Promise<ManagedWineProcessCleanupResult> {
+    const roots = await this.getManagedWineRoots(preference);
+    const detectedPids = await find_managed_wine_process_ids(roots);
+
+    if (detectedPids.length === 0) {
+      return {
+        detectedPids: [],
+        terminatedPids: [],
+        remainingPids: [],
+      };
+    }
+
+    this.logger.warn("recovering Wine processes left by a previous launcher instance", {
+      roots,
+      detectedPids,
+    });
+    const cleanup = await terminate_managed_wine_processes(roots);
+    if (cleanup.remainingPids.length > 0) {
+      this.logger.error("orphan Wine recovery failed", {
+        roots,
+        ...cleanup,
+      });
+      throw new Error(
+        `Failed to recover Wine processes from the previous launcher instance: `
+        + cleanup.remainingPids.join(", "),
+      );
+    }
+
+    this.logger.info("orphan Wine recovery completed", {
+      roots,
+      ...cleanup,
+    });
+    return cleanup;
+  }
+
+  async getManagedWineRoots(
+    preference?: LauncherPreference,
+  ): Promise<string[]> {
+    const resolvedPreference = preference ?? await preferenceManager.getPreference();
+
+    return [...new Set([
+      expand_user_home_path(resolvedPreference.dataRootPath),
+      expand_user_home_path(resolvedPreference.bottlePrefixPath),
+    ].map((root) => path.resolve(root)))];
+  }
+
   hasActiveWineProcessesForBottle(bottleId: string): boolean {
     return [...this.activeWinePrefixes.values()].some((context) => context.bottleId === bottleId) ||
       [...this.prefixSessionsByPrefixPath.values()].some((session) => !session.ended && session.bottleId === bottleId);
@@ -3066,17 +3195,11 @@ export class BottleExecutionManager {
     }
   }
 
-  private async getManagedWineRoots(): Promise<string[]> {
-    const preference = await preferenceManager.getPreference();
-
-    return [
-      preference.dataRootPath,
-      preference.bottlePrefixPath,
-    ];
-  }
-
   private startPrefixSession(
-    request: Pick<SetupBottlePrefixPayload, "bottleId" | "bottleName" | "bottlePath" | "wineRuntimePath">,
+    request: Pick<
+      SetupBottlePrefixPayload,
+      "bottleId" | "bottleName" | "bottlePath" | "wineRuntimePath" | "launcherOptionsManifest"
+    >,
     context: {
       launcher?: BottleLauncherKind;
       appId?: string;
@@ -3149,6 +3272,16 @@ export class BottleExecutionManager {
       bottleName: request.bottleName,
       wineRuntimePath: request.wineRuntimePath,
     });
+    const processTelemetrySupported = supports_wine_process_telemetry(
+      request.launcherOptionsManifest
+        ?? read_wine_launcher_options_manifest(request.wineRuntimePath),
+    );
+    if (processTelemetrySupported) {
+      session.wineProcessUnsubscribe = wineProcessMonitor.subscribe(
+        prefixPath,
+        (event, snapshot) => this.applyWineProcessTelemetry(session, event, snapshot),
+      );
+    }
     this.sendPrefixSessionUpdate(session, true);
     this.logger.info("prefix session started", {
       processId,
@@ -3173,8 +3306,148 @@ export class BottleExecutionManager {
       this.startSteamGameProcessWatcher(session, context.steamGameProcessLogPath);
     }
 
-    setTimeout(() => this.startPrefixSessionWaiter(session), PREFIX_SESSION_WATCH_DELAY_MS);
+    if (processTelemetrySupported) {
+      const initialWineProcessSnapshot = wineProcessMonitor.snapshot(prefixPath);
+      if (
+        initialWineProcessSnapshot.telemetryReceived
+        && initialWineProcessSnapshot.serverRunning
+      ) {
+        this.activateWineProcessTelemetry(session, initialWineProcessSnapshot);
+      }
+    }
+
+    if (processTelemetrySupported) {
+      session.wineProcessTelemetryFallbackTimer = setTimeout(() => {
+        session.wineProcessTelemetryFallbackTimer = undefined;
+        if (!session.ended && !session.wineProcessTelemetryActive) {
+          this.logger.warn("Wine process telemetry did not start in time; using wineserver waiter fallback", {
+            processId: session.processId,
+            prefixPath: session.prefixPath,
+          });
+          this.startPrefixSessionWaiter(session);
+        }
+      }, WINE_PROCESS_TELEMETRY_STARTUP_FALLBACK_MS);
+      session.wineProcessTelemetryFallbackTimer.unref?.();
+    } else {
+      setTimeout(() => this.startPrefixSessionWaiter(session), PREFIX_SESSION_WATCH_DELAY_MS);
+    }
     return processId;
+  }
+
+  private applyWineProcessTelemetry(
+    session: PrefixSession,
+    event: WineTelemetryEvent,
+    snapshot: WineProcessSnapshot,
+  ): void {
+    if (session.ended) {
+      return;
+    }
+
+    if (event.type === "server_stop") {
+      this.finishPrefixSession(session);
+      return;
+    }
+
+    this.activateWineProcessTelemetry(session, snapshot);
+    if (event.type !== "server_start") {
+      hoyoPlayProxyManager.observeLauncherProcess(session.prefixPath, event);
+      hoyoPlayProxyManager.observeGameProcess(session.prefixPath, event);
+    }
+
+    if (
+      session.launcher === "steam"
+      && event.type !== "server_start"
+    ) {
+      if (event.type === "start") {
+        this.trackSteamGameFromWineProcess(session, event);
+      } else if (event.type === "exit") {
+        this.untrackSteamGameFromWineProcess(session, event.winePid);
+      }
+    }
+  }
+
+  private activateWineProcessTelemetry(
+    session: PrefixSession,
+    snapshot: WineProcessSnapshot,
+  ): void {
+    if (!snapshot.telemetryReceived || session.ended) {
+      return;
+    }
+
+    if (!session.wineProcessTelemetryActive) {
+      session.wineProcessTelemetryActive = true;
+      if (session.wineProcessTelemetryFallbackTimer) {
+        clearTimeout(session.wineProcessTelemetryFallbackTimer);
+        session.wineProcessTelemetryFallbackTimer = undefined;
+      }
+      session.steamGameProcessWatcher?.trackedPidsByAppId.clear();
+      this.logger.info("Wine process telemetry became authoritative for prefix session", {
+        processId: session.processId,
+        prefixPath: session.prefixPath,
+      });
+      if (session.launcher === "steam") {
+        for (const process of snapshot.processes) {
+          this.trackSteamGameFromWineProcess(session, process);
+        }
+      }
+    }
+  }
+
+  private trackSteamGameFromWineProcess(
+    session: PrefixSession,
+    event: WineProcessEvent,
+  ): void {
+    const steamAppId = event.steamAppId?.trim();
+    const executableName = wine_process_executable_name(event.imagePath);
+
+    if (
+      !steamAppId
+      || !/^\d+$/.test(steamAppId)
+      || is_steam_infrastructure_process(executableName)
+    ) {
+      return;
+    }
+
+    const appId = `steam:${steamAppId}`;
+    const trackedPids = session.wineTrackedSteamPidsByAppId?.get(appId) ?? new Set<number>();
+    const wasRunning = trackedPids.size > 0;
+
+    trackedPids.add(event.winePid);
+    session.wineTrackedSteamPidsByAppId = session.wineTrackedSteamPidsByAppId ?? new Map();
+    session.wineTrackedSteamPidsByAppId.set(appId, trackedPids);
+    session.wineTrackedSteamAppIdByPid = session.wineTrackedSteamAppIdByPid ?? new Map();
+    session.wineTrackedSteamAppIdByPid.set(event.winePid, appId);
+    session.appIds = session.appIds ?? new Set();
+    session.appIds.add(appId);
+
+    if (!wasRunning) {
+      this.logger.info("Steam game identified from Wine process telemetry", {
+        bottleId: session.bottleId,
+        appId,
+        winePid: event.winePid,
+        unixPid: event.unixPid,
+        imagePath: event.imagePath,
+      });
+      this.reconcileSteamGameRegistration(session, steamAppId);
+      this.sendPrefixSessionUpdate(session, true);
+    }
+  }
+
+  private untrackSteamGameFromWineProcess(session: PrefixSession, winePid: number): void {
+    const appId = session.wineTrackedSteamAppIdByPid?.get(winePid);
+
+    if (!appId) {
+      return;
+    }
+
+    session.wineTrackedSteamAppIdByPid?.delete(winePid);
+    const trackedPids = session.wineTrackedSteamPidsByAppId?.get(appId);
+    trackedPids?.delete(winePid);
+
+    if (!trackedPids || trackedPids.size === 0) {
+      session.wineTrackedSteamPidsByAppId?.delete(appId);
+      this.removeSteamTrackedGame(session, appId);
+    }
   }
 
   private startSteamGameProcessWatcher(session: PrefixSession, logPath: string): void {
@@ -3199,7 +3472,9 @@ export class BottleExecutionManager {
   }
 
   private async stopSteamGameProcess(session: PrefixSession, appId: string): Promise<void> {
-    const trackedPids = session.steamGameProcessWatcher?.trackedPidsByAppId.get(appId);
+    const trackedPids = session.wineProcessTelemetryActive
+      ? session.wineTrackedSteamPidsByAppId?.get(appId)
+      : session.steamGameProcessWatcher?.trackedPidsByAppId.get(appId);
     const pids = trackedPids ? [...trackedPids] : [];
 
     if (pids.length === 0) {
@@ -3301,7 +3576,7 @@ export class BottleExecutionManager {
   private applySteamGameProcessLogLine(session: PrefixSession, line: string): void {
     const watcher = session.steamGameProcessWatcher;
 
-    if (!watcher) {
+    if (!watcher || session.wineProcessTelemetryActive) {
       return;
     }
 
@@ -3386,7 +3661,11 @@ export class BottleExecutionManager {
 
   private removeSteamTrackedGame(session: PrefixSession, appId: string): void {
     const watcher = session.steamGameProcessWatcher;
-    const wasTracked = Boolean(watcher?.trackedPidsByAppId.delete(appId) || session.appIds?.has(appId));
+    const wasTracked = Boolean(
+      watcher?.trackedPidsByAppId.delete(appId)
+      || session.wineTrackedSteamPidsByAppId?.delete(appId)
+      || session.appIds?.has(appId),
+    );
 
     if (!wasTracked) {
       return;
@@ -3479,6 +3758,14 @@ export class BottleExecutionManager {
     }
 
     session.ended = true;
+    if (session.wineProcessTelemetryFallbackTimer) {
+      clearTimeout(session.wineProcessTelemetryFallbackTimer);
+      session.wineProcessTelemetryFallbackTimer = undefined;
+    }
+    hoyoPlayProxyManager.finishGameSession(session.processId);
+    hoyoPlayProxyManager.finishLauncherPrefix(session.prefixPath);
+    session.wineProcessUnsubscribe?.();
+    session.wineProcessUnsubscribe = undefined;
     if (session.steamGameProcessWatcher) {
       clearInterval(session.steamGameProcessWatcher.timer);
       session.steamGameProcessWatcher = undefined;
@@ -3495,6 +3782,7 @@ export class BottleExecutionManager {
     this.prefixSessionsByPrefixPath.delete(session.prefixPath);
     this.prefixSessionsByProcessId.delete(session.processId);
     this.activeWinePrefixes.delete(session.prefixPath);
+    wineProcessMonitor.close(session.prefixPath);
     this.logger.info("prefix session ended", {
       processId: session.processId,
       bottleId: session.bottleId,
@@ -3590,7 +3878,11 @@ export class BottleExecutionManager {
       message: `${toolName} started.`,
     });
 
-    const code = await process.done;
+    const code = await process.done.finally(() => {
+      if (!this.prefixSessionsByPrefixPath.has(prefix_session_key(bottlePath))) {
+        wineProcessMonitor.close(bottlePath);
+      }
+    });
 
     if (code !== 0) {
       throw new Error(`${toolName} exited with code ${code}.`);
@@ -4463,7 +4755,7 @@ async function prepare_bottle_builtin_dxmt_wine_runtime(options: {
   const metadata: HoyoBuiltinDxmtWineMetadata = {
     schemaVersion: 1,
     baseWineRoot,
-    baseWineSignature: runtime_file_signature(resolve_wine_tool(baseWineRoot, "wine64")),
+    baseWineSignature: wine_runtime_cache_signature(baseWineRoot),
     dxmtVersionId: options.request.dxmtVersionId,
     dxmtPackagePath: resolvedDxmtPackagePath,
     dxmtPackageSignature: runtime_file_signature(resolvedDxmtPackagePath),
@@ -4523,7 +4815,7 @@ async function prepare_steam_builtin_dxmt_wine_runtime(options: {
   const metadata: SteamBuiltinDxmtWineMetadata = {
     schemaVersion: 1,
     baseWineRoot,
-    baseWineSignature: runtime_file_signature(resolve_wine_tool(baseWineRoot, "wine64")),
+    baseWineSignature: wine_runtime_cache_signature(baseWineRoot),
     dxmtVersionId: runtimeRequest.dxmtVersionId,
     dxmtPackagePath: resolvedDxmtPackagePath,
     dxmtPackageSignature: runtime_file_signature(resolvedDxmtPackagePath),
@@ -4579,7 +4871,7 @@ async function prepare_hoyo_builtin_dxmt_wine_runtime(options: {
   const metadata: HoyoBuiltinDxmtWineMetadata = {
     schemaVersion: 1,
     baseWineRoot,
-    baseWineSignature: runtime_file_signature(resolve_wine_tool(baseWineRoot, "wine64")),
+    baseWineSignature: wine_runtime_cache_signature(baseWineRoot),
     dxmtVersionId: runtimeRequest.dxmtVersionId,
     dxmtPackagePath: resolvedDxmtPackagePath,
     dxmtPackageSignature: runtime_file_signature(resolvedDxmtPackagePath),
@@ -4730,6 +5022,32 @@ function runtime_file_signature(targetPath: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function wine_runtime_cache_signature(wineRoot: string): string {
+  const manifestPath = wine_runtime_manifest_candidates(wineRoot)
+    .find((candidatePath) => existsSync(candidatePath));
+  const manifest = manifestPath
+    ? read_wine_launcher_options_manifest(wineRoot)
+    : undefined;
+  const proxyCapability = manifest?.capabilities?.hoyoPlayProxy;
+  const proxyPath = proxyCapability
+    ? wine_runtime_relative_file_candidates(wineRoot, proxyCapability.relativePath)
+      .find((candidatePath) => existsSync(candidatePath))
+      ?? path.join(wineRoot, ...proxyCapability.relativePath.split("/"))
+    : undefined;
+  const runtimeFiles = [
+    resolve_wine_tool(wineRoot, "wine64"),
+    resolve_wine_tool(wineRoot, "wineserver"),
+    manifestPath,
+    proxyPath,
+  ];
+
+  return runtimeFiles
+    .map((targetPath) => targetPath
+      ? `${path.relative(wineRoot, targetPath)}=${runtime_file_signature(targetPath) ?? "missing"}`
+      : "launcher-options=missing")
+    .join("|");
 }
 
 function prepare_hoyo_zzz_runtime_files(options: {
@@ -5667,12 +5985,15 @@ function create_wine_environment(
     dxmtVersionId?: string;
   },
 ): Record<string, string> {
+  const manifest = launcherOptionsManifest ?? read_wine_launcher_options_manifest(wineRuntimePath);
   const env: Record<string, string> = {
     WINEPREFIX: bottlePath,
   };
-  const manifest = launcherOptionsManifest ?? read_wine_launcher_options_manifest(wineRuntimePath);
   const wineDebug = resolve_wine_debug_env(debugFlagMode, loggingLevel, wineDebugArgs);
 
+  if (supports_wine_process_telemetry(manifest)) {
+    Object.assign(env, wineProcessMonitor.prepareEnvironment(bottlePath));
+  }
   apply_wine_launcher_options_manifest_defaults(env, manifest);
   delete env.WINEMSYNC;
   apply_dxmt_shader_cache_environment(env, bottlePath, shaderCacheRecipe);
@@ -5682,6 +6003,38 @@ function create_wine_environment(
   }
 
   return env;
+}
+
+function supports_wine_process_telemetry(
+  manifest: WineLauncherOptionsManifest | undefined,
+): boolean {
+  const capability = manifest?.capabilities?.bdihProcessTelemetry;
+
+  return capability?.protocol === 1
+    && capability.transport === "fifo"
+    && capability.activationEnvironment === "WINE_BDIH_PROCESS_TELEMETRY"
+    && capability.pipeEnvironment === "WINE_BDIH_PROCESS_PIPE";
+}
+
+function wine_process_executable_name(imagePath: string | undefined): string {
+  if (!imagePath) {
+    return "";
+  }
+
+  const normalized = imagePath.replace(/\\/g, "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1).toLowerCase();
+}
+
+function is_steam_infrastructure_process(executableName: string): boolean {
+  return new Set([
+    "steam.exe",
+    "steamservice.exe",
+    "steamwebhelper.exe",
+    "gameoverlayui.exe",
+    "services.exe",
+    "explorer.exe",
+    "rpcss.exe",
+  ]).has(executableName);
 }
 
 function apply_dxmt_shader_cache_environment(
@@ -5790,31 +6143,123 @@ function wine_runtime_manifest_candidates(wineRuntimePath?: string): string[] {
   ]);
 }
 
+function wine_runtime_relative_file_candidates(
+  wineRoot: string,
+  relativePath: string,
+): string[] {
+  const relativeSegments = relativePath.split("/");
+
+  return [
+    path.join(wineRoot, ...relativeSegments),
+    path.join(wineRoot, "Contents", "Resources", "wine", ...relativeSegments),
+    path.join(wineRoot, "Contents", "Resources", ...relativeSegments),
+  ];
+}
+
 function apply_hoyo_overseer_routing_environment(
   env: Record<string, string>,
   options: {
     dataRootPath: string;
+    wineRoot: string;
+    launcherOptionsManifest?: WineLauncherOptionsManifest;
     wineBinCommand: string;
     wineserverCommand: string;
+    processTelemetrySupported: boolean;
   },
 ): void {
+  const proxyPath = resolve_hoyo_proxy_path(
+    options.wineRoot,
+    options.launcherOptionsManifest,
+  );
+  if (proxyPath && !options.processTelemetrySupported) {
+    throw new Error(
+      "HoYoPlay proxy mode requires a Wine runtime that advertises bdihProcessTelemetry protocol 1.",
+    );
+  }
+  const stubWinPath = proxyPath
+    ? wine_z_path(proxyPath)
+    : HOYO_STEAM_STUB_WIN_PATH;
+
   Object.assign(env, {
     LOG_ROOT: path.join(options.dataRootPath, "logs"),
     WINELOADER: options.wineBinCommand,
     WINESERVER: options.wineserverCommand,
     WINE_HOYO_CHILD_STUB: "1",
-    WINE_HOYO_STUB_ZZZ: HOYO_STEAM_STUB_WIN_PATH,
-    WINE_HOYO_STUB_STARRAIL: HOYO_STEAM_STUB_WIN_PATH,
-    WINE_HOYO_STUB_GENSHIN: HOYO_STEAM_STUB_WIN_PATH,
+    WINE_HOYO_STUB_ZZZ: stubWinPath,
+    WINE_HOYO_STUB_STARRAIL: stubWinPath,
+    WINE_HOYO_STUB_GENSHIN: stubWinPath,
     WINE_HOYO_STUB_LOG: "C:\\hoyo-route.log",
     WINE_HOYO_GENSHIN_ARGS_DISABLE: "1",
     WINE_HOYO_STUB_DROP_ARGS: "0",
     WINE_HOYO_STUB_TERMINATE_PARENT: "0",
-    WINE_HOYO_STUB_LOG_ONLY: "1",
+    WINE_HOYO_STUB_LOG_ONLY: proxyPath ? "0" : "1",
     WINE_HOYO_STUB_ROUTE_ONLY: "0",
     WINE_HOYO_STUB_REPORT_DISABLE: "1",
     WINE_HOYO_SET_STEAM_ENV: "0",
   });
+}
+
+function resolve_hoyo_proxy_path(
+  wineRoot: string,
+  manifest?: WineLauncherOptionsManifest,
+): string | undefined {
+  const testPath = resolve_hoyo_proxy_test_path();
+
+  if (testPath) {
+    return testPath;
+  }
+
+  const capability = manifest?.capabilities?.hoyoPlayProxy;
+  if (!capability) {
+    return undefined;
+  }
+
+  const candidates = wine_runtime_relative_file_candidates(
+    wineRoot,
+    capability.relativePath,
+  );
+  const proxyPath = candidates.find((candidate) => existsSync(candidate));
+
+  if (!proxyPath) {
+    throw new Error(
+      `Wine runtime advertises the HoYoPlay proxy but the packaged helper is missing: ${capability.relativePath}. Runtime: ${wineRoot}`,
+    );
+  }
+
+  return proxyPath;
+}
+
+function optional_record_string(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function optional_wine_pid(value: unknown): number | undefined {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string"
+      ? Number.parseInt(value, 10)
+      : Number.NaN;
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function resolve_hoyo_proxy_test_path(): string | undefined {
+  const enabled = process.env[HOYO_PROXY_TEST_ENV]?.trim().toLowerCase();
+
+  if (enabled !== "1" && enabled !== "true") {
+    return undefined;
+  }
+
+  const configuredPath = process.env[HOYO_PROXY_TEST_EXE_ENV]?.trim();
+  const proxyPath = path.resolve(configuredPath || path.join(process.cwd(), HOYO_PROXY_TEST_RELATIVE_PATH));
+
+  if (!existsSync(proxyPath)) {
+    throw new Error(
+      `HoYo proxy test executable was not found at ${proxyPath}. Run "pnpm test:hoyo-proxy:build" first or set ${HOYO_PROXY_TEST_EXE_ENV}.`,
+    );
+  }
+
+  return proxyPath;
 }
 
 function apply_launch_options_to_env(

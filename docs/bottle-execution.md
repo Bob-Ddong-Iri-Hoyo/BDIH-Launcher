@@ -48,6 +48,59 @@ coordination, and the temporary route resolver.
 
 ## Current architecture
 
+### Three-stage crash ownership
+
+BDIH protects managed Wine processes with three independent stages:
+
+1. **Single-instance ownership gate.** Electron acquires its lock after the
+   build-specific `userData` path is configured. A second launcher instance
+   only restores and focuses the primary window. It never starts Wine recovery,
+   because the Wine processes belong to the primary instance.
+2. **Native crash Guardian.** The primary Main process starts
+   `bdih-guardian`, a small C command-line child, before it recovers or launches
+   Wine. The Guardian sleeps in a blocking read on a private stdin pipe; it does
+   not poll, create a window, appear in the Dock, or register with BDIH's
+   `ProcessManager`. Normal shutdown first stops Wine and then writes
+   `CLEAN\n`. A crash, `SIGKILL`, or sudden Main-process loss closes the pipe
+   without that command, causing the Guardian to terminate only Wine processes
+   whose executable, current directory, or loaded text image is inside a
+   launcher-managed root.
+3. **Next-start orphan recovery.** After a later primary instance starts its
+   Guardian, `BottleExecutionManager` performs the same bounded managed-root
+   scan and removes Wine left by an interrupted or incomplete cleanup. Startup
+   fails instead of silently continuing if any detected PID remains.
+
+The native helper is intentionally outside the ordinary child-process graph:
+
+```text
+Electron Main
+  | private control pipe
+  +-- bdih-guardian (C, no UI, idle blocking read)
+
+Normal quit: stop Wine -> CLEAN -> Guardian exits
+Main SIGKILL: pipe EOF -> Guardian TERM/KILL scan -> Guardian exits
+Next launch: single-instance lock -> Guardian starts -> orphan recovery
+```
+
+Data-root changes replace the Guardian only after a new one is ready. Every
+root used during that launcher lifetime remains protected, so an old-root Wine
+process cannot escape cleanup after multiple preference changes. Both the
+native and TypeScript scanners canonicalize real paths to handle macOS aliases
+such as `/var` and `/private/var`.
+
+The helper is built and ad-hoc signed by the normal build:
+
+```bash
+pnpm build:guardian
+pnpm test:guardian
+pnpm test:guardian:app
+```
+
+`test:guardian` verifies the native clean/EOF protocol.
+`test:guardian:app` additionally launches an isolated Electron instance and
+verifies startup recovery, secondary-instance rejection, and real Main-process
+`SIGKILL` cleanup.
+
 ### Request flow
 
 Bottle execution currently follows this general path:
