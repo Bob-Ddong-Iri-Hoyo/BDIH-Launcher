@@ -1,7 +1,6 @@
 import { constants, closeSync, existsSync, mkdirSync, openSync, readSync, rmSync } from "fs";
 import path from "path";
 import { spawn } from "child_process";
-import type { BottleLaunchOptionsPayload } from "../../Common/Types/IPC";
 import { logManager } from "./LogManager";
 import { processManager } from "./ProcessManager";
 
@@ -17,17 +16,17 @@ export interface HoyoOverseerEvent {
 export interface StartHoyoOverseerRequest {
   processId: string;
   launcherPrefixPath: string;
-  wineCommand: string;
-  wineBinCommand: string;
-  wineserverCommand: string;
-  wineRootPath: string;
-  hoyoplayExecutablePath: string;
-  dataRootPath: string;
-  launchOptions: BottleLaunchOptionsPayload;
-  wineDebug?: string;
+  execution: HoyoOverseerExecutionDescriptor;
   onEvent: (event: HoyoOverseerEvent) => void | Promise<void>;
   onExit?: (code: number) => void;
   onError?: (error: Error) => void;
+}
+
+export interface HoyoOverseerExecutionDescriptor {
+  command: string;
+  args: string[];
+  cwd: string;
+  environment: Record<string, string>;
 }
 
 interface HoyoOverseerSession {
@@ -37,6 +36,8 @@ interface HoyoOverseerSession {
   eventSessionId: string;
   fd?: number;
   buffer: string;
+  stderrBuffer: string;
+  fatalError?: Error;
   readTimer?: NodeJS.Timeout;
   ended: boolean;
   stop: () => Promise<void>;
@@ -50,12 +51,18 @@ const logger = logManager.createLogger({ file: "wine", source: "overseer" });
  * Patched BDHI Wine can write a JSON launch event to `WINE_HOYO_EVENT_PIPE`
  * when HoYoPlay attempts to spawn a game process. WineOverseer keeps that FIFO
  * alive, parses events, and lets BottleExecutionManager dispatch the game into
- * the correct profile/prefix.
+ * the correct profile/prefix. Command, arguments, runtime environment, and
+ * working directory are supplied as a completed execution descriptor; this
+ * manager only attaches the generated FIFO binding.
  */
 export class WineOverseer {
   private readonly sessions = new Map<string, HoyoOverseerSession>();
 
-  async startHoyoPlay(request: StartHoyoOverseerRequest): Promise<{ processId: string; eventSessionId: string }> {
+  async startHoyoPlay(request: StartHoyoOverseerRequest): Promise<{
+    processId: string;
+    eventSessionId: string;
+    hostPid?: number;
+  }> {
     if (this.sessions.has(request.processId)) {
       throw new Error(`HoYo overseer is already running: ${request.processId}`);
     }
@@ -76,6 +83,7 @@ export class WineOverseer {
       eventSessionId,
       fd,
       buffer: "",
+      stderrBuffer: "",
       ended: false,
       stop: async () => {
         await this.stopSession(request.processId);
@@ -85,25 +93,62 @@ export class WineOverseer {
     this.sessions.set(request.processId, session);
     this.scheduleRead(session, request);
 
+    let runningProcess: ReturnType<typeof processManager.startProcess> | undefined;
+
     const process = processManager.startProcess(request.processId, {
-      command: request.wineCommand,
-      args: [
-        windows_path_from_host(request.launcherPrefixPath, request.hoyoplayExecutablePath),
-        ...hoyoplay_args_from_options(request.launchOptions),
-      ],
-      cwd: request.launcherPrefixPath,
-      env: create_hoyoplay_overseer_env(request, fifoPath, eventSessionId),
+      command: request.execution.command,
+      args: request.execution.args,
+      cwd: request.execution.cwd,
+      env: attach_hoyo_overseer_connection(
+        request.execution.environment,
+        fifoPath,
+        eventSessionId,
+      ),
       onLog: (data) => logger.info("HoYoPlay overseer stdout", data.trim()),
-      onError: (data) => logger.warn("HoYoPlay overseer stderr", data.trim()),
+      onError: (data) => {
+        logger.warn("HoYoPlay overseer stderr", data.trim());
+        session.stderrBuffer = `${session.stderrBuffer}${data}`.slice(-8192);
+
+        const fatalMessage = wine_unhandled_page_fault_message(session.stderrBuffer);
+
+        if (!fatalMessage || session.fatalError) {
+          return;
+        }
+
+        session.fatalError = new Error(`HoYoPlay crashed in Wine: ${fatalMessage}`);
+        logger.error("HoYoPlay overseer detected a fatal Wine exception", {
+          processId: request.processId,
+          error: session.fatalError.message,
+        });
+        request.onError?.(session.fatalError);
+        void runningProcess?.Stop();
+      },
     });
+    runningProcess = process;
 
     process.done.then(
       (code) => {
-        request.onExit?.(code);
-        this.cleanupSession(request.processId);
+        if (!session.fatalError) {
+          request.onExit?.(code);
+        }
+
+        if (session.fatalError || code !== 0) {
+          this.cleanupSession(request.processId);
+          return;
+        }
+
+        // launcher.exe/HYP.exe can exit normally while HoYoPlay hands control
+        // to HYUpdater.exe and then starts the updated HYP.exe. The FIFO belongs
+        // to the Wine prefix session, so keep it attached until wineserver ends.
+        logger.info("HoYoPlay bootstrap process exited; keeping overseer attached to prefix", {
+          processId: request.processId,
+          code,
+        });
       },
       (error) => {
-        request.onError?.(error instanceof Error ? error : new Error(String(error)));
+        if (!session.fatalError) {
+          request.onError?.(error instanceof Error ? error : new Error(String(error)));
+        }
         this.cleanupSession(request.processId);
       },
     );
@@ -113,12 +158,14 @@ export class WineOverseer {
       launcherPrefixPath: request.launcherPrefixPath,
       fifoPath,
       eventSessionId,
-      hoyoplayExecutablePath: request.hoyoplayExecutablePath,
+      command: request.execution.command,
+      args: request.execution.args,
     });
 
     return {
       processId: request.processId,
       eventSessionId,
+      hostPid: process.pid,
     };
   }
 
@@ -236,55 +283,22 @@ export class WineOverseer {
   }
 }
 
-function create_hoyoplay_overseer_env(
-  request: StartHoyoOverseerRequest,
+export function attach_hoyo_overseer_connection(
+  environment: Readonly<Record<string, string>>,
   fifoPath: string,
   eventSessionId: string,
 ): Record<string, string> {
-  const env: Record<string, string> = {
-    WINEPREFIX: request.launcherPrefixPath,
-    LOG_ROOT: path.join(request.dataRootPath, "logs"),
-    WINEDEBUG: request.wineDebug ?? "-all",
-    WINEMSYNC: request.launchOptions.enableMsync ? "1" : "0",
-    WINELOADER: request.wineBinCommand,
-    WINESERVER: request.wineserverCommand,
-    WINE_HOYO_CHILD_STUB: "1",
-    WINE_HOYO_STUB_ZZZ: "C:\\windows\\system32\\steam.exe",
-    WINE_HOYO_STUB_STARRAIL: "C:\\windows\\system32\\steam.exe",
-    WINE_HOYO_STUB_GENSHIN: "C:\\windows\\system32\\steam.exe",
-    WINE_HOYO_STUB_LOG: "C:\\hoyo-route.log",
-    WINE_HOYO_GENSHIN_ARGS_DISABLE: "1",
+  return {
+    ...environment,
     WINE_HOYO_EVENT_PIPE: wine_z_path(fifoPath),
     WINE_HOYO_EVENT_SESSION: eventSessionId,
-    WINE_HOYO_STUB_DROP_ARGS: "0",
-    WINE_HOYO_STUB_TERMINATE_PARENT: "0",
-    WINE_HOYO_STUB_LOG_ONLY: "1",
-    WINE_HOYO_STUB_ROUTE_ONLY: "0",
-    WINE_HOYO_STUB_REPORT_DISABLE: "1",
-    WINE_HOYO_SET_STEAM_ENV: "0",
-    WINE_ENABLE_TIMEOUT_FIX: "1",
-    WINE_HOYOPLAY_ARGS: request.launchOptions.hoyoplayInProcessGpu === false ? "" : "--in-process-gpu",
-    WINEDLLPATH: path.join(request.wineRootPath, "lib", "wine", "x86_64-unix"),
-    WINEDATADIR: path.join(request.wineRootPath, "share", "wine"),
-    DYLD_LIBRARY_PATH: prepend_env_path(path.join(request.wineRootPath, "lib"), process.env.DYLD_LIBRARY_PATH),
-    DYLD_FALLBACK_LIBRARY_PATH: prepend_env_path(path.join(request.wineRootPath, "lib"), process.env.DYLD_FALLBACK_LIBRARY_PATH),
-    VK_ICD_FILENAMES: path.join(request.wineRootPath, "share", "vulkan", "icd.d", "MoltenVK_icd.json"),
-    VK_DRIVER_FILES: path.join(request.wineRootPath, "share", "vulkan", "icd.d", "MoltenVK_icd.json"),
   };
+}
 
-  if (typeof request.launchOptions.superviseWaitSeconds === "number") {
-    env.SUPERVISE_STEAM_WAIT_SECONDS = String(request.launchOptions.superviseWaitSeconds);
-  }
-  if (request.launchOptions.allowDuplicateGame !== undefined) {
-    env.SUPERVISOR_ALLOW_DUPLICATE_GAME = request.launchOptions.allowDuplicateGame ? "1" : "0";
-  }
-  for (const variable of request.launchOptions.environmentVariables ?? []) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(variable.name)) {
-      env[variable.name] = variable.value;
-    }
-  }
+export function wine_unhandled_page_fault_message(stderr: string): string | undefined {
+  const match = stderr.match(/wine:\s*Unhandled page fault[^\r\n]*/i);
 
-  return env;
+  return match?.[0].trim();
 }
 
 function parse_hoyo_event(line: string, expectedSessionId: string): HoyoOverseerEvent | undefined {
@@ -341,14 +355,6 @@ function normalize_hoyo_game(value: unknown): HoyoOverseerGame | undefined {
     default:
       return undefined;
   }
-}
-
-function hoyoplay_args_from_options(options: BottleLaunchOptionsPayload): string[] {
-  if (options.hoyoplayInProcessGpu === false) {
-    return [];
-  }
-
-  return ["--in-process-gpu"];
 }
 
 function split_cmdline_args(text: string): string[] {
@@ -414,23 +420,8 @@ function create_fifo(fifoPath: string): Promise<void> {
   });
 }
 
-function windows_path_from_host(prefixPath: string, hostPath: string): string {
-  const driveCPath = path.join(prefixPath, "drive_c");
-  const relativePath = path.relative(driveCPath, hostPath);
-
-  if (!relativePath.startsWith("..") && !path.isAbsolute(relativePath)) {
-    return `C:\\${relativePath.split(path.sep).join("\\")}`;
-  }
-
-  return wine_z_path(hostPath);
-}
-
 function wine_z_path(hostPath: string): string {
   return `Z:${hostPath.replace(/\//g, "\\")}`;
-}
-
-function prepend_env_path(nextPath: string, currentValue?: string): string {
-  return currentValue ? `${nextPath}${path.delimiter}${currentValue}` : nextPath;
 }
 
 export const wineOverseer = new WineOverseer();

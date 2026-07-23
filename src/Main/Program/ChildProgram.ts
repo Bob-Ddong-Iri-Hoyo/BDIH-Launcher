@@ -10,6 +10,7 @@ export interface ParamRunProgramArgument {
 }
 
 export interface ParamRunProgramReturn {
+  pid?: number;
   Stop: () => Promise<void>;
   done: Promise<number>;
 }
@@ -89,6 +90,7 @@ export function runProgram(param: ParamRunProgramArgument): ParamRunProgramRetur
   });
 
   return {
+    pid: child.pid,
     done,
     Stop: async () => {
       await kill_process_tree(child);

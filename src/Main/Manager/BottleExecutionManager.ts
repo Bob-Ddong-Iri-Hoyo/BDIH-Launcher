@@ -84,9 +84,11 @@ import {
   type LauncherSupervisorDescriptor,
 } from "../Execution/LauncherInstallPlan";
 import { snapshotManager } from "./SnapshotManager";
+import { macOSWineWindowFocusManager } from "../Util/MacOSWineWindowFocus";
 
 const LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS = 10 * 60 * 1000;
 const LAUNCHER_EXECUTABLE_DETECT_INTERVAL_MS = 1000;
+const HOYOPLAY_FOREGROUND_TIMEOUT_MS = 120_000;
 const LAUNCHER_EXECUTABLE_STABLE_MS = 2000;
 const LAUNCHER_EXECUTABLE_POST_INSTALLER_EXIT_GRACE_MS = 30_000;
 const PREFIX_SESSION_WATCH_DELAY_MS = 500;
@@ -109,6 +111,7 @@ interface PrefixSession {
   startedAt: string;
   sender?: WebContents;
   waiter?: ParamRunProgramReturn;
+  overseerProcessIds?: Set<string>;
   steamGameProcessWatcher?: SteamGameProcessWatcher;
   steamLauncherOwnerAppId?: string;
   ended: boolean;
@@ -994,7 +997,12 @@ export class BottleExecutionManager {
         executablePath,
         launchOptions,
       });
-      request_wine_window_foreground(appName);
+      macOSWineWindowFocusManager.requestFocus({
+        prefixPath: bottlePath,
+        executableNames: [executablePath],
+        preferredPids: [process.pid],
+        label: appName,
+      }, appLogger);
 
       const earlyExit = await wait_for_early_process_exit(
         process.done,
@@ -1088,35 +1096,104 @@ export class BottleExecutionManager {
     }
 
     try {
-      const wineRoot = resolve_wine_runtime_root(request.wineRuntimePath, wineCommand);
+      const runtimeRequest = request_with_bottle_runtime_lock(request, bottleRootPath);
+      let effectiveWineCommand = wineCommand;
+      let wineRoot = resolve_wine_runtime_root(runtimeRequest.wineRuntimePath, effectiveWineCommand);
 
-      assert_hoyo_overseer_supported_wine(request.wineRuntimePath, wineRoot);
+      assert_hoyo_overseer_supported_wine(runtimeRequest.wineRuntimePath, wineRoot);
 
       let prefixSessionProcessId = "";
-      const wineBinCommand = resolve_wine_bin_tool(wineRoot, wineCommand);
-      const wineserverCommand = resolve_wine_tool(request.wineRuntimePath, "wineserver");
 
-      await wineOverseer.startHoyoPlay({
-        processId,
+      await ensure_prefix_dxmt_runtime_files(runtimeRequest, launcherPrefixPath, appLogger);
+
+      let launcherOptionsManifest = runtimeRequest.launcherOptionsManifest
+        ?? read_wine_launcher_options_manifest(runtimeRequest.wineRuntimePath);
+
+      if (runtimeRequest.dxmtVersionId || runtimeRequest.dxmtPackagePath) {
+        validate_dxmt_runtime(runtimeRequest.dxmtVersionId, runtimeRequest.dxmtPackagePath);
+        const dxmtRuntimePath = await resolve_dxmt_runtime_dir(
+          runtimeRequest.dxmtPackagePath,
+          runtimeRequest.dxmtVersionId,
+          bottleRootPath,
+          appLogger,
+        );
+        const dxmtWineRuntime = await prepare_hoyo_builtin_dxmt_wine_runtime({
+          request: runtimeRequest,
+          bottleRootPath,
+          wineCommand: effectiveWineCommand,
+          dxmtRuntimePath,
+          logger: appLogger,
+        });
+
+        effectiveWineCommand = dxmtWineRuntime.wineCommand;
+        wineRoot = dxmtWineRuntime.wineRoot;
+        launcherOptionsManifest = runtimeRequest.launcherOptionsManifest
+          ?? dxmtWineRuntime.launcherOptionsManifest;
+      }
+
+      const wineBinCommand = resolve_wine_bin_tool(wineRoot, effectiveWineCommand);
+      const wineserverCommand = resolve_wine_tool(wineRoot, "wineserver");
+
+      const env = create_wine_environment(
         launcherPrefixPath,
-        wineCommand,
+        preference.debugFlagMode,
+        preference.loggingLevel,
+        preference.wineDebugArgs,
+        wineRoot,
+        launcherOptionsManifest,
+        {
+          wineVersionId: runtimeRequest.wineVersionId,
+          dxmtVersionId: runtimeRequest.dxmtVersionId,
+        },
+      );
+
+      apply_launch_options_to_env(env, launchOptions);
+      apply_hoyo_overseer_routing_environment(env, {
+        dataRootPath: expand_user_home_path(preference.dataRootPath),
         wineBinCommand,
         wineserverCommand,
-        wineRootPath: wineRoot,
-        hoyoplayExecutablePath,
-        dataRootPath: expand_user_home_path(preference.dataRootPath),
+      });
+      await apply_wine_registry_launch_options(
+        effectiveWineCommand,
+        launcherPrefixPath,
         launchOptions,
-        wineDebug: resolve_wine_debug_env(
-          preference.debugFlagMode,
-          preference.loggingLevel,
-          preference.wineDebugArgs,
-        ),
+        appLogger,
+      );
+
+      const executableArgs = executable_args_with_launch_options(
+        hoyoplayExecutablePath,
+        request.executableArgs ?? [],
+        launchOptions,
+      );
+
+      appLogger.info("HoYoPlay execution environment prepared", {
+        wineVersionId: request.wineVersionId,
+        wineRuntimePath: wineRoot,
+        runtimeKind: runtimeRequest.dxmtVersionId || runtimeRequest.dxmtPackagePath
+          ? "dxmt-wine"
+          : "base-wine",
+        hasLauncherOptionsManifest: Boolean(launcherOptionsManifest),
+        appliedLaunchEnv: pick_launch_option_env(env),
+      });
+
+      const overseerProcess = await wineOverseer.startHoyoPlay({
+        processId,
+        launcherPrefixPath,
+        execution: {
+          command: effectiveWineCommand,
+          args: [
+            windows_path_from_prefix_host_path(launcherPrefixPath, hoyoplayExecutablePath),
+            ...executableArgs,
+          ],
+          cwd: get_process_cwd(hoyoplayExecutablePath, launcherPrefixPath),
+          environment: env,
+        },
         onEvent: (event) => this.dispatchHoyoOverseerEvent(
           event,
           {
             request,
             bottleRootPath,
-            wineCommand,
+            wineCommand: effectiveWineCommand,
             launchOptions,
             preference,
           },
@@ -1131,11 +1208,13 @@ export class BottleExecutionManager {
             appLogger.info("HoYoPlay overseer exited", { processId, code });
           }
 
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
-            processId: prefixSessionProcessId || processId,
-            code,
-            error: exitError,
-          });
+          if (exitError) {
+            send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
+              processId: prefixSessionProcessId || processId,
+              code,
+              error: exitError,
+            });
+          }
         },
         onError: (error) => {
           appLogger.error("HoYoPlay overseer failed", {
@@ -1146,18 +1225,32 @@ export class BottleExecutionManager {
             processId: prefixSessionProcessId || processId,
             error: error.message,
           });
+          void this.stopWinePrefix(launcherPrefixPath, wineRoot)
+            .then(() => {
+              if (prefixSessionProcessId) {
+                this.finishPrefixSessionByProcessId(prefixSessionProcessId, error.message);
+              }
+            })
+            .catch((cleanupError) => {
+              appLogger.error("failed to clean up crashed HoYoPlay prefix", {
+                processId,
+                error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+              });
+            });
         },
       });
 
       prefixSessionProcessId = this.startPrefixSession(
         {
-          ...request,
+          ...runtimeRequest,
           bottlePath: launcherPrefixPath,
+          wineRuntimePath: wineRoot,
         },
         {
           launcher: "hoyoplay",
           appId: request.appId ?? "hoyoplay",
           appName,
+          overseerProcessId: processId,
         },
         sender,
       );
@@ -1170,12 +1263,16 @@ export class BottleExecutionManager {
         hoyoplayExecutablePath,
         requestedExecutablePath: executablePath,
       });
-      request_wine_window_foreground([
-        appName,
-        "HoYoPlay",
-        "launcher",
-        "Wine",
-      ]);
+      macOSWineWindowFocusManager.requestFocus({
+        prefixPath: launcherPrefixPath,
+        executableNames: [
+          hoyoplayExecutablePath,
+          ...(hoyoplayProfile?.runningExecutableNames ?? []),
+        ],
+        preferredPids: [overseerProcess.hostPid],
+        label: appName,
+        timeoutMs: HOYOPLAY_FOREGROUND_TIMEOUT_MS,
+      }, appLogger);
 
       return {
         ok: true,
@@ -1552,12 +1649,12 @@ export class BottleExecutionManager {
         gamePrefixPath,
         executablePath,
       });
-      request_wine_window_foreground([
-        appName,
-        "ZenlessZoneZero",
-        "Zenless Zone Zero",
-        "Wine",
-      ]);
+      macOSWineWindowFocusManager.requestFocus({
+        prefixPath: gamePrefixPath,
+        executableNames: [gameHostPath, gameWinPath],
+        preferredPids: [process.pid],
+        label: appName,
+      }, appLogger);
 
       const earlyExit = await wait_for_early_process_exit(
         process.done,
@@ -1874,13 +1971,12 @@ export class BottleExecutionManager {
         dxmtRuntimePath,
         launchOptions,
       });
-      request_wine_window_foreground([
-        appName,
-        "StarRail",
-        "Honkai: Star Rail",
-        "Jadeite",
-        "Wine",
-      ]);
+      macOSWineWindowFocusManager.requestFocus({
+        prefixPath: gamePrefixPath,
+        executableNames: [gameHostPath, gameWinPath, jadeiteWinPath],
+        preferredPids: [process.pid],
+        label: appName,
+      }, appLogger);
 
       const earlyExit = await wait_for_early_process_exit(
         process.done,
@@ -2179,13 +2275,12 @@ export class BottleExecutionManager {
         dxmtRuntimePath,
         launchOptions: genshinLaunchOptions,
       });
-      request_wine_window_foreground([
-        appName,
-        "GenshinImpact",
-        "YuanShen",
-        "Genshin Impact",
-        "Wine",
-      ]);
+      macOSWineWindowFocusManager.requestFocus({
+        prefixPath: gamePrefixPath,
+        executableNames: [gameHostPath, gameWinPath],
+        preferredPids: [process.pid],
+        label: appName,
+      }, appLogger);
 
       const earlyExit = await wait_for_early_process_exit(
         process.done,
@@ -2411,12 +2506,12 @@ export class BottleExecutionManager {
       executablePath,
       command,
     });
-    request_wine_window_foreground([
-      installerLabel,
-      `${installerLabel} Installer`,
-      path.basename(executablePath),
-      path.basename(executablePath).replace(/\.exe$/i, ""),
-    ]);
+    macOSWineWindowFocusManager.requestFocus({
+      prefixPath: bottlePath,
+      executableNames: [executablePath],
+      preferredPids: [process.pid],
+      label: `${installerLabel} Installer`,
+    }, appLogger);
 
     return {
       processId,
@@ -2567,6 +2662,11 @@ export class BottleExecutionManager {
       launcher: request.launcher,
       executablePath,
     });
+    macOSWineWindowFocusManager.requestFocus({
+      prefixPath: session.prefixPath,
+      executableNames: [executablePath],
+      label: launcherName,
+    }, this.logger);
     discordPresenceManager.setBottleActivity({
       processId,
       bottleName: session.bottleName,
@@ -2983,6 +3083,7 @@ export class BottleExecutionManager {
       appName?: string;
       executionMode?: "app" | "installer";
       steamGameProcessLogPath?: string;
+      overseerProcessId?: string;
     },
     sender?: WebContents,
   ): string {
@@ -2999,6 +3100,10 @@ export class BottleExecutionManager {
       }
       existingSession.appName = context.appName ?? existingSession.appName;
       existingSession.executionMode = context.executionMode ?? existingSession.executionMode;
+      if (context.overseerProcessId) {
+        existingSession.overseerProcessIds = existingSession.overseerProcessIds ?? new Set<string>();
+        existingSession.overseerProcessIds.add(context.overseerProcessId);
+      }
       if (context.steamGameProcessLogPath) {
         this.startSteamGameProcessWatcher(existingSession, context.steamGameProcessLogPath);
       }
@@ -3028,6 +3133,9 @@ export class BottleExecutionManager {
       wineRuntimePath: request.wineRuntimePath,
       startedAt: new Date().toISOString(),
       sender,
+      overseerProcessIds: context.overseerProcessId
+        ? new Set([context.overseerProcessId])
+        : undefined,
       steamLauncherOwnerAppId: context.launcher === "steam" && context.appId?.startsWith("steam:")
         ? context.appId
         : undefined,
@@ -3374,6 +3482,15 @@ export class BottleExecutionManager {
     if (session.steamGameProcessWatcher) {
       clearInterval(session.steamGameProcessWatcher.timer);
       session.steamGameProcessWatcher = undefined;
+    }
+    for (const overseerProcessId of session.overseerProcessIds ?? []) {
+      void wineOverseer.stopSession(overseerProcessId).catch((cleanupError) => {
+        this.logger.warn("failed to clean up HoYo overseer session", {
+          processId: overseerProcessId,
+          prefixPath: session.prefixPath,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        });
+      });
     }
     this.prefixSessionsByPrefixPath.delete(session.prefixPath);
     this.prefixSessionsByProcessId.delete(session.processId);
@@ -5222,6 +5339,17 @@ function wine_z_path(hostPath: string): string {
   return `Z:${hostPath.replace(/\//g, "\\")}`;
 }
 
+function windows_path_from_prefix_host_path(prefixPath: string, hostPath: string): string {
+  const driveCPath = path.join(prefixPath, "drive_c");
+  const relativePath = path.relative(driveCPath, hostPath);
+
+  if (!relativePath.startsWith("..") && !path.isAbsolute(relativePath)) {
+    return `C:\\${relativePath.split(path.sep).join("\\")}`;
+  }
+
+  return wine_z_path(hostPath);
+}
+
 function hoyo_game_app_id(game: HoyoGameKind): string {
   return get_hoyo_game_profile(game).appId;
 }
@@ -5589,6 +5717,7 @@ function pick_launch_option_env(env: Record<string, string>): Record<string, str
     "WINEMSYNC",
     "WINE_STEAMWEBHELPER_ARGS",
     "WINE_HOYOPLAY_ARGS",
+    "WINE_HOYOPLAY_ARGS_DISABLE",
     "WINE_ENABLE_TIMEOUT_FIX",
     "WINE_ENABLE_DISCONNECT",
     "WINE_HOYO_DISCONNECT_SECONDS",
@@ -5659,6 +5788,33 @@ function wine_runtime_manifest_candidates(wineRuntimePath?: string): string[] {
     path.join(runtimeRoot, "Contents", "Resources", "wine", "share", "bdhi", "launcher-options.json"),
     path.join(runtimeRoot, "Contents", "Resources", "share", "bdhi", "launcher-options.json"),
   ]);
+}
+
+function apply_hoyo_overseer_routing_environment(
+  env: Record<string, string>,
+  options: {
+    dataRootPath: string;
+    wineBinCommand: string;
+    wineserverCommand: string;
+  },
+): void {
+  Object.assign(env, {
+    LOG_ROOT: path.join(options.dataRootPath, "logs"),
+    WINELOADER: options.wineBinCommand,
+    WINESERVER: options.wineserverCommand,
+    WINE_HOYO_CHILD_STUB: "1",
+    WINE_HOYO_STUB_ZZZ: HOYO_STEAM_STUB_WIN_PATH,
+    WINE_HOYO_STUB_STARRAIL: HOYO_STEAM_STUB_WIN_PATH,
+    WINE_HOYO_STUB_GENSHIN: HOYO_STEAM_STUB_WIN_PATH,
+    WINE_HOYO_STUB_LOG: "C:\\hoyo-route.log",
+    WINE_HOYO_GENSHIN_ARGS_DISABLE: "1",
+    WINE_HOYO_STUB_DROP_ARGS: "0",
+    WINE_HOYO_STUB_TERMINATE_PARENT: "0",
+    WINE_HOYO_STUB_LOG_ONLY: "1",
+    WINE_HOYO_STUB_ROUTE_ONLY: "0",
+    WINE_HOYO_STUB_REPORT_DISABLE: "1",
+    WINE_HOYO_SET_STEAM_ENV: "0",
+  });
 }
 
 function apply_launch_options_to_env(
@@ -6097,85 +6253,6 @@ function copy_legacy_launcher_installer_if_present(
 
   mkdirSync(path.dirname(installerPath), { recursive: true });
   copyFileSync(legacyInstallerPath, installerPath);
-}
-
-function escape_apple_script_string(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function activate_macos_process(candidateNames: Array<string | undefined>): void {
-  if (process.platform !== "darwin") {
-    return;
-  }
-
-  const names = Array.from(
-    new Set(
-      candidateNames
-        .map((name) => name?.trim())
-        .filter((name): name is string => Boolean(name)),
-    ),
-  );
-
-  if (names.length === 0) {
-    return;
-  }
-
-  const list = names
-    .map((name) => `"${escape_apple_script_string(name)}"`)
-    .join(", ");
-  const script = `
-tell application "System Events"
-  set candidateNames to {${list}}
-  repeat with candidateName in candidateNames
-    try
-      if exists process (candidateName as text) then
-        tell process (candidateName as text)
-          set frontmost to true
-          try
-            perform action "AXRaise" of window 1
-          end try
-        end tell
-        return
-      end if
-    end try
-  end repeat
-end tell
-`;
-
-  const foregroundProcess = spawn("osascript", ["-e", script], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  foregroundProcess.unref();
-}
-
-function request_wine_window_foreground(appName?: string | Array<string | undefined>): void {
-  if (process.platform !== "darwin") {
-    return;
-  }
-
-  const requestedNames = Array.isArray(appName) ? appName : [appName];
-  const candidates = [
-    ...requestedNames,
-    "SteamSetup.exe",
-    "SteamSetup",
-    "Steam Setup",
-    "Steam Installer",
-    "HoYoPlaySetup.exe",
-    "HoYoPlaySetup",
-    "HoYoPlay Setup",
-    "HoYoPlay Installer",
-    "Steam",
-    "HoYoPlay",
-    "Wine",
-    "wine64",
-    "XQuartz",
-  ];
-
-  for (const delay of [350, 900, 1600, 2600]) {
-    setTimeout(() => activate_macos_process(candidates), delay);
-  }
 }
 
 function normalize_executable_path(executablePath: string): string {
