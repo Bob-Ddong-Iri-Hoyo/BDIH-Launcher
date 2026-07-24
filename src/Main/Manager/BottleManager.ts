@@ -153,17 +153,6 @@ export class BottleManager {
     const registry = await this.loadRegistryState();
     const normalizedIncomingBottles = normalize_bottle_array(payload?.bottles);
 
-    for (const incomingBottle of normalizedIncomingBottles) {
-      const previousBottle = registry.bottles.find((bottle) => bottle.id === incomingBottle.id);
-
-      if (previousBottle && previousBottle.name.trim() !== incomingBottle.name.trim()) {
-        await snapshotManager.ensurePrefixSnapshot({
-          bottleId: previousBottle.id,
-          prefixPath: previousBottle.path,
-        });
-      }
-    }
-
     const incomingBottles = await rename_incoming_bottle_directories(
       normalizedIncomingBottles,
       registry.bottles,

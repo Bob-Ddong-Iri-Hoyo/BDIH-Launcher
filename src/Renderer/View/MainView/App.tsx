@@ -2717,7 +2717,11 @@ const App: React.FC = () => {
 
   const handle_apply_bottle_recipe = async (
     bottleId: string,
-    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">> & { validateOnly?: boolean },
+    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">> & {
+      validateOnly?: boolean;
+      reapplyRuntime?: boolean;
+      forceReapplyRuntime?: boolean;
+    },
     reportProgress: (update: { progress: number; message: string }) => void,
   ) => {
     const bottle = bottles.find((candidateBottle) => candidateBottle.id === bottleId);
@@ -2726,7 +2730,14 @@ const App: React.FC = () => {
       throw new Error("Bottle을 찾을 수 없습니다.");
     }
 
-    const { validateOnly = false, ...recipePatch } = patch;
+    const {
+      validateOnly = false,
+      reapplyRuntime = false,
+      forceReapplyRuntime = false,
+      ...recipePatch
+    } = patch;
+    const isRuntimeReapply = (reapplyRuntime || forceReapplyRuntime) && !validateOnly;
+    const isForcedRuntimeReapply = forceReapplyRuntime && !validateOnly;
     const nextWineVersionId = recipePatch.wineVersionId ?? bottle.wineVersionId;
     const nextDxmtVersionId = recipePatch.dxmtVersionId ?? bottle.dxmtVersionId;
     const nextJadeiteVersionId = recipePatch.jadeiteVersionId ?? bottle.jadeiteVersionId;
@@ -2737,6 +2748,69 @@ const App: React.FC = () => {
     const nextJadeiteRuntimePath = nextJadeiteVersionId
       ? jadeiteVersions.find((version) => version.id === nextJadeiteVersionId)?.path
       : undefined;
+    const recipeRequest = {
+      bottleId: bottle.id,
+      bottleName: bottle.name,
+      bottlePath: bottle.path,
+      wineVersionId: nextWineVersionId,
+      wineRuntimePath: nextWineRuntimePath,
+      dxmtVersionId: nextDxmtVersionId,
+      dxmtPackagePath: nextDxmtPackagePath,
+      jadeiteVersionId: nextJadeiteVersionId,
+      jadeiteRuntimePath: nextJadeiteRuntimePath,
+      launcherOptionsManifest: wineVersions.find((version) => version.id === nextWineVersionId)?.launcherOptionsManifest,
+    };
+    const invoke_recipe = (validateRequest: boolean, reapplyRequest: boolean) =>
+      window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.APPLY_RECIPE.channelName, {
+        ...recipeRequest,
+        validateOnly: validateRequest,
+        reapplyRuntime: reapplyRequest,
+      }) as Promise<BottleTaskResultPayload | undefined> | undefined;
+    const assert_recipe_result = (result: BottleTaskResultPayload | undefined) => {
+      if (result && !result.ok) {
+        throw new Error(result.error || "Recipe 변경에 실패했습니다.");
+      }
+    };
+
+    if (validateOnly) {
+      reportProgress({
+        progress: 35,
+        message: "Recipe와 설치된 런타임을 검증하는 중...",
+      });
+      const validationResult = await invoke_recipe(true, reapplyRuntime);
+
+      assert_recipe_result(validationResult);
+      reportProgress({
+        progress: 100,
+        message: validationResult?.runtimeValidation?.updateRequired
+          ? "적용되지 않은 런타임 업데이트가 있습니다."
+          : "Recipe와 설치된 런타임이 최신 상태입니다.",
+      });
+      return {
+        runtimeUpdated: false,
+      };
+    }
+
+    if (isRuntimeReapply && !isForcedRuntimeReapply) {
+      reportProgress({
+        progress: 18,
+        message: "설치된 Wine/DXMT 아티팩트를 검증하는 중...",
+      });
+      const validationResult = await invoke_recipe(true, true);
+
+      assert_recipe_result(validationResult);
+
+      if (validationResult?.runtimeValidation?.updateRequired === false) {
+        reportProgress({
+          progress: 100,
+          message: "검증 완료 - 이미 최신 런타임이 적용되어 있습니다.",
+        });
+        return {
+          runtimeUpdated: false,
+        };
+      }
+    }
+
     const processIds = new Set<string>();
 
     for (const app of bottle.apps) {
@@ -2751,7 +2825,7 @@ const App: React.FC = () => {
       }
     }
 
-    if (!validateOnly && processIds.size > 0) {
+    if (processIds.size > 0) {
       reportProgress({
         progress: 18,
         message: `앱들 종료중... (${processIds.size})`,
@@ -2781,29 +2855,42 @@ const App: React.FC = () => {
     }
 
     reportProgress({
-      progress: validateOnly ? 45 : processIds.size > 0 ? 58 : 32,
-      message: validateOnly ? "Recipe 설정 검증중..." : "레시피 변경중...",
+      progress: processIds.size > 0 ? 58 : 32,
+      message: isForcedRuntimeReapply
+        ? "현재 설치된 런타임을 강제로 다시 적용하는 중..."
+        : isRuntimeReapply
+          ? "확인된 런타임 업데이트 적용중..."
+          : "레시피 변경중...",
     });
 
-    const result = await window.BTIH_API?.invoke(IPC_CHANNELS.BOTTLE.APPLY_RECIPE.channelName, {
-      bottleId: bottle.id,
-      bottleName: bottle.name,
-      bottlePath: bottle.path,
-      wineVersionId: nextWineVersionId,
-      wineRuntimePath: nextWineRuntimePath,
-      dxmtVersionId: nextDxmtVersionId,
-      dxmtPackagePath: nextDxmtPackagePath,
-      jadeiteVersionId: nextJadeiteVersionId,
-      jadeiteRuntimePath: nextJadeiteRuntimePath,
-      launcherOptionsManifest: wineVersions.find((version) => version.id === nextWineVersionId)?.launcherOptionsManifest,
-      validateOnly,
-    });
+    const unsubscribeRecipeProgress = window.BTIH_API?.on(
+      IPC_CHANNELS.BOTTLE.STATUS_UPDATE.channelName,
+      (_event, payload: BottleTaskStatusPayload) => {
+        if (payload.bottleId !== bottle.id || payload.launcher) {
+          return;
+        }
 
-    if (result && typeof result === "object" && "ok" in result && !result.ok) {
-      throw new Error(typeof result.error === "string" ? result.error : "Recipe 변경에 실패했습니다.");
+        reportProgress({
+          progress: Math.min(84, 32 + Math.round(payload.progress * 0.52)),
+          message: payload.message || (isForcedRuntimeReapply
+            ? "현재 설치된 런타임을 강제로 다시 적용하는 중..."
+            : isRuntimeReapply
+              ? "확인된 런타임 업데이트 적용중..."
+              : "레시피 변경중..."),
+        });
+      },
+    );
+    let result;
+
+    try {
+      result = await invoke_recipe(false, isRuntimeReapply);
+    } finally {
+      unsubscribeRecipeProgress?.();
     }
 
-    if (!validateOnly) {
+    assert_recipe_result(result);
+
+    if (!isRuntimeReapply) {
       reportProgress({
         progress: 86,
         message: "레시피 저장중...",
@@ -2816,8 +2903,15 @@ const App: React.FC = () => {
 
     reportProgress({
       progress: 100,
-      message: validateOnly ? "Recipe 검증 완료 - 변경 사항 없음" : "레시피 변경 완료",
+      message: isForcedRuntimeReapply
+        ? "현재 설치된 런타임 강제 재적용 완료"
+        : isRuntimeReapply
+          ? "검증된 런타임 업데이트 적용 완료"
+          : "레시피 변경 완료",
     });
+    return {
+      runtimeUpdated: isRuntimeReapply,
+    };
   };
 
   const handle_delete_bottle = async (bottleId: string) => {

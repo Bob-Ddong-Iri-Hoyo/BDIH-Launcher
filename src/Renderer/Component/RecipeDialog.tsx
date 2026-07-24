@@ -1,7 +1,8 @@
 import React from "react";
-import { AlertTriangle, FolderOpen, Settings } from "lucide-react";
+import { AlertTriangle, Check, Copy, FolderOpen, RefreshCw, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
+import { copy_text_to_clipboard } from "../Logic/Clipboard";
 import type { Bottle } from "../Types/Bottle";
 import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
@@ -11,8 +12,12 @@ import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
 type RecipeChangePatch = Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">> & {
   validateOnly?: boolean;
+  reapplyRuntime?: boolean;
+  forceReapplyRuntime?: boolean;
 };
 type RecipeApplyProgressReporter = (update: { progress: number; message: string }) => void;
+type RecipeApplyResult = { runtimeUpdated?: boolean };
+type RecipeApplyMode = "change" | "reapply" | "force-reapply";
 
 /**
  * Bottle recipe detail dialog.
@@ -46,7 +51,10 @@ export function RecipeDialog({
   onWineVersionChange?: (versionId: string) => void;
   onDxmtVersionChange?: (versionId: string) => void;
   onJadeiteVersionChange?: (versionId: string) => void;
-  onApplyRecipeChange?: (patch: RecipeChangePatch, reportProgress: RecipeApplyProgressReporter) => Promise<void> | void;
+  onApplyRecipeChange?: (
+    patch: RecipeChangePatch,
+    reportProgress: RecipeApplyProgressReporter,
+  ) => Promise<RecipeApplyResult | void> | RecipeApplyResult | void;
   onInstallWineVersion?: (versionId: string) => void;
   onInstallDxmtVersion?: (versionId: string) => void;
   onInstallJadeiteVersion?: (versionId: string) => void;
@@ -63,6 +71,9 @@ export function RecipeDialog({
   const [applyProgress, setApplyProgress] = React.useState(0);
   const [applyMessage, setApplyMessage] = React.useState("");
   const [applyErrorMessage, setApplyErrorMessage] = React.useState("");
+  const [applyMode, setApplyMode] = React.useState<RecipeApplyMode>("change");
+  const [isErrorCopied, setIsErrorCopied] = React.useState(false);
+  const resetCopyFeedbackTimer = React.useRef<number>();
   const hasRecipeChanges =
     draftWineVersionId !== bottle.wineVersionId
     || draftDxmtVersionId !== (bottle.dxmtVersionId || "")
@@ -86,7 +97,14 @@ export function RecipeDialog({
     setIsApplyConfirmOpen(false);
     setIsCloseConfirmOpen(false);
     setApplyErrorMessage("");
+    setIsErrorCopied(false);
   }, [bottle.dxmtVersionId, bottle.jadeiteVersionId, bottle.wineVersionId, open]);
+
+  React.useEffect(() => () => {
+    if (resetCopyFeedbackTimer.current !== undefined) {
+      window.clearTimeout(resetCopyFeedbackTimer.current);
+    }
+  }, []);
 
   React.useEffect(() => {
     if (!open) {
@@ -96,12 +114,8 @@ export function RecipeDialog({
     setStatusMessage(hasRecipeChanges ? t("main.recipeInfo.pendingChanges") : "");
   }, [hasRecipeChanges, open, t]);
 
-  function apply_recipe_changes() {
-    if (!hasRecipeChanges) {
-      void confirm_apply_recipe_changes(true);
-      return;
-    }
-
+  function apply_recipe_changes(mode: RecipeApplyMode = hasRecipeChanges ? "change" : "reapply") {
+    setApplyMode(mode);
     setIsApplyConfirmOpen(true);
   }
 
@@ -119,36 +133,57 @@ export function RecipeDialog({
     setDraftDxmtVersionId(bottle.dxmtVersionId || "");
     setDraftJadeiteVersionId(bottle.jadeiteVersionId || "");
     setStatusMessage("");
+    setApplyMode("change");
     setIsApplyConfirmOpen(false);
   }
 
-  async function confirm_apply_recipe_changes(validateOnly = false) {
+  async function confirm_apply_recipe_changes() {
+    const nextApplyMode: RecipeApplyMode = hasRecipeChanges
+      ? "change"
+      : applyMode === "force-reapply"
+        ? "force-reapply"
+        : "reapply";
+    const reapplyRuntime = nextApplyMode !== "change";
+    const forceReapplyRuntime = nextApplyMode === "force-reapply";
     const patch: RecipeChangePatch = {
-      wineVersionId: draftWineVersionId,
-      dxmtVersionId: draftDxmtVersionId,
-      jadeiteVersionId: draftJadeiteVersionId || fallbackJadeiteVersionId,
-      validateOnly,
+      wineVersionId: reapplyRuntime ? bottle.wineVersionId : draftWineVersionId,
+      dxmtVersionId: reapplyRuntime ? bottle.dxmtVersionId : draftDxmtVersionId,
+      jadeiteVersionId: reapplyRuntime
+        ? bottle.jadeiteVersionId
+        : draftJadeiteVersionId || fallbackJadeiteVersionId,
+      reapplyRuntime,
+      forceReapplyRuntime,
     };
 
     setIsApplyConfirmOpen(false);
     setApplyErrorMessage("");
+    setIsErrorCopied(false);
     setApplyProgress(8);
-    setApplyMessage(validateOnly
-      ? t("main.recipeInfo.validatingRecipe")
-      : t("main.recipeInfo.applyStoppingApps", { defaultValue: "앱들 종료중..." }));
+    setApplyMode(nextApplyMode);
+    setApplyMessage(t(forceReapplyRuntime
+      ? "main.recipeInfo.forceReapplyStoppingApps"
+      : reapplyRuntime
+        ? "main.recipeInfo.reapplyStoppingApps"
+        : "main.recipeInfo.applyStoppingApps"));
     setIsApplyModalOpen(true);
     onClose();
 
     try {
+      let applyResult: RecipeApplyResult | void = undefined;
+
       if (onApplyRecipeChange) {
-        await onApplyRecipeChange(patch, ({ progress, message }) => {
+        applyResult = await onApplyRecipeChange(patch, ({ progress, message }) => {
           setApplyProgress(progress);
           setApplyMessage(message);
         });
       } else {
         setApplyProgress(36);
-        setApplyMessage(t("main.recipeInfo.applySaving"));
-        if (!validateOnly) {
+        setApplyMessage(t(forceReapplyRuntime
+          ? "main.recipeInfo.forceReapplyRuntime"
+          : reapplyRuntime
+            ? "main.recipeInfo.reapplyRuntime"
+            : "main.recipeInfo.applySaving"));
+        if (!reapplyRuntime) {
           onWineVersionChange?.(draftWineVersionId);
           onDxmtVersionChange?.(draftDxmtVersionId);
           onJadeiteVersionChange?.(draftJadeiteVersionId || fallbackJadeiteVersionId);
@@ -156,8 +191,20 @@ export function RecipeDialog({
       }
 
       setApplyProgress(100);
-      setApplyMessage(validateOnly ? t("main.recipeInfo.validationComplete") : t("main.recipeInfo.applyComplete"));
-      setStatusMessage(validateOnly ? t("main.recipeInfo.validationSkipped") : t("main.recipeInfo.applied"));
+      setApplyMessage(t(forceReapplyRuntime
+        ? "main.recipeInfo.forceReapplyComplete"
+        : reapplyRuntime
+          ? applyResult?.runtimeUpdated
+            ? "main.recipeInfo.validationUpdateComplete"
+            : "main.recipeInfo.validationCurrent"
+          : "main.recipeInfo.applyComplete"));
+      setStatusMessage(t(forceReapplyRuntime
+        ? "main.recipeInfo.forceReapplied"
+        : reapplyRuntime
+          ? applyResult?.runtimeUpdated
+            ? "main.recipeInfo.validationUpdated"
+            : "main.recipeInfo.validationCurrent"
+          : "main.recipeInfo.applied"));
       window.setTimeout(() => {
         setIsApplyModalOpen(false);
       }, 900);
@@ -167,6 +214,29 @@ export function RecipeDialog({
       setApplyMessage(t("main.recipeInfo.applyFailed", { defaultValue: "레시피 변경에 실패했습니다." }));
     }
   }
+
+  async function copy_apply_error() {
+    try {
+      await copy_text_to_clipboard(`${t("main.recipeInfo.errorDetails")}:\n${applyErrorMessage}`);
+      setIsErrorCopied(true);
+
+      if (resetCopyFeedbackTimer.current !== undefined) {
+        window.clearTimeout(resetCopyFeedbackTimer.current);
+      }
+
+      resetCopyFeedbackTimer.current = window.setTimeout(() => {
+        setIsErrorCopied(false);
+        resetCopyFeedbackTimer.current = undefined;
+      }, 1_800);
+    } catch {
+      setIsErrorCopied(false);
+    }
+  }
+
+  const CopyIcon = isErrorCopied ? Check : Copy;
+  const copyLabel = t(isErrorCopied ? "common.actions.copied" : "common.actions.copy");
+  const isRuntimeReapply = applyMode !== "change";
+  const isForceRuntimeReapply = applyMode === "force-reapply";
 
   return (
     <>
@@ -185,11 +255,19 @@ export function RecipeDialog({
             variant: "secondary",
             onClick: request_close,
           },
+          ...(!hasRecipeChanges
+            ? [{
+              label: t("main.recipeInfo.forceReapplyAction"),
+              icon: RefreshCw,
+              variant: "secondary" as const,
+              onClick: () => apply_recipe_changes("force-reapply"),
+            }]
+            : []),
           {
-            label: t("main.recipeInfo.applyChanges"),
+            label: t(hasRecipeChanges ? "main.recipeInfo.applyChanges" : "main.recipeInfo.validateAndUpdateAction"),
             icon: Settings,
             variant: "primary",
-            onClick: apply_recipe_changes,
+            onClick: () => apply_recipe_changes(),
           },
         ]}
       >
@@ -263,10 +341,16 @@ export function RecipeDialog({
 
       <Dialog
         open={isApplyConfirmOpen}
-        title={t("main.recipeInfo.applyWarningTitle", { defaultValue: "레시피를 변경할까요?" })}
-        description={t("main.recipeInfo.applyWarningDescription", {
-          defaultValue: "레시피를 변경하려면 이 Bottle에서 실행 중인 모든 앱을 먼저 종료해야 합니다. 계속하면 실행 중인 앱과 Wine prefix session을 모두 종료한 뒤 Wine/DXMT 설정을 변경합니다.",
-        })}
+        title={t(hasRecipeChanges
+          ? "main.recipeInfo.applyWarningTitle"
+          : isForceRuntimeReapply
+            ? "main.recipeInfo.forceReapplyWarningTitle"
+            : "main.recipeInfo.reapplyWarningTitle")}
+        description={t(hasRecipeChanges
+          ? "main.recipeInfo.applyWarningDescription"
+          : isForceRuntimeReapply
+            ? "main.recipeInfo.forceReapplyWarningDescription"
+            : "main.recipeInfo.reapplyWarningDescription")}
         tone="warning"
         icon={AlertTriangle}
         placement="center"
@@ -279,7 +363,11 @@ export function RecipeDialog({
             onClick: cancel_apply_recipe_changes,
           },
           {
-            label: t("main.recipeInfo.applyWarningAccept", { defaultValue: "앱 종료 후 변경" }),
+            label: t(hasRecipeChanges
+              ? "main.recipeInfo.applyWarningAccept"
+              : isForceRuntimeReapply
+                ? "main.recipeInfo.forceReapplyAccept"
+                : "main.recipeInfo.validateAndUpdateAccept"),
             variant: "danger",
             onClick: () => void confirm_apply_recipe_changes(),
           },
@@ -287,7 +375,11 @@ export function RecipeDialog({
       >
         <Stack className="gap-3">
           <Text className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
-            {t("main.recipeInfo.applyWarningBody")}
+            {t(hasRecipeChanges
+              ? "main.recipeInfo.applyWarningBody"
+              : isForceRuntimeReapply
+                ? "main.recipeInfo.forceReapplyWarningBody"
+                : "main.recipeInfo.reapplyWarningBody")}
           </Text>
 
           <Box className="rounded-lg border border-white/10 bg-[#0b1020] p-3">
@@ -322,8 +414,17 @@ export function RecipeDialog({
                   })}
                 </Text>
               ) : null}
+              {!hasRecipeChanges ? (
+                <Text as="li" className="list-disc">
+                  {t("main.recipeInfo.reapplyWarningRecipeUnchanged")}
+                </Text>
+              ) : null}
               <Text as="li" className="list-disc">
-                {t("main.recipeInfo.applyWarningPrefixUpdate")}
+                {t(hasRecipeChanges
+                  ? "main.recipeInfo.applyWarningPrefixUpdate"
+                  : isForceRuntimeReapply
+                    ? "main.recipeInfo.forceReapplyPlan"
+                    : "main.recipeInfo.validateAndUpdatePlan")}
               </Text>
             </Box>
           </Box>
@@ -336,15 +437,27 @@ export function RecipeDialog({
           ) : null}
 
           <Text className="text-xs leading-5 text-slate-500">
-            {t("main.recipeInfo.applyWarningCancelRollback")}
+            {t(hasRecipeChanges
+              ? "main.recipeInfo.applyWarningCancelRollback"
+              : isForceRuntimeReapply
+                ? "main.recipeInfo.forceReapplyWarningFooter"
+                : "main.recipeInfo.reapplyWarningFooter")}
           </Text>
         </Stack>
       </Dialog>
 
       <Dialog
         open={isApplyModalOpen}
-        title={t("main.recipeInfo.applyModalTitle")}
-        description={t("main.recipeInfo.applyModalDescription")}
+        title={t(isForceRuntimeReapply
+          ? "main.recipeInfo.forceReapplyModalTitle"
+          : isRuntimeReapply
+            ? "main.recipeInfo.reapplyModalTitle"
+            : "main.recipeInfo.applyModalTitle")}
+        description={t(isForceRuntimeReapply
+          ? "main.recipeInfo.forceReapplyModalDescription"
+          : isRuntimeReapply
+            ? "main.recipeInfo.reapplyModalDescription"
+            : "main.recipeInfo.applyModalDescription")}
         tone="info"
         icon={Settings}
         placement="center"
@@ -356,11 +469,31 @@ export function RecipeDialog({
       >
         <Stack className="gap-4">
           {applyErrorMessage ? (
-            <Text className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-sm font-semibold leading-5 text-rose-100">
-              {applyMessage}
-              <br />
-              <span className="text-xs font-normal text-rose-100/80">{applyErrorMessage}</span>
-            </Text>
+            <Stack className="gap-2">
+              <Text className="text-sm font-semibold leading-5 text-rose-100">
+                {applyMessage}
+              </Text>
+              <Box className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-3">
+                <Box className="flex items-start justify-between gap-3">
+                  <Text className="text-[11px] font-medium text-slate-400">
+                    {t("main.recipeInfo.errorDetails")}
+                  </Text>
+                  <Button
+                    type="button"
+                    className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 text-[11px] font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white"
+                    aria-label={copyLabel}
+                    title={copyLabel}
+                    onClick={() => void copy_apply_error()}
+                  >
+                    <CopyIcon size={12} />
+                    {copyLabel}
+                  </Button>
+                </Box>
+                <Text className="mt-2 max-h-36 select-text overflow-auto whitespace-pre-wrap break-all border-t border-white/10 pt-2 font-mono text-[11px] font-normal leading-5 text-rose-100/80">
+                  {applyErrorMessage}
+                </Text>
+              </Box>
+            </Stack>
           ) : isApplyComplete ? (
             <Text className="rounded-lg border border-emerald-300/25 bg-emerald-400/10 px-3 py-2 text-sm font-semibold leading-5 text-emerald-100">
               {applyMessage || t("main.recipeInfo.applyComplete")}

@@ -1,5 +1,6 @@
 import { jest } from "@jest/globals";
-import { readFile, writeFile } from "fs/promises";
+import { execFileSync } from "child_process";
+import { lstat, mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import {
   capture_manager_environment,
@@ -100,6 +101,88 @@ describe("SnapshotManager", () => {
       existed: false,
       snapshotPath: undefined,
     }));
+  });
+
+  it("excludes runtime FIFOs and transient process-monitor directories from Prefix snapshots", async () => {
+    const bottlePath = await create_bottle_fixture(
+      path.join(environment.devResourceRoot, "Bottles"),
+      "RuntimePipes",
+    );
+    const markerPath = path.join(bottlePath, "drive_c", "installed.txt");
+    const overseerDir = path.join(bottlePath, ".cache", "overseer", "hoyo-session");
+    const nestedOverseerDir = path.join(bottlePath, "launcher-prefix", ".cache", "overseer", "hoyo-session");
+    const processMonitorDir = path.join(bottlePath, ".cache", "bdih-process-monitor");
+    const arbitraryFifoPath = path.join(bottlePath, "drive_c", "runtime.fifo");
+
+    await writeFile(markerPath, "stable install", "utf8");
+    await mkdir(overseerDir, { recursive: true });
+    await mkdir(nestedOverseerDir, { recursive: true });
+    await mkdir(processMonitorDir, { recursive: true });
+    execFileSync("mkfifo", [path.join(overseerDir, "hoyo.fifo")]);
+    execFileSync("mkfifo", [path.join(nestedOverseerDir, "hoyo.fifo")]);
+    execFileSync("mkfifo", [path.join(processMonitorDir, "process-events.fifo")]);
+    execFileSync("mkfifo", [arbitraryFifoPath]);
+    await write_json(environment.devSettingsPath, {
+      schemaVersion: 1,
+      updateChannel: "stable",
+    });
+    await write_json(path.join(environment.devResourceRoot, "appmeta.json"), {
+      version: 1,
+      bottles: [{ id: "runtime-pipes", path: bottlePath }],
+    });
+    const { SnapshotManager } = require("../../../src/Main/Manager/SnapshotManager") as typeof import("../../../src/Main/Manager/SnapshotManager");
+    const { create_app_data_compatibility_contract } = require("../../../src/Common/Constant/DataSchema") as typeof import("../../../src/Common/Constant/DataSchema");
+    const manager = new SnapshotManager();
+    const progressUpdates: import("../../../src/Main/Manager/SnapshotManager").PrefixSnapshotProgress[] = [];
+
+    await manager.createStableReturnPoint({
+      stableVersion: "1.0.0",
+      dataRootPath: environment.devResourceRoot,
+      contract: create_app_data_compatibility_contract("1.0.0"),
+    });
+    const entry = await manager.ensurePrefixSnapshot({
+      bottleId: "runtime-pipes",
+      prefixPath: bottlePath,
+      onProgress: (progress) => progressUpdates.push(progress),
+    });
+
+    expect(progressUpdates.map((progress) => progress.phase)).toEqual(
+      expect.arrayContaining(["analyzing", "copying", "finalizing"]),
+    );
+    expect(progressUpdates.at(-1)).toEqual(expect.objectContaining({
+      phase: "finalizing",
+      progress: 100,
+    }));
+    expect(progressUpdates.some((progress) => progress.totalBytes > 0)).toBe(true);
+    expect(await readFile(path.join(entry!.snapshotPath!, "drive_c", "installed.txt"), "utf8"))
+      .toBe("stable install");
+    await expect(lstat(path.join(entry!.snapshotPath!, ".cache", "overseer")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(path.join(entry!.snapshotPath!, "launcher-prefix", ".cache", "overseer")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(path.join(entry!.snapshotPath!, ".cache", "bdih-process-monitor")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(path.join(entry!.snapshotPath!, "drive_c", "runtime.fifo")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects a Prefix snapshot before copying when disk capacity is insufficient", async () => {
+    const { assert_snapshot_capacity } = require("../../../src/Main/Manager/SnapshotManager") as typeof import("../../../src/Main/Manager/SnapshotManager");
+
+    expect(() => assert_snapshot_capacity(2 * 1024 * 1024 * 1024, 1024 * 1024 * 1024))
+      .toThrow(/디스크 공간이 부족/);
+    expect(() => assert_snapshot_capacity(128 * 1024 * 1024, 1024 * 1024 * 1024))
+      .not.toThrow();
+    expect(() => assert_snapshot_capacity(
+      16 * 1024 * 1024 * 1024,
+      1024 * 1024 * 1024,
+      true,
+    )).not.toThrow();
+    expect(() => assert_snapshot_capacity(
+      16 * 1024 * 1024 * 1024,
+      256 * 1024 * 1024,
+      true,
+    )).toThrow(/APFS 파일 클론용 여유 공간/);
   });
 
   it("preserves a Bottle before BottleManager deletes its Prefix", async () => {

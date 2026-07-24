@@ -511,6 +511,7 @@ export type DownloadBottleLauncherInstallerPayload = Omit<
 >;
 export interface ApplyBottleRecipePayload extends SetupBottlePrefixPayload {
   validateOnly?: boolean;
+  reapplyRuntime?: boolean;
 }
 
 export interface BottleTaskStatusPayload {
@@ -595,6 +596,11 @@ export interface BottleTaskResultPayload {
   ok: boolean;
   refreshBottles?: boolean;
   availability?: BottleExecutionAvailabilityPayload;
+  runtimeValidation?: {
+    updateRequired: boolean;
+    wineChanged: boolean;
+    dxmtChanged: boolean;
+  };
   error?: string;
 }
 

@@ -1199,9 +1199,13 @@ export function BottleDetailPanel({
   onChangeBottleRecipe?: (bottleId: string, patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>) => void;
   onApplyBottleRecipe?: (
     bottleId: string,
-    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">>,
+    patch: Partial<Pick<Bottle, "wineVersionId" | "dxmtVersionId" | "jadeiteVersionId">> & {
+      validateOnly?: boolean;
+      reapplyRuntime?: boolean;
+      forceReapplyRuntime?: boolean;
+    },
     reportProgress: (update: { progress: number; message: string }) => void,
-  ) => Promise<void> | void;
+  ) => Promise<{ runtimeUpdated?: boolean } | void> | { runtimeUpdated?: boolean } | void;
   onInstallWineVersion?: (versionId: string) => void;
   onInstallDxmtVersion?: (versionId: string) => void;
   onInstallJadeiteVersion?: (versionId: string) => void;

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 import { constants } from "fs";
-import { chmod, copyFile, cp, mkdir, readFile, rename, rm, stat } from "fs/promises";
+import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, stat, statfs } from "fs/promises";
 import path from "path";
 import type {
   AppDataCompatibilityContract,
@@ -18,6 +18,25 @@ import { writeConfigFile } from "../FileIO/IO";
 import { logManager } from "./LogManager";
 
 const RETURN_POINT_SCHEMA_VERSION = 1;
+const TRANSIENT_PREFIX_DIRECTORIES = [
+  path.join(".cache", "overseer"),
+  path.join(".cache", "bdih-process-monitor"),
+] as const;
+const SNAPSHOT_FREE_SPACE_RESERVE_BYTES = 512 * 1024 * 1024;
+
+export type PrefixSnapshotProgressPhase =
+  | "analyzing"
+  | "copying"
+  | "finalizing";
+
+export interface PrefixSnapshotProgress {
+  phase: PrefixSnapshotProgressPhase;
+  progress: number;
+  processedBytes: number;
+  totalBytes: number;
+  availableBytes?: number;
+  message: string;
+}
 
 /**
  * Owns snapshot storage and recovery material. It deliberately does not decide
@@ -114,6 +133,7 @@ export class SnapshotManager {
   ensurePrefixSnapshot(input: {
     bottleId: string;
     prefixPath: string;
+    onProgress?: (progress: PrefixSnapshotProgress) => void;
   }): Promise<PrefixSnapshotEntry | undefined> {
     return this.runExclusive(async () => {
       const returnPoint = await this.readReturnPoint();
@@ -150,7 +170,49 @@ export class SnapshotManager {
 
       try {
         if (existed) {
-          await clone_directory(originalPath, temporaryPath);
+          emit_snapshot_progress(input.onProgress, {
+            phase: "analyzing",
+            progress: 0,
+            processedBytes: 0,
+            totalBytes: 0,
+            message: "Stable 복귀 스냅샷에 필요한 용량을 계산하는 중...",
+          });
+          const sourceStats = await inspect_snapshot_source(originalPath);
+          const availableBytes = await available_disk_bytes(prefixRoot);
+          const usesFileClones = await supports_file_clone(
+            sourceStats.cloneProbePath,
+            prefixRoot,
+          );
+
+          assert_snapshot_capacity(
+            sourceStats.totalBytes,
+            availableBytes,
+            usesFileClones,
+          );
+          emit_snapshot_progress(input.onProgress, {
+            phase: "copying",
+            progress: 0,
+            processedBytes: 0,
+            totalBytes: sourceStats.totalBytes,
+            availableBytes,
+            message: `Stable 복귀 스냅샷 복사 중... 0 B / ${format_bytes(sourceStats.totalBytes)}`,
+          });
+          await clone_directory(
+            originalPath,
+            temporaryPath,
+            sourceStats,
+            input.onProgress,
+            availableBytes,
+            usesFileClones,
+          );
+          emit_snapshot_progress(input.onProgress, {
+            phase: "finalizing",
+            progress: 98,
+            processedBytes: sourceStats.totalBytes,
+            totalBytes: sourceStats.totalBytes,
+            availableBytes,
+            message: "Stable 복귀 스냅샷을 마무리하는 중...",
+          });
           await rename(temporaryPath, snapshotPath);
         }
 
@@ -167,6 +229,13 @@ export class SnapshotManager {
         };
 
         await this.writeReturnPoint(nextReturnPoint);
+        emit_snapshot_progress(input.onProgress, {
+          phase: "finalizing",
+          progress: 100,
+          processedBytes: 0,
+          totalBytes: 0,
+          message: "Stable 복귀 스냅샷이 준비되었습니다.",
+        });
         this.logger.info("prefix", "Bottle prefix snapshot created.", {
           returnPointId: returnPoint.id,
           bottleId: input.bottleId,
@@ -346,14 +415,253 @@ export class SnapshotManager {
   }
 }
 
-async function clone_directory(sourcePath: string, targetPath: string): Promise<void> {
+interface SnapshotSourceStats {
+  totalBytes: number;
+  entryCount: number;
+  cloneProbePath?: string;
+}
+
+async function clone_directory(
+  sourcePath: string,
+  targetPath: string,
+  sourceStats: SnapshotSourceStats,
+  onProgress?: (progress: PrefixSnapshotProgress) => void,
+  availableBytes?: number,
+  usesFileClones = false,
+): Promise<void> {
+  const sourceRoot = path.resolve(sourcePath);
+  let processedBytes = 0;
+  let processedEntries = 0;
+  let lastReportedAt = 0;
+  let lastReportedProgress = -1;
+
   await cp(sourcePath, targetPath, {
     recursive: true,
     force: false,
     errorOnExist: true,
-    mode: constants.COPYFILE_FICLONE,
+    mode: usesFileClones
+      ? constants.COPYFILE_FICLONE_FORCE
+      : constants.COPYFILE_FICLONE,
     preserveTimestamps: true,
+    filter: async (candidatePath) => {
+      const relativePath = path.relative(sourceRoot, path.resolve(candidatePath));
+
+      if (is_transient_prefix_path(relativePath)) {
+        return false;
+      }
+
+      try {
+        const candidate = await lstat(candidatePath);
+
+        const shouldCopy = candidate.isDirectory()
+          || candidate.isFile()
+          || candidate.isSymbolicLink();
+
+        if (shouldCopy) {
+          processedEntries += 1;
+          if (candidate.isFile()) {
+            processedBytes += candidate.size;
+          }
+
+          const progress = snapshot_copy_progress(
+            processedBytes,
+            sourceStats.totalBytes,
+            processedEntries,
+            sourceStats.entryCount,
+          );
+          const now = Date.now();
+
+          if (
+            progress >= 100
+            || progress > lastReportedProgress && now - lastReportedAt >= 200
+          ) {
+            lastReportedAt = now;
+            lastReportedProgress = progress;
+            emit_snapshot_progress(onProgress, {
+              phase: "copying",
+              progress,
+              processedBytes,
+              totalBytes: sourceStats.totalBytes,
+              availableBytes,
+              message: `Stable 복귀 스냅샷 복사 중... ${format_bytes(processedBytes)} / ${format_bytes(sourceStats.totalBytes)}`,
+            });
+          }
+        }
+
+        return shouldCopy;
+      } catch (error) {
+        if (is_missing_file_error(error)) {
+          return false;
+        }
+
+        throw error;
+      }
+    },
   });
+}
+
+async function inspect_snapshot_source(sourcePath: string): Promise<SnapshotSourceStats> {
+  const sourceRoot = path.resolve(sourcePath);
+  const stats: SnapshotSourceStats = {
+    totalBytes: 0,
+    entryCount: 0,
+  };
+
+  await inspect_snapshot_entry(sourceRoot, sourceRoot, stats);
+  return stats;
+}
+
+async function inspect_snapshot_entry(
+  sourceRoot: string,
+  candidatePath: string,
+  stats: SnapshotSourceStats,
+): Promise<void> {
+  const relativePath = path.relative(sourceRoot, candidatePath);
+
+  if (is_transient_prefix_path(relativePath)) {
+    return;
+  }
+
+  let candidate;
+
+  try {
+    candidate = await lstat(candidatePath);
+  } catch (error) {
+    if (is_missing_file_error(error)) {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (!candidate.isDirectory() && !candidate.isFile() && !candidate.isSymbolicLink()) {
+    return;
+  }
+
+  stats.entryCount += 1;
+
+  if (candidate.isFile()) {
+    stats.totalBytes += candidate.size;
+    stats.cloneProbePath ??= candidatePath;
+    return;
+  }
+
+  if (candidate.isSymbolicLink()) {
+    return;
+  }
+
+  const entries = await readdir(candidatePath);
+
+  for (const entry of entries) {
+    await inspect_snapshot_entry(sourceRoot, path.join(candidatePath, entry), stats);
+  }
+}
+
+async function available_disk_bytes(targetPath: string): Promise<number> {
+  const disk = await statfs(targetPath);
+
+  return disk.bavail * disk.bsize;
+}
+
+async function supports_file_clone(
+  sourceFilePath: string | undefined,
+  targetDirectoryPath: string,
+): Promise<boolean> {
+  if (!sourceFilePath) {
+    return false;
+  }
+
+  const probePath = path.join(
+    targetDirectoryPath,
+    `.bdih-clone-probe-${randomUUID()}`,
+  );
+
+  try {
+    await copyFile(
+      sourceFilePath,
+      probePath,
+      constants.COPYFILE_FICLONE_FORCE,
+    );
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probePath, { force: true });
+  }
+}
+
+export function assert_snapshot_capacity(
+  totalBytes: number,
+  availableBytes: number,
+  usesFileClones = false,
+): void {
+  const requiredBytes = usesFileClones
+    ? SNAPSHOT_FREE_SPACE_RESERVE_BYTES
+    : totalBytes + SNAPSHOT_FREE_SPACE_RESERVE_BYTES;
+
+  if (availableBytes >= requiredBytes) {
+    return;
+  }
+
+  const error = new Error(
+    `Stable 복귀 스냅샷을 만들 디스크 공간이 부족합니다. `
+    + `필요: ${format_bytes(requiredBytes)}`
+    + (usesFileClones
+      ? " (APFS 파일 클론용 여유 공간)"
+      : " (스냅샷 크기와 여유 공간 512 MB 포함)")
+    + `, `
+    + `사용 가능: ${format_bytes(availableBytes)}. `
+    + "공간을 확보한 뒤 다시 시도해 주세요.",
+  ) as NodeJS.ErrnoException;
+
+  error.code = "ENOSPC";
+  throw error;
+}
+
+function snapshot_copy_progress(
+  processedBytes: number,
+  totalBytes: number,
+  processedEntries: number,
+  entryCount: number,
+): number {
+  const ratio = totalBytes > 0
+    ? processedBytes / totalBytes
+    : entryCount > 0
+      ? processedEntries / entryCount
+      : 1;
+
+  return Math.min(97, Math.max(1, Math.round(ratio * 97)));
+}
+
+function emit_snapshot_progress(
+  listener: ((progress: PrefixSnapshotProgress) => void) | undefined,
+  progress: PrefixSnapshotProgress,
+): void {
+  try {
+    listener?.(progress);
+  } catch {
+    // Snapshot correctness must not depend on a renderer progress listener.
+  }
+}
+
+function format_bytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** exponent;
+
+  return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`;
+}
+
+function is_transient_prefix_path(relativePath: string): boolean {
+  const delimitedPath = `${path.sep}${relativePath}${path.sep}`;
+
+  return TRANSIENT_PREFIX_DIRECTORIES.some((directory) =>
+    delimitedPath.includes(`${path.sep}${directory}${path.sep}`),
+  );
 }
 
 async function path_exists(targetPath: string): Promise<boolean> {

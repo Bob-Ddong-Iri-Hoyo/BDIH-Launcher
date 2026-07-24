@@ -38,6 +38,13 @@ import {
 } from "../../Common/Util/WineLauncherOptions";
 import { ParamRunProgramReturn, runProgram } from "../Program/ChildProgram";
 import { remove_quarantine_xattr } from "../Program/Xattr";
+import {
+  create_fingerprint_artifact_identity,
+  ensure_runtime_artifact_receipt,
+  read_runtime_artifact_receipt,
+  same_runtime_artifact,
+  type RuntimeArtifactIdentity,
+} from "../Runtime/RuntimeArtifactIdentity";
 import { downloadManager } from "./DownloadManager";
 import { processManager } from "./ProcessManager";
 import { logManager } from "./LogManager";
@@ -91,7 +98,6 @@ import {
   type LauncherRuntimeBindingDescriptor,
   type LauncherSupervisorDescriptor,
 } from "../Execution/LauncherInstallPlan";
-import { snapshotManager } from "./SnapshotManager";
 import { macOSWineWindowFocusManager } from "../Util/MacOSWineWindowFocus";
 
 const LAUNCHER_EXECUTABLE_DETECT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -191,10 +197,6 @@ export class BottleExecutionManager {
     const bottlePath = expand_user_home_path(request.bottlePath);
 
     try {
-      await snapshotManager.ensurePrefixSnapshot({
-        bottleId: request.bottleId,
-        prefixPath: bottlePath,
-      });
       resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wineboot");
       const shouldPrepareDxmt = should_prepare_dxmt_runtime(request);
       mkdirSync(bottlePath, { recursive: true });
@@ -308,28 +310,36 @@ export class BottleExecutionManager {
     const bottlePath = expand_user_home_path(request.bottlePath);
 
     try {
-      if (!request.validateOnly) {
-        await snapshotManager.ensurePrefixSnapshot({
-          bottleId: request.bottleId,
-          prefixPath: bottlePath,
-        });
-      }
       const wineCommand = resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wine64");
       const shouldPrepareDxmt = should_prepare_dxmt_runtime(request);
 
       if (shouldPrepareDxmt) {
         validate_dxmt_runtime(request.dxmtVersionId, request.dxmtPackagePath);
       }
+      const currentRuntimeArtifacts = await resolve_bottle_runtime_artifacts(
+        request,
+        wineCommand,
+      );
+      const runtimeValidation = compare_bottle_runtime_artifacts(
+        read_bottle_applied_runtime_artifacts(bottlePath),
+        currentRuntimeArtifacts,
+      );
 
       if (request.validateOnly) {
         this.sendStatus(sender, {
           bottleId: request.bottleId,
           stage: "ready",
           progress: 100,
-          message: "Bottle recipe validation completed; no runtime changes were required.",
+          message: runtimeValidation.updateRequired
+            ? "Runtime validation found an installed Wine or DXMT artifact that has not been applied to this Bottle."
+            : "Runtime validation completed; the installed artifacts are already applied.",
         });
 
-        return { ok: true, refreshBottles: false };
+        return {
+          ok: true,
+          refreshBottles: false,
+          runtimeValidation,
+        };
       }
 
       mkdirSync(bottlePath, { recursive: true });
@@ -337,7 +347,9 @@ export class BottleExecutionManager {
         bottleId: request.bottleId,
         stage: "setup",
         progress: 28,
-        message: "Applying bottle recipe runtime metadata.",
+        message: request.reapplyRuntime
+          ? "Refreshing installed runtime bindings without changing the recipe."
+          : "Applying bottle recipe runtime metadata.",
       });
       write_bottle_runtime_metadata(request, bottlePath);
 
@@ -369,6 +381,7 @@ export class BottleExecutionManager {
           wineCommand,
           dxmtRuntimePath,
           logger: this.logger,
+          forceRefresh: request.reapplyRuntime,
         });
 
         const prefixPaths = find_existing_bottle_prefix_paths(bottlePath);
@@ -389,12 +402,18 @@ export class BottleExecutionManager {
           });
         }
       }
+      write_bottle_applied_runtime_artifacts(
+        bottlePath,
+        currentRuntimeArtifacts,
+      );
 
       this.sendStatus(sender, {
         bottleId: request.bottleId,
         stage: "ready",
         progress: 100,
-        message: "Bottle recipe was applied.",
+        message: request.reapplyRuntime
+          ? "Installed bottle runtime was reapplied without changing the recipe."
+          : "Bottle recipe was applied.",
       });
 
       return { ok: true, refreshBottles: true };
@@ -419,10 +438,6 @@ export class BottleExecutionManager {
     sender?: WebContents,
   ): Promise<BottleTaskResultPayload> {
     try {
-      await snapshotManager.ensurePrefixSnapshot({
-        bottleId: request.bottleId,
-        prefixPath: expand_user_home_path(request.bottlePath),
-      });
       const strategy = resolve_launcher_install_strategy(request);
       const availability = await this.checkStrategyAvailability(
         request,
@@ -747,10 +762,6 @@ export class BottleExecutionManager {
     let wineCommand: string;
 
     try {
-      await snapshotManager.ensurePrefixSnapshot({
-        bottleId: request.bottleId,
-        prefixPath: bottlePath,
-      });
       wineCommand = resolve_required_wine_tool(request.wineVersionId, request.wineRuntimePath, "wine64");
 
       if (should_validate_dxmt_for_executable(request)) {
@@ -2963,10 +2974,6 @@ export class BottleExecutionManager {
         continue;
       }
 
-      await snapshotManager.ensurePrefixSnapshot({
-        bottleId: prefixContexts.get(prefix_session_key(prefixPath)) ?? path.basename(prefixPath),
-        prefixPath,
-      });
       ensure_shared_games_drive(prefixPath, resolvedPreference, this.logger);
       updatedPrefixPaths.push(prefixPath);
     }
@@ -4513,6 +4520,18 @@ interface BottleRuntimeLock {
   dxmtPackagePath?: string;
 }
 
+interface BottleAppliedRuntimeArtifacts {
+  schemaVersion: 1;
+  wine: RuntimeArtifactIdentity;
+  dxmt?: RuntimeArtifactIdentity;
+}
+
+interface BottleRuntimeArtifactValidation {
+  updateRequired: boolean;
+  wineChanged: boolean;
+  dxmtChanged: boolean;
+}
+
 function request_with_bottle_runtime_lock(
   request: RunBottleExecutablePayload,
   bottleRootPath: string,
@@ -4555,6 +4574,198 @@ function read_bottle_runtime_lock(bottleRootPath: string): BottleRuntimeLock {
 
 function optional_runtime_string(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+async function resolve_bottle_runtime_artifacts(
+  request: ApplyBottleRecipePayload,
+  wineCommand: string,
+): Promise<BottleAppliedRuntimeArtifacts> {
+  const wineRoot = resolve_wine_runtime_root(request.wineRuntimePath, wineCommand);
+  const existingWineReceipt = read_runtime_artifact_receipt("wine", wineRoot);
+  const legacyWineArchivePath = existingWineReceipt
+    ? undefined
+    : find_installed_wine_archive(wineRoot);
+  const wineReceipt = existingWineReceipt
+    ?? (legacyWineArchivePath
+      ? await ensure_runtime_artifact_receipt({
+        kind: "wine",
+        versionId: request.wineVersionId,
+        artifactPath: legacyWineArchivePath,
+        receiptTargetPath: wineRoot,
+      })
+      : undefined);
+  const wine = wineReceipt?.versionId === request.wineVersionId
+    ? runtime_identity_from_receipt(wineReceipt)
+    : create_fingerprint_artifact_identity(
+      "wine",
+      request.wineVersionId,
+      wine_runtime_cache_signature(wineRoot),
+    );
+  let dxmt: RuntimeArtifactIdentity | undefined;
+  const resolvedDxmtPackagePath = expand_user_home_path(request.dxmtPackagePath ?? "");
+
+  if (request.dxmtVersionId && resolvedDxmtPackagePath) {
+    const dxmtReceipt = await ensure_runtime_artifact_receipt({
+      kind: "dxmt",
+      versionId: request.dxmtVersionId,
+      artifactPath: resolvedDxmtPackagePath,
+      receiptTargetPath: resolvedDxmtPackagePath,
+      refreshWhenArtifactChanged: true,
+    });
+
+    if (dxmtReceipt) {
+      dxmt = runtime_identity_from_receipt(dxmtReceipt);
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    wine,
+    dxmt,
+  };
+}
+
+function find_installed_wine_archive(wineRoot: string): string | undefined {
+  let candidateRoot = path.resolve(wineRoot);
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    const parentPath = path.dirname(candidateRoot);
+    const baseName = path.basename(candidateRoot);
+
+    for (const extension of [".tar.gz", ".tgz", ".zip", ".7z"]) {
+      const archivePath = path.join(parentPath, `${baseName}${extension}`);
+
+      if (existsSync(archivePath) && statSync(archivePath).isFile()) {
+        return archivePath;
+      }
+    }
+
+    if (parentPath === candidateRoot) {
+      break;
+    }
+
+    candidateRoot = parentPath;
+  }
+
+  return undefined;
+}
+
+function runtime_identity_from_receipt(
+  receipt: RuntimeArtifactIdentity,
+): RuntimeArtifactIdentity {
+  return {
+    kind: receipt.kind,
+    versionId: receipt.versionId,
+    algorithm: receipt.algorithm,
+    digest: receipt.digest,
+  };
+}
+
+function compare_bottle_runtime_artifacts(
+  applied: BottleAppliedRuntimeArtifacts | undefined,
+  current: BottleAppliedRuntimeArtifacts,
+): BottleRuntimeArtifactValidation {
+  const wineChanged = !same_runtime_artifact(applied?.wine, current.wine);
+  const dxmtChanged = !same_runtime_artifact(applied?.dxmt, current.dxmt);
+
+  return {
+    updateRequired: wineChanged || dxmtChanged,
+    wineChanged,
+    dxmtChanged,
+  };
+}
+
+function read_bottle_applied_runtime_artifacts(
+  bottlePath: string,
+): BottleAppliedRuntimeArtifacts | undefined {
+  const metadataPath = path.join(bottlePath, "bdih-bottle.json");
+
+  if (!existsSync(metadataPath)) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(metadataPath, "utf8"));
+
+    if (!is_plain_record(parsed) || !is_plain_record(parsed.appliedRuntimeArtifacts)) {
+      return undefined;
+    }
+
+    const artifacts = parsed.appliedRuntimeArtifacts;
+    const wine = parse_runtime_artifact_identity(artifacts.wine, "wine");
+    const dxmt = artifacts.dxmt === undefined
+      ? undefined
+      : parse_runtime_artifact_identity(artifacts.dxmt, "dxmt");
+
+    if (artifacts.schemaVersion !== 1 || !wine || (artifacts.dxmt !== undefined && !dxmt)) {
+      return undefined;
+    }
+
+    return {
+      schemaVersion: 1,
+      wine,
+      dxmt,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function parse_runtime_artifact_identity(
+  value: unknown,
+  expectedKind: RuntimeArtifactIdentity["kind"],
+): RuntimeArtifactIdentity | undefined {
+  if (
+    !is_plain_record(value)
+    || value.kind !== expectedKind
+    || typeof value.versionId !== "string"
+    || (value.algorithm !== "sha256" && value.algorithm !== "fingerprint")
+    || typeof value.digest !== "string"
+    || !/^[a-f0-9]{64}$/i.test(value.digest)
+  ) {
+    return undefined;
+  }
+
+  return {
+    kind: expectedKind,
+    versionId: value.versionId,
+    algorithm: value.algorithm,
+    digest: value.digest,
+  };
+}
+
+function write_bottle_applied_runtime_artifacts(
+  bottlePath: string,
+  artifacts: BottleAppliedRuntimeArtifacts,
+): void {
+  const metadataPath = path.join(bottlePath, "bdih-bottle.json");
+  let current: Record<string, unknown> = {};
+
+  if (existsSync(metadataPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(metadataPath, "utf8"));
+
+      if (is_plain_record(parsed)) {
+        current = parsed;
+      }
+    } catch {
+      current = {};
+    }
+  }
+
+  writeFileSync(
+    metadataPath,
+    JSON.stringify(
+      {
+        ...current,
+        appliedRuntimeArtifacts: artifacts,
+        runtimeAppliedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
 }
 
 function write_bottle_runtime_metadata(request: ApplyBottleRecipePayload, bottlePath: string): void {
@@ -4740,6 +4951,7 @@ async function prepare_bottle_builtin_dxmt_wine_runtime(options: {
   wineCommand: string;
   dxmtRuntimePath: string;
   logger: ReturnType<typeof logManager.createLogger>;
+  forceRefresh?: boolean;
 }): Promise<string> {
   const baseWineRoot = resolve_wine_runtime_root(options.request.wineRuntimePath, options.wineCommand);
   const resolvedDxmtPackagePath = expand_user_home_path(options.request.dxmtPackagePath ?? "");
@@ -4761,10 +4973,12 @@ async function prepare_bottle_builtin_dxmt_wine_runtime(options: {
     dxmtPackageSignature: runtime_file_signature(resolvedDxmtPackagePath),
   };
 
-  if (!is_hoyo_builtin_dxmt_wine_cache_valid(bottleWineRoot, metadataPath, metadata)) {
+  if (options.forceRefresh || !is_hoyo_builtin_dxmt_wine_cache_valid(bottleWineRoot, metadataPath, metadata)) {
     rmSync(bottleWineRoot, { recursive: true, force: true });
     mkdirSync(path.dirname(bottleWineRoot), { recursive: true });
-    options.logger.info("copying bottle shared DXMT Wine runtime for recipe", {
+    options.logger.info(options.forceRefresh
+      ? "refreshing bottle shared DXMT Wine runtime without recipe changes"
+      : "copying bottle shared DXMT Wine runtime for recipe", {
       baseWineRoot,
       bottleWineRoot,
       dxmtRuntimePath: options.dxmtRuntimePath,

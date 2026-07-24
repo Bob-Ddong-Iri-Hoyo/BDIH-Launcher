@@ -10,6 +10,7 @@ import errorResultImage from "../../../resouces/app/images/update/error-result.p
 import latestReleaseImage from "../../../resouces/app/images/update/latest-release.png";
 import updateAvailableImage from "../../../resouces/app/images/update/update-available.png";
 import { classify_app_update_failure } from "../Logic/AppUpdateError";
+import { copy_text_to_clipboard } from "../Logic/Clipboard";
 import { Dialog } from "./Dialog";
 import { ProgressBar } from "./ProgressBar";
 import { Badge, Box, Button, Checkbox, IconSlot, Inline, InlineText, Stack, Text } from "./Primitives";
@@ -162,36 +163,6 @@ function AppUpdateVersionFlow({ status }: { status?: AppUpdateStatusPayload }) {
 
 interface AppUpdateErrorDetailsProps {
   error: string;
-}
-
-async function copy_text_to_clipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      // Electron file pages may expose the Clipboard API but reject writes.
-    }
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  let copied = false;
-
-  try {
-    textarea.select();
-    copied = document.execCommand("copy");
-  } finally {
-    textarea.remove();
-  }
-
-  if (!copied) {
-    throw new Error("Failed to copy update error details.");
-  }
 }
 
 function AppUpdateErrorDetails({ error }: AppUpdateErrorDetailsProps) {

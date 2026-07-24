@@ -17,6 +17,7 @@ import { WineLauncherOptionsManifest, WineVersion } from "../../Common/Types/Win
 import { parse_wine_launcher_options_manifest } from "../../Common/Util/WineLauncherOptions";
 import { remove_quarantine_xattr } from "../Program/Xattr";
 import { fetch_github_release_catalog } from "../Runtime/GitHubReleaseCatalog";
+import { ensure_runtime_artifact_receipt } from "../Runtime/RuntimeArtifactIdentity";
 import { downloadManager } from "./DownloadManager";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
@@ -144,6 +145,13 @@ export class WineManager {
 
     if (existingRuntimePath) {
       await this.clearQuarantineAttribute(request.versionId, existingRuntimePath);
+      await ensure_runtime_artifact_receipt({
+        kind: "wine",
+        versionId: request.versionId,
+        artifactPath: archivePath,
+        receiptTargetPath: existingRuntimePath,
+        sourceUrl: wine.downloadUrl,
+      });
       const metadata = await this.ensureLauncherOptionsMetadata(wine, request.installPath, existingRuntimePath, sender);
 
       this.sendStatus(sender, {
@@ -255,6 +263,14 @@ export class WineManager {
       }
 
       await this.clearQuarantineAttribute(request.versionId, runtimePath);
+      await ensure_runtime_artifact_receipt({
+        kind: "wine",
+        versionId: request.versionId,
+        artifactPath: archivePath,
+        receiptTargetPath: runtimePath,
+        sourceUrl: wine.downloadUrl,
+        force: true,
+      });
 
       const metadata = await this.ensureLauncherOptionsMetadata(wine, request.installPath, runtimePath, sender);
 

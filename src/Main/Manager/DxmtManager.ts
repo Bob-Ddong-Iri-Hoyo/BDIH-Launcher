@@ -8,6 +8,10 @@ import { DxmtDeletePayload, DxmtInstallPayload, DxmtStatusPayload, IPC_CHANNELS,
 import { DxmtVersion } from "../../Common/Types/Wine";
 import { remove_quarantine_xattr } from "../Program/Xattr";
 import { fetch_github_release_catalog } from "../Runtime/GitHubReleaseCatalog";
+import {
+  ensure_runtime_artifact_receipt,
+  runtime_artifact_receipt_path,
+} from "../Runtime/RuntimeArtifactIdentity";
 import { downloadManager } from "./DownloadManager";
 import { logManager } from "./LogManager";
 import { preferenceManager } from "./PreferenceManager";
@@ -88,6 +92,14 @@ export class DxmtManager {
 
     if (is_downloaded_dxmt_package(targetPath)) {
       await this.clearQuarantineAttribute(request.versionId, targetPath);
+      await ensure_runtime_artifact_receipt({
+        kind: "dxmt",
+        versionId: request.versionId,
+        artifactPath: targetPath,
+        receiptTargetPath: targetPath,
+        sourceUrl: dxmt.downloadUrl,
+        refreshWhenArtifactChanged: true,
+      });
       this.sendStatus(sender, {
         versionId: request.versionId,
         status: "installed",
@@ -117,6 +129,14 @@ export class DxmtManager {
       copyFileSync(localPackagePath, targetPath);
 
       await this.clearQuarantineAttribute(request.versionId, targetPath);
+      await ensure_runtime_artifact_receipt({
+        kind: "dxmt",
+        versionId: request.versionId,
+        artifactPath: targetPath,
+        receiptTargetPath: targetPath,
+        sourceUrl: dxmt.downloadUrl,
+        force: true,
+      });
       this.sendStatus(sender, {
         versionId: request.versionId,
         status: "installed",
@@ -167,6 +187,14 @@ export class DxmtManager {
             }
 
             await this.clearQuarantineAttribute(request.versionId, targetPath);
+            await ensure_runtime_artifact_receipt({
+              kind: "dxmt",
+              versionId: request.versionId,
+              artifactPath: targetPath,
+              receiptTargetPath: targetPath,
+              sourceUrl: dxmt.downloadUrl,
+              force: true,
+            });
             this.sendStatus(sender, {
               versionId: request.versionId,
               status: "installed",
@@ -210,6 +238,14 @@ export class DxmtManager {
       if (resolvedPath && is_safe_cache_delete_path(resolvedPath, cacheRoot) && existsSync(resolvedPath)) {
         rmSync(resolvedPath, { recursive: true, force: true });
         deletedPaths.push(resolvedPath);
+      }
+      const receiptPath = resolvedPath
+        ? runtime_artifact_receipt_path("dxmt", resolvedPath)
+        : "";
+
+      if (receiptPath && is_safe_cache_delete_path(receiptPath, cacheRoot) && existsSync(receiptPath)) {
+        rmSync(receiptPath, { force: true });
+        deletedPaths.push(receiptPath);
       }
 
       this.cachedVersions = this.cachedVersions.map((version) =>

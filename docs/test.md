@@ -219,8 +219,16 @@ flow below.
 6. Reopen the same fixed app in Finder. Do not run `install:test` again.
 7. Select the Beta channel in App information.
 8. Confirm the Beta warning. The Stable app records its compiled data contract,
-   snapshots settings and `appmeta.json`, and creates a lazy recovery boundary
-   for each Prefix before Beta first mutates it.
+   and snapshots app-owned metadata such as settings, `appmeta.json`, and each
+   Prefix's `bdih-bottle.json`. Ordinary launch, install, drive-mapping, and
+   Recipe changes must not copy an entire Prefix. A full Prefix recovery copy
+   is created only immediately before an explicit destructive operation such
+   as deleting a Bottle, an app's files, or a Prefix.
+   On APFS, that destructive recovery copy must use file clones and require
+   only the reserved 512 MB of free space at creation time. On volumes without
+   file-clone support, it must require the logical snapshot size plus the
+   reserved 512 MB. If the capacity check fails, no `.creating` snapshot
+   directory may remain.
 9. Check for updates. When the confirmation dialog appears, click **Update**. The launcher now checks and closes running apps and Bottles while showing download and installation progress in a blocking dialog over the main view.
 10. Confirm that the app relaunches with the updated version. Use **Later** when verifying that dismissing the confirmation leaves the installed app unchanged.
 
@@ -264,6 +272,37 @@ pnpm run build:test -- --version 1.1.0-beta.2 --channel beta
 
 The ZIP and blockmap for both versions remain in the local feed. Build
 `1.2.0-beta.1` again when the feed should offer an upgrade back to it.
+
+## Bottle runtime validation and update test
+
+Replacing a Wine GitHub Release asset without changing its version does not
+change a Bottle recipe. After deleting and reinstalling that same Wine version,
+open the Bottle's Recipe settings without changing a selection:
+
+1. Confirm that the primary action says **Validate and update**, not **Apply changes**.
+   The secondary **Force reapply** action must be visible only in this
+   no-selection-change state. Changing any Recipe selection must hide it.
+2. Confirm the warning says that Wine/DXMT recipe IDs remain unchanged and
+   processes stop only when an artifact update is detected.
+3. Run it once and verify that a Bottle without an applied artifact identity
+   records the installed Wine/DXMT state.
+4. Run it again without reinstalling a runtime. It must report that the current
+   runtime is already applied without stopping active Bottle processes.
+5. Delete and reinstall the same Wine Release version so the archive SHA-256
+   changes while the Recipe ID remains unchanged, then run validation again.
+6. Verify that active Bottle processes stop only after the changed artifact is
+   detected. For a DXMT Bottle, verify the log contains
+   `refreshing bottle shared DXMT Wine runtime without recipe changes` and that
+   existing Prefix DXMT files are updated.
+7. Confirm that the Bottle still reports the same Wine and DXMT recipe IDs.
+8. With no Recipe selection changes, run **Force reapply**. Confirm that it
+   skips the artifact equality result, stops active Bottle processes, rebuilds
+   the Bottle runtime binding and internal DXMT Wine copy, and refreshes
+   existing Prefix DXMT files without changing the Recipe IDs.
+9. To test failure handling, temporarily select or remove an invalid runtime
+   path. The failure dialog must show selectable technical details and a
+   **Copy** button; copying must place the technical error panel content, but
+   not the failure-dialog title, on the clipboard.
 
 ## Manual Nightly update test
 
