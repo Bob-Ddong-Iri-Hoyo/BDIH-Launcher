@@ -138,9 +138,10 @@ async function createApp(): Promise<void> {
   await channelTransitionManager.reconcileStartup();
 
   if (preference.autoCheckUpdates) {
-    // Startup checks only discover updates. Downloading and installation must
-    // remain behind the renderer's explicit user-confirmation flow.
-    void updateManager.checkForUpdates(mainWindow);
+    // Only the startup check may automatically install and relaunch. Periodic
+    // and manual checks use the confirmation-only IPC path so they cannot stop
+    // a game that was launched during the current session.
+    void updateManager.checkForUpdatesAndInstall(mainWindow);
   }
 }
 
