@@ -19,6 +19,10 @@ import { windowManager } from "./Manager/WindowManager";
 import { youtubeManager } from "./Manager/YouTubeManager";
 import { channelTransitionManager } from "./Manager/ChannelTransitionManager";
 import { guardianManager } from "./Manager/GuardianManager";
+import {
+  PromiseTimeoutError,
+  with_promise_timeout,
+} from "./Util/PromiseTimeout";
 
 // Main-process entry state used to make the asynchronous quit cleanup idempotent.
 let isQuitCleanupComplete = false;
@@ -26,6 +30,7 @@ let quitCleanupPromise: Promise<void> | null = null;
 let processProtectionPromise: Promise<void> | null = null;
 let appCreationPromise: Promise<void> | null = null;
 const UPDATE_INSTALL_HANDOFF_DELAY_MS = 350;
+const QUIT_CLEANUP_TIMEOUT_MS = 20_000;
 const IS_UPDATE_TEST_BUILD = is_update_test_build();
 const IS_NIGHTLY_BUILD = is_nightly_launcher_build();
 const IS_STAGING_BUILD = is_staging_launcher_build();
@@ -257,28 +262,74 @@ async function confirm_quit_with_active_wine(): Promise<boolean> {
  * user visible feedback while the processes are being stopped.
  */
 async function cleanupBeforeQuit(): Promise<void> {
-  await windowManager.showShutdownWindow();
+  await with_promise_timeout(
+    runQuitCleanup(),
+    QUIT_CLEANUP_TIMEOUT_MS,
+    "Launcher quit cleanup",
+  );
+}
+
+async function runQuitCleanup(): Promise<void> {
+  await runQuitCleanupStage("show-shutdown-window", () =>
+    windowManager.showShutdownWindow().then(() => undefined)
+  );
   const shutdownWindowShownAt = Date.now();
 
   shortcutManager.unregisterAll();
-  await windowManager.flushLauncherWindowState();
-  await Promise.all([
-    preferenceManager.flushPendingWrites(),
-    bottleManager.flushPendingWrites(),
-  ]);
+  await runQuitCleanupStage("save-window-state", () =>
+    windowManager.flushLauncherWindowState()
+  );
+  await runQuitCleanupStage("flush-pending-writes", () =>
+    Promise.all([
+      preferenceManager.flushPendingWrites(),
+      bottleManager.flushPendingWrites(),
+    ]).then(() => undefined)
+  );
 
-  await Promise.all([
-    discordPresenceManager.shutdown(),
-    downloadManager.stopAll(),
-    bottleExecutionManager.stopAllWineProcesses(),
-  ]);
-  await guardianManager.disarm();
+  // Prefix-session completion updates Discord presence. Finish Wine and
+  // downloads before destroying the Discord client so those updates cannot
+  // race a half-closed RPC transport.
+  await runQuitCleanupStage("stop-managed-processes", () =>
+    Promise.all([
+      downloadManager.stopAll(),
+      bottleExecutionManager.stopAllWineProcesses(),
+    ]).then(() => undefined)
+  );
+  await runQuitCleanupStage("shutdown-discord", () =>
+    discordPresenceManager.shutdown()
+  );
+  await runQuitCleanupStage("disarm-guardian", () =>
+    guardianManager.disarm()
+  );
 
   const minimumVisibleMs = 600;
   const remainingVisibleMs = minimumVisibleMs - (Date.now() - shutdownWindowShownAt);
 
   if (remainingVisibleMs > 0) {
     await new Promise<void>((resolve) => setTimeout(resolve, remainingVisibleMs));
+  }
+}
+
+async function runQuitCleanupStage(
+  stage: string,
+  operation: () => Promise<void>,
+): Promise<void> {
+  const startedAt = Date.now();
+  logManager.info("Main", "quit cleanup stage started", { stage });
+
+  try {
+    await operation();
+    logManager.info("Main", "quit cleanup stage completed", {
+      stage,
+      elapsedMs: Date.now() - startedAt,
+    });
+  } catch (error) {
+    logManager.error("Main", "quit cleanup stage failed", {
+      stage,
+      elapsedMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
 }
 
@@ -398,6 +449,19 @@ app.on("before-quit", (event) => {
       isQuitCleanupComplete = true;
       app.quit();
     } catch (error) {
+      if (error instanceof PromiseTimeoutError) {
+        // Keep Guardian armed. app.exit() closes its control pipe without the
+        // CLEAN marker, so Guardian performs the final Wine cleanup out of
+        // process even when a main-process Promise can no longer settle.
+        logManager.error("Main", "quit cleanup timed out; handing cleanup to Guardian", {
+          timeoutMs: error.timeoutMs,
+          operation: error.operation,
+        });
+        isQuitCleanupComplete = true;
+        app.exit(0);
+        return;
+      }
+
       // Do not let Electron exit while launcher-owned Wine processes remain.
       // The user can retry after inspecting the recorded process IDs.
       logManager.error("Main", "quit cleanup failed; keeping the launcher open", error);

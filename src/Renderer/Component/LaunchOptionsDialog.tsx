@@ -5,8 +5,13 @@ import type {
   BottleEnvironmentVariablePayload,
   BottleLaunchOptionPresetId,
   BottleLaunchOptionsPayload,
+  DxmtGpuPresetId,
   InstalledBottleAppPayload,
 } from "../../Common/Types/IPC";
+import {
+  DXMT_GPU_IDENTITY_PRESETS,
+  get_dxmt_gpu_identity_preset,
+} from "../../Common/Constant/DxmtGpuPresets";
 import {
   filter_launch_options_by_manifest,
   is_launch_option_supported_by_manifest,
@@ -42,6 +47,10 @@ const SECTION_OPTION_KEYS: Record<LaunchOptionSectionId, readonly LaunchOptionSe
   ],
   dxmt: [
     "dxmtPreferredMaxFrameRate",
+    "dxmtGpuPreset",
+    "dxmtGpuVendorId",
+    "dxmtGpuDeviceId",
+    "dxmtEnableNvExt",
     "dxmtMetalFxSpatialUpscale",
     "dxmtMetalFxSpatialUpscaleFactor",
   ],
@@ -206,6 +215,62 @@ export function LaunchOptionsDialog({
       ...currentDraft,
       presetId: "custom",
       [key]: trimmedValue.length > 0 && Number.isFinite(numberValue) ? numberValue : undefined,
+    }));
+  }
+
+  function update_dxmt_gpu_preset(value: string) {
+    if (!is_option_supported("dxmtGpuPreset")) {
+      return;
+    }
+
+    setDraft((currentDraft) => {
+      if (value === "none") {
+        return {
+          ...currentDraft,
+          presetId: "custom",
+          dxmtGpuPreset: undefined,
+          dxmtGpuVendorId: undefined,
+          dxmtGpuDeviceId: undefined,
+        };
+      }
+
+      if (value === "custom") {
+        return {
+          ...currentDraft,
+          presetId: "custom",
+          dxmtGpuPreset: "custom",
+        };
+      }
+
+      const gpuPreset = get_dxmt_gpu_identity_preset(value);
+
+      if (!gpuPreset) {
+        return currentDraft;
+      }
+
+      return {
+        ...currentDraft,
+        presetId: "custom",
+        dxmtGpuPreset: gpuPreset.id,
+        dxmtGpuVendorId: gpuPreset.vendorId,
+        dxmtGpuDeviceId: gpuPreset.deviceId,
+      };
+    });
+  }
+
+  function update_dxmt_gpu_custom_id(
+    key: "dxmtGpuVendorId" | "dxmtGpuDeviceId",
+    value: string,
+  ) {
+    if (!is_option_supported(key)) {
+      return;
+    }
+
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      presetId: "custom",
+      dxmtGpuPreset: "custom",
+      [key]: value.toLowerCase(),
     }));
   }
 
@@ -404,7 +469,11 @@ export function LaunchOptionsDialog({
         {
           label: t("common.actions.save"),
           variant: "primary",
-          disabled: isSaving || !selectedApp || !environment_variables_are_valid(draft.environmentVariables),
+          disabled:
+            isSaving
+            || !selectedApp
+            || !environment_variables_are_valid(draft.environmentVariables)
+            || !dxmt_gpu_identity_is_valid(draft),
           autoFocus: true,
           onClick: () => void save(),
         },
@@ -501,6 +570,26 @@ export function LaunchOptionsDialog({
                   step={1}
                   onChange={(value) => update_number("dxmtPreferredMaxFrameRate", value)}
                   {...option_support_attrs("dxmtPreferredMaxFrameRate")}
+                />
+                ) : null}
+                {allowedOptionKeys.has("dxmtGpuPreset") ? (
+                <DxmtGpuIdentityField
+                  presetId={draft.dxmtGpuPreset}
+                  vendorId={draft.dxmtGpuVendorId}
+                  deviceId={draft.dxmtGpuDeviceId}
+                  onPresetChange={update_dxmt_gpu_preset}
+                  onVendorIdChange={(value) => update_dxmt_gpu_custom_id("dxmtGpuVendorId", value)}
+                  onDeviceIdChange={(value) => update_dxmt_gpu_custom_id("dxmtGpuDeviceId", value)}
+                  {...option_support_attrs("dxmtGpuVendorId")}
+                />
+                ) : null}
+                {allowedOptionKeys.has("dxmtEnableNvExt") ? (
+                <OptionCheckbox
+                  label={t("main.launchOptions.dxmtEnableNvExt")}
+                  description={t("main.launchOptions.descriptions.dxmtEnableNvExt")}
+                  checked={draft.dxmtEnableNvExt}
+                  onChange={(checked) => update_boolean("dxmtEnableNvExt", checked)}
+                  {...option_support_attrs("dxmtEnableNvExt")}
                 />
                 ) : null}
                 {allowedOptionKeys.has("dxmtMetalFxSpatialUpscale") ? (
@@ -780,6 +869,135 @@ function OptionField({
       </Box>
     </Box>
   );
+}
+
+function DxmtGpuIdentityField({
+  presetId,
+  vendorId,
+  deviceId,
+  disabled = false,
+  disabledReason,
+  onPresetChange,
+  onVendorIdChange,
+  onDeviceIdChange,
+}: {
+  presetId?: DxmtGpuPresetId;
+  vendorId?: string;
+  deviceId?: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  onPresetChange: (value: string) => void;
+  onVendorIdChange: (value: string) => void;
+  onDeviceIdChange: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  const isCustom = presetId === "custom" || (!presetId && Boolean(vendorId || deviceId));
+  const selectedValue = isCustom ? "custom" : presetId ?? "none";
+  const isValid = dxmt_gpu_identity_is_valid({
+    dxmtGpuPreset: isCustom ? "custom" : presetId,
+    dxmtGpuVendorId: vendorId,
+    dxmtGpuDeviceId: deviceId,
+  });
+  const options: SelectMenuOption[] = [
+    {
+      value: "none",
+      label: t("main.launchOptions.dxmtGpuIdentityNone"),
+      description: t("main.launchOptions.dxmtGpuIdentityNoneDescription"),
+    },
+    ...DXMT_GPU_IDENTITY_PRESETS.map((preset) => ({
+      value: preset.id,
+      label: preset.label,
+      description: `${preset.vendorId}:${preset.deviceId}`,
+    })),
+    {
+      value: "custom",
+      label: t("main.launchOptions.dxmtGpuIdentityCustom"),
+      description: t("main.launchOptions.dxmtGpuIdentityCustomDescription"),
+    },
+  ];
+
+  return (
+    <OptionField
+      label={t("main.launchOptions.dxmtGpuIdentity")}
+      description={t("main.launchOptions.descriptions.dxmtGpuIdentity")}
+      disabled={disabled}
+      disabledReason={disabledReason}
+    >
+      <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
+        <Stack className="gap-2">
+          <Select
+            value={selectedValue}
+            options={options}
+            onChange={onPresetChange}
+            searchPlaceholder={t("main.launchOptions.dxmtGpuIdentitySearch")}
+          />
+          {isCustom ? (
+            <Box className="grid gap-2 sm:grid-cols-2">
+              <Box as="label" className="grid gap-1">
+                <InlineText className="text-[11px] text-slate-500">
+                  {t("main.launchOptions.dxmtGpuVendorId")}
+                </InlineText>
+                <Input
+                  value={vendorId ?? ""}
+                  maxLength={6}
+                  placeholder="10de"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="h-10 w-full rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+                  onChange={(event) => onVendorIdChange(event.target.value)}
+                />
+              </Box>
+              <Box as="label" className="grid gap-1">
+                <InlineText className="text-[11px] text-slate-500">
+                  {t("main.launchOptions.dxmtGpuDeviceId")}
+                </InlineText>
+                <Input
+                  value={deviceId ?? ""}
+                  maxLength={6}
+                  placeholder="2684"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="h-10 w-full rounded-lg border border-white/10 bg-[#0b1020] px-3 font-mono text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-[rgb(var(--accent-rgb)/0.55)]"
+                  onChange={(event) => onDeviceIdChange(event.target.value)}
+                />
+              </Box>
+            </Box>
+          ) : null}
+          {!isValid ? (
+            <Text className="text-xs leading-5 text-rose-300">
+              {t("main.launchOptions.dxmtGpuPciIdInvalid")}
+            </Text>
+          ) : null}
+        </Stack>
+      </fieldset>
+    </OptionField>
+  );
+}
+
+function dxmt_gpu_identity_is_valid(options: Pick<
+  BottleLaunchOptionsPayload,
+  "dxmtGpuPreset" | "dxmtGpuVendorId" | "dxmtGpuDeviceId"
+>): boolean {
+  if (
+    options.dxmtGpuPreset !== "custom"
+    && !options.dxmtGpuVendorId
+    && !options.dxmtGpuDeviceId
+  ) {
+    return true;
+  }
+
+  if (options.dxmtGpuPreset !== "custom") {
+    return Boolean(get_dxmt_gpu_identity_preset(options.dxmtGpuPreset));
+  }
+
+  return pci_id_is_valid(options.dxmtGpuVendorId)
+    && pci_id_is_valid(options.dxmtGpuDeviceId);
+}
+
+function pci_id_is_valid(value: string | undefined): boolean {
+  return /^[0-9a-f]{4}$/i.test(value?.trim().replace(/^0x/i, "") ?? "");
 }
 
 function OptionCheckbox({

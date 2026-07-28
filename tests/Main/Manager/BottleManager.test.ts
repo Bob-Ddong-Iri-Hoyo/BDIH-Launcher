@@ -1,6 +1,8 @@
 import { jest } from "@jest/globals";
+import { existsSync } from "fs";
 import { mkdir, rm, symlink, writeFile } from "fs/promises";
 import path from "path";
+import { pathToFileURL } from "url";
 import {
   capture_manager_environment,
   create_bottle_fixture,
@@ -102,6 +104,181 @@ describe("BottleManager", () => {
     const result = await manager.getBottleList(true);
 
     expect(result.bottles.map((bottle) => bottle.id)).toContain("fixture:custom-bottle");
+  });
+
+  it("rebases app, prefix, icon, and runtime metadata paths when a bottle is renamed", async () => {
+    await write_legacy_preference(environment);
+    const previousBottlePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "rename-source", {
+      wineVersionId: "wine-fixture-10",
+    });
+    const previousPrefixPath = path.join(previousBottlePath, "manual-prefix");
+    const previousIconPath = path.join(previousBottlePath, ".cache", "icons", "manual.ico");
+    const previousExecutablePath = path.join(previousPrefixPath, "drive_c", "Fixture", "fixture.exe");
+    const previousManifestPath = path.join(previousPrefixPath, "drive_c", "fixture-manifest.json");
+
+    await mkdir(path.dirname(previousIconPath), { recursive: true });
+    await mkdir(path.dirname(previousExecutablePath), { recursive: true });
+    await mkdir(path.dirname(previousManifestPath), { recursive: true });
+    await writeFile(previousIconPath, "icon", "utf8");
+    await writeFile(previousExecutablePath, "executable", "utf8");
+    await writeFile(previousManifestPath, "manifest", "utf8");
+    await writeFile(
+      path.join(previousPrefixPath, "bdih-bottle.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "fixture:rename-source",
+        bottleId: "fixture:rename-source",
+        name: "rename-source",
+        bottleName: "rename-source",
+        path: previousPrefixPath,
+        wineVersionId: "wine-fixture-10",
+        status: "ready",
+        apps: [],
+      }),
+      "utf8",
+    );
+    await write_json(path.join(previousBottlePath, "bdih-bottle.json"), {
+      schemaVersion: 1,
+      id: "fixture:rename-source",
+      bottleId: "fixture:rename-source",
+      name: "rename-source",
+      bottleName: "rename-source",
+      description: "rename fixture",
+      path: previousBottlePath,
+      prefixPath: environment.legacyBottlePrefixRoot,
+      wineVersionId: "wine-fixture-10",
+      status: "ready",
+      prefixes: [{
+        id: `discovered:${previousPrefixPath}`,
+        name: "Manual",
+        path: previousPrefixPath,
+        kind: "custom",
+      }],
+      apps: [{
+        id: "custom:fixture",
+        name: "Fixture",
+        subtitle: "Manual executable",
+        wineVersionId: "wine-fixture-10",
+        executablePath: `Z:${previousExecutablePath.replace(/\//g, "\\")}`,
+        prefixPath: previousPrefixPath,
+        steamManifestPath: previousManifestPath,
+        iconSrc: pathToFileURL(previousIconPath).href,
+        source: "launcher",
+        lastPlayed: "Never launched",
+        status: "ready",
+        launchError: `spawn ${previousPrefixPath}/.cache/wine ENOENT`,
+      }],
+      createdAt: "2026-06-17T00:00:00.000Z",
+      updatedAt: "2026-06-17T00:00:00.000Z",
+    });
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+    const initialResult = await manager.getBottleList(true);
+    const initialBottle = initialResult.bottles.find((bottle) => bottle.id === "fixture:rename-source");
+    const nextBottlePath = path.join(environment.legacyBottlePrefixRoot, "renamed-bottle");
+    const nextPrefixPath = path.join(nextBottlePath, "manual-prefix");
+    const nextIconPath = path.join(nextBottlePath, ".cache", "icons", "manual.ico");
+    const nextExecutablePath = path.join(nextPrefixPath, "drive_c", "Fixture", "fixture.exe");
+    const nextManifestPath = path.join(nextPrefixPath, "drive_c", "fixture-manifest.json");
+
+    expect(initialBottle).toBeDefined();
+    expect(initialBottle?.apps.find((app) => app.id === "custom:fixture")).toBeDefined();
+
+    const result = await manager.saveBottleList({
+      bottles: [{
+        ...initialBottle!,
+        name: "Renamed Bottle",
+        path: nextBottlePath,
+        updatedAt: new Date().toISOString(),
+      }],
+    });
+    const renamedBottle = result.bottles.find((bottle) => bottle.id === "fixture:rename-source");
+    const renamedApp = renamedBottle?.apps.find((app) => app.id === "custom:fixture");
+    const persistedMetadata = await read_json<{
+      path: string;
+      prefixes: Array<{ id: string; path: string }>;
+      apps: Array<{
+        prefixPath: string;
+        steamManifestPath: string;
+        iconSrc: string;
+        launchError?: string;
+      }>;
+    }>(path.join(nextBottlePath, "bdih-bottle.json"));
+    const prefixMetadata = await read_json<{
+      name: string;
+      bottleName: string;
+      path: string;
+    }>(path.join(nextPrefixPath, "bdih-bottle.json"));
+
+    expect(existsSync(previousBottlePath)).toBe(false);
+    expect(existsSync(nextBottlePath)).toBe(true);
+    expect(renamedBottle).toEqual(expect.objectContaining({
+      name: "Renamed Bottle",
+      path: nextBottlePath,
+    }));
+    expect(renamedBottle?.prefixes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: `discovered:${nextPrefixPath}`,
+        path: nextPrefixPath,
+      }),
+    ]));
+    expect(renamedApp).toEqual(expect.objectContaining({
+      executablePath: `Z:${nextExecutablePath.replace(/\//g, "\\")}`,
+      prefixPath: nextPrefixPath,
+      steamManifestPath: nextManifestPath,
+      iconSrc: pathToFileURL(nextIconPath).href,
+    }));
+    expect(renamedApp?.launchError).toBeUndefined();
+    expect(persistedMetadata.path).toBe(nextBottlePath);
+    expect(persistedMetadata.prefixes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: `discovered:${nextPrefixPath}`,
+        path: nextPrefixPath,
+      }),
+    ]));
+    expect(persistedMetadata.apps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        executablePath: `Z:${nextExecutablePath.replace(/\//g, "\\")}`,
+        prefixPath: nextPrefixPath,
+        steamManifestPath: nextManifestPath,
+        iconSrc: pathToFileURL(nextIconPath).href,
+      }),
+    ]));
+    expect(persistedMetadata.apps[0]?.launchError).toBeUndefined();
+    expect(prefixMetadata).toEqual(expect.objectContaining({
+      name: "Renamed Bottle",
+      bottleName: "Renamed Bottle",
+      path: nextPrefixPath,
+    }));
+  });
+
+  it("rejects a rename when its target directory belongs to another bottle", async () => {
+    await write_legacy_preference(environment);
+    const sourcePath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "rename-collision");
+    const occupiedPath = await create_bottle_fixture(environment.legacyBottlePrefixRoot, "occupied-bottle", {
+      id: "fixture:occupied",
+      bottleId: "fixture:occupied",
+      name: "Different Display Name",
+      bottleName: "Different Display Name",
+    });
+
+    const { BottleManager } = require("../../../src/Main/Manager/BottleManager") as typeof import("../../../src/Main/Manager/BottleManager");
+    const manager = new BottleManager();
+    const initialResult = await manager.getBottleList(true);
+    const sourceBottle = initialResult.bottles.find((bottle) => bottle.id === "fixture:rename-collision");
+
+    expect(sourceBottle).toBeDefined();
+    await expect(manager.saveBottleList({
+      bottles: [{
+        ...sourceBottle!,
+        name: "Occupied Bottle",
+        path: occupiedPath,
+        updatedAt: new Date().toISOString(),
+      }],
+    })).rejects.toThrow(`A different bottle directory already exists at ${occupiedPath}.`);
+    expect(existsSync(sourcePath)).toBe(true);
+    expect(existsSync(occupiedPath)).toBe(true);
   });
 
   it("registers only the Steam game whose process launch is reconciled", async () => {

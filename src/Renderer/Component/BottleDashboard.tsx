@@ -294,7 +294,7 @@ export function BottleCard({
 
         onContextMenu?.(event, bottle);
       }}
-      className={`group flex w-full flex-col rounded-lg border text-left transition ${
+      className={`group relative flex w-full flex-col rounded-lg border text-left transition ${
         isRunning
           ? "border-emerald-300/45 bg-emerald-400/[0.07] shadow-[0_0_28px_rgba(16,185,129,0.16)] hover:border-emerald-200/60 hover:bg-emerald-400/[0.10]"
           : "border-white/10 bg-white/[0.04] hover:border-white/20 hover:bg-white/[0.07]"
@@ -308,60 +308,100 @@ export function BottleCard({
           : size === "medium"
             ? "min-h-32 p-3"
             : size === "small"
-              ? "aspect-square p-3"
-              : "aspect-square p-2.5"
+              ? "aspect-square p-2"
+              : "aspect-square p-2"
       }`}
       aria-label={bottle.name}
       aria-grabbed={isEditing ? isDragging : undefined}
     >
       {size === "compact" ? (
-        <Stack className="min-w-0 flex-1 items-center justify-center gap-2 text-center">
-          <IconSlot className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#0b1020] ring-1 ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
+        <Stack className="min-h-0 min-w-0 flex-1 items-center justify-center gap-0.5 text-center">
+          <IconSlot className={`flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0b1020] ring-1 ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
             <img src={resolvedIconSrc} alt="" aria-hidden="true" className="h-full w-full object-cover" />
           </IconSlot>
-          <Stack className="w-full min-w-0 items-center gap-0.5">
-            <InlineText className="w-full truncate text-center text-xs font-semibold text-slate-100">{bottle.name}</InlineText>
-            <InlineText className="w-full truncate text-center text-[11px] text-slate-500">
-              {isRunning
-                ? t("main.bottleRunningApps", { count: runningAppCount })
-                : t("main.bottleApps", { count: bottle.apps.length })}
-            </InlineText>
-          </Stack>
-          {isEditing ? <GripVertical size={14} className="shrink-0 text-slate-400" /> : null}
+          <InlineText className="w-full shrink-0 truncate text-center text-xs font-semibold leading-4 text-slate-100">
+            {bottle.name}
+          </InlineText>
+          {isEditing ? (
+            <IconSlot className="flex h-4 w-6 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/25 text-slate-200">
+              <GripVertical size={11} />
+            </IconSlot>
+          ) : (
+            <StatusBadge
+              label={isRunning ? t("main.bottleStatus.running") : t(`main.bottleStatus.${bottle.status}`)}
+              tone={isRunning ? "success" : tone_from_bottle_status(bottle.status)}
+              animated={isRunning}
+              className="!h-4 max-w-full truncate rounded !px-1.5 text-[9px]"
+            />
+          )}
+          <InlineText className="w-full shrink-0 truncate text-center text-[10px] leading-3 text-slate-500">
+            {isRunning
+              ? t("main.bottleRunningApps", { count: runningAppCount })
+              : t("main.bottleApps", { count: bottle.apps.length })}
+          </InlineText>
+        </Stack>
+      ) : size === "small" ? (
+        <Stack className="min-h-0 min-w-0 flex-1 items-center justify-center gap-0.5 text-center">
+          <IconSlot className={`flex h-[4.75rem] w-[4.75rem] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0b1020] ring-1 ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
+            <img src={resolvedIconSrc} alt="" aria-hidden="true" className="h-full w-full object-cover" />
+          </IconSlot>
+          <InlineText className="w-full shrink-0 truncate text-sm font-semibold leading-4 text-slate-100">
+            {bottle.name}
+          </InlineText>
+          {isEditing ? (
+            <IconSlot className="flex h-4 w-7 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/25 text-slate-200">
+              <GripVertical size={12} />
+            </IconSlot>
+          ) : (
+            <StatusBadge
+              label={isRunning ? t("main.bottleStatus.running") : t(`main.bottleStatus.${bottle.status}`)}
+              tone={isRunning ? "success" : tone_from_bottle_status(bottle.status)}
+              animated={isRunning}
+              className="!h-4 max-w-full truncate rounded !px-1.5 text-[9px]"
+            />
+          )}
+          <InlineText className="w-full shrink-0 truncate text-center text-[10px] leading-3 text-slate-500">
+            {isRunning
+              ? t("main.bottleRunningApps", { count: runningAppCount })
+              : t("main.bottleApps", { count: bottle.apps.length })}
+          </InlineText>
         </Stack>
       ) : (
         <>
-          <Inline className={`${size === "large" ? "mb-4" : size === "medium" ? "mb-3" : "mb-2"} items-start justify-between gap-3`}>
-            <IconSlot className={`flex items-center justify-center overflow-hidden rounded-lg bg-[#0b1020] ring-1 ${size === "large" ? "h-12 w-12" : size === "medium" ? "h-10 w-10" : "h-9 w-9"} ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
+          <Inline className={`${size === "large" ? "mb-3 gap-3" : "mb-2 gap-2"} min-w-0 items-start`}>
+            <IconSlot className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0b1020] ring-1 ${size === "large" ? "h-20 w-20" : "h-16 w-16"} ${isRunning ? "running-app-icon-frame ring-emerald-300/45" : "ring-white/10"}`}>
               <img src={resolvedIconSrc} alt="" aria-hidden="true" className="h-full w-full object-cover" />
             </IconSlot>
-            {isEditing ? (
-              <IconSlot className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/25 text-slate-200 shadow-lg">
-                <GripVertical size={16} />
-              </IconSlot>
-            ) : (
-              <StatusBadge
-                label={isRunning ? t("main.bottleStatus.running") : t(`main.bottleStatus.${bottle.status}`)}
-                tone={isRunning ? "success" : tone_from_bottle_status(bottle.status)}
-                animated={isRunning}
-              />
-            )}
+            <Stack className="min-w-0 flex-1 gap-1">
+              <Inline className="min-w-0 items-start justify-between gap-1.5">
+                <InlineText className={`${size === "large" ? "text-lg leading-6" : "text-[13px] leading-5"} min-w-0 flex-1 whitespace-normal break-words font-bold text-slate-100`}>
+                  {bottle.name}
+                </InlineText>
+                {isEditing ? (
+                  <IconSlot className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/25 text-slate-200 shadow-lg">
+                    <GripVertical size={16} />
+                  </IconSlot>
+                ) : (
+                  <StatusBadge
+                    label={isRunning ? t("main.bottleStatus.running") : t(`main.bottleStatus.${bottle.status}`)}
+                    tone={isRunning ? "success" : tone_from_bottle_status(bottle.status)}
+                    animated={isRunning}
+                    className={size === "medium" ? "!h-5 rounded !px-2 text-[10px]" : undefined}
+                  />
+                )}
+              </Inline>
+              <InlineText className={`${size === "large" ? "text-xs" : "text-[11px]"} ml-2 block min-w-0 whitespace-normal break-words leading-5 text-slate-400`}>
+                {bottle.description}
+              </InlineText>
+            </Stack>
           </Inline>
-          <InlineText className={`${size === "large" ? "line-clamp-2 min-h-10" : "line-clamp-1 min-h-5"} text-sm font-semibold leading-5 text-slate-100`}>
-            {bottle.name}
-          </InlineText>
-          {size !== "small" ? (
-            <InlineText className={`${size === "large" ? "line-clamp-2" : "line-clamp-1"} mt-1 text-xs leading-5 text-slate-500`}>
-              {bottle.description}
-            </InlineText>
-          ) : null}
-          <Inline className={`${size === "large" ? "pt-4" : size === "medium" ? "pt-2" : "pt-1.5"} mt-auto items-center justify-between gap-3 text-xs text-slate-400`}>
+          <Inline className={`${size === "large" ? "pt-3" : "pt-2"} mt-auto items-center justify-between gap-3 text-xs text-slate-400`}>
             <InlineText>
               {isRunning
                 ? t("main.bottleRunningApps", { count: runningAppCount })
                 : t("main.bottleApps", { count: bottle.apps.length })}
             </InlineText>
-            {size !== "small" ? <InlineText className="truncate text-slate-500">{bottle.wineVersionId}</InlineText> : null}
+            <InlineText className="truncate text-slate-500">{bottle.wineVersionId}</InlineText>
           </Inline>
         </>
       )}

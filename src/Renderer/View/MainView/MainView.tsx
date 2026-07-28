@@ -41,7 +41,7 @@ export interface DashboardViewProps {
   onBottleHome?: () => void;
   onCreateBottle?: (input: CreateBottleInput) => void;
   onReorderBottles?: (orderedBottleIds: string[]) => Promise<void> | void;
-  onRenameBottle?: (bottleId: string, name: string) => void;
+  onRenameBottle?: (bottleId: string, name: string) => Promise<void> | void;
   onChangeBottleDescription?: (bottleId: string, description: string) => void;
   onRevealBottle?: (path: string) => void;
   onStopBottle?: (bottleId: string) => Promise<void> | void;
@@ -398,7 +398,7 @@ export function DashboardView({
     });
   }
 
-  function submit_rename_bottle() {
+  async function submit_rename_bottle() {
     if (!renameDraft || !renameBottle || !canSubmitRename) {
       return;
     }
@@ -424,8 +424,20 @@ export function DashboardView({
       return;
     }
 
-    if (renameBottle.name.trim() !== normalizedRenameDraft) {
-      onRenameBottle?.(renameDraft.bottleId, normalizedRenameDraft);
+    try {
+      if (renameBottle.name.trim() !== normalizedRenameDraft) {
+        await onRenameBottle?.(renameDraft.bottleId, normalizedRenameDraft);
+      }
+    } catch (error) {
+      setRenameDraft(null);
+      setNoticeDialog({
+        title: t("main.renameBottle.errorTitle"),
+        description: t("main.renameBottle.errorDescription", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        tone: "danger",
+      });
+      return;
     }
 
     setRenameDraft(null);

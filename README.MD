@@ -168,6 +168,10 @@ A launcher built for eating, playing Eternal Return, taking a break, and enjoyin
   </tbody>
 </table>
 
+## Honkai: Star Rail graphics settings
+
+When running the game through DXMT, set the in-game **Light Quality** to **Medium**. Setting it to **High** or **Very High** may cause lighting flicker and other rendering artifacts.
+
 ## Installation
 
 See the project homepage for detailed installation instructions.

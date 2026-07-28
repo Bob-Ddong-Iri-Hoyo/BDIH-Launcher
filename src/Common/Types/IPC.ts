@@ -456,6 +456,16 @@ export interface BottleEnvironmentVariablePayload {
   value: string;
 }
 
+export type DxmtGpuPresetId =
+  | "nvidia-rtx-4090"
+  | "nvidia-rtx-4080"
+  | "nvidia-rtx-4070-ti"
+  | "amd-rx-7900-series"
+  | "amd-rx-6800-series"
+  | "intel-arc-a770"
+  | "intel-arc-a750"
+  | "custom";
+
 export interface BottleLaunchOptionsPayload {
   presetId?: BottleLaunchOptionPresetId;
   enableMsync?: boolean;
@@ -468,6 +478,10 @@ export interface BottleLaunchOptionsPayload {
   retinaMode?: boolean;
   metalHud?: boolean;
   dxmtPreferredMaxFrameRate?: number;
+  dxmtGpuPreset?: DxmtGpuPresetId;
+  dxmtGpuVendorId?: string;
+  dxmtGpuDeviceId?: string;
+  dxmtEnableNvExt?: boolean;
   dxmtMetalFxSpatialUpscale?: boolean;
   dxmtMetalFxSpatialUpscaleFactor?: number;
   networkGate?: boolean;

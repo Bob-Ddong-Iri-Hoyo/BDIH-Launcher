@@ -32,6 +32,10 @@ const FALLBACK_LAUNCH_OPTION_KEYS: readonly RuntimeLaunchOptionKey[] = [
 // every executable rather than only to games with an explicit profile.
 const GLOBAL_DXMT_LAUNCH_OPTION_KEYS: readonly RuntimeLaunchOptionKey[] = [
   "dxmtPreferredMaxFrameRate",
+  "dxmtGpuPreset",
+  "dxmtGpuVendorId",
+  "dxmtGpuDeviceId",
+  "dxmtEnableNvExt",
   "dxmtMetalFxSpatialUpscale",
   "dxmtMetalFxSpatialUpscaleFactor",
 ];

@@ -2,9 +2,14 @@ import type {
   BottleEnvironmentVariablePayload,
   BottleLaunchOptionPresetId,
   BottleLaunchOptionsPayload,
+  DxmtGpuPresetId,
   InstalledBottleAppPayload,
 } from "../Types/IPC";
 import type { WineLauncherOptionsManifest } from "../Types/Wine";
+import {
+  find_dxmt_gpu_identity_preset,
+  get_dxmt_gpu_identity_preset,
+} from "../Constant/DxmtGpuPresets";
 
 export const LAUNCH_OPTION_PRESET_IDS: BottleLaunchOptionPresetId[] = [
   "auto",
@@ -28,6 +33,10 @@ const LAUNCH_OPTION_MANIFEST_OPTION_NAMES: Partial<Record<keyof BottleLaunchOpti
   retinaMode: ["WINEMAC_RETINA_MODE", "RETINA_OVERRIDE", "RetinaMode"],
   metalHud: ["MTL_HUD_ENABLED", "METAL_HUD_OVERRIDE"],
   dxmtPreferredMaxFrameRate: ["DXMT_CONFIG"],
+  dxmtGpuPreset: ["DXMT_CONFIG"],
+  dxmtGpuVendorId: ["DXMT_CONFIG"],
+  dxmtGpuDeviceId: ["DXMT_CONFIG"],
+  dxmtEnableNvExt: ["DXMT_ENABLE_NVEXT"],
   dxmtMetalFxSpatialUpscale: ["DXMT_METALFX_SPATIAL_SWAPCHAIN", "DXMT_CONFIG"],
   dxmtMetalFxSpatialUpscaleFactor: ["DXMT_CONFIG"],
   superviseWaitSeconds: ["SUPERVISE_STEAM_WAIT_SECONDS"],
@@ -85,6 +94,7 @@ const PRESET_DEFAULTS: Record<Exclude<BottleLaunchOptionPresetId, "auto" | "cust
     autoNetworkCut: false,
     autoNetworkReconnectSeconds: 20,
     earlyExitWaitMs: HOYO_EARLY_EXIT_WAIT_MS,
+    dxmtPreferredMaxFrameRate: DXMT_HOYO_PREFERRED_MAX_FRAME_RATE,
   },
   genshin: {
     presetId: "genshin",
@@ -198,6 +208,8 @@ export function normalize_launch_options(
     return undefined;
   }
 
+  const gpuIdentity = normalize_dxmt_gpu_identity(options);
+
   return {
     presetId: normalize_preset_id(options.presetId),
     enableMsync: optional_boolean(options.enableMsync),
@@ -210,6 +222,10 @@ export function normalize_launch_options(
     retinaMode: optional_boolean(options.retinaMode),
     metalHud: optional_boolean(options.metalHud),
     dxmtPreferredMaxFrameRate: optional_number(options.dxmtPreferredMaxFrameRate, 0, 1000),
+    dxmtGpuPreset: gpuIdentity.preset,
+    dxmtGpuVendorId: gpuIdentity.vendorId,
+    dxmtGpuDeviceId: gpuIdentity.deviceId,
+    dxmtEnableNvExt: optional_boolean(options.dxmtEnableNvExt),
     dxmtMetalFxSpatialUpscale: optional_boolean(options.dxmtMetalFxSpatialUpscale),
     dxmtMetalFxSpatialUpscaleFactor: optional_number(options.dxmtMetalFxSpatialUpscaleFactor, 1, 4),
     networkGate: optional_boolean(options.networkGate),
@@ -220,6 +236,68 @@ export function normalize_launch_options(
     allowDuplicateGame: optional_boolean(options.allowDuplicateGame),
     environmentVariables: normalize_environment_variables(options.environmentVariables),
   };
+}
+
+function normalize_dxmt_gpu_identity(options: BottleLaunchOptionsPayload): {
+  preset?: DxmtGpuPresetId;
+  vendorId?: string;
+  deviceId?: string;
+} {
+  const legacyNvidiaSpoof = (options as BottleLaunchOptionsPayload & {
+    dxmtNvidiaVendorId?: unknown;
+  }).dxmtNvidiaVendorId;
+
+  if (legacyNvidiaSpoof === true) {
+    const legacyPreset = get_dxmt_gpu_identity_preset("nvidia-rtx-4090");
+
+    return {
+      preset: legacyPreset?.id,
+      vendorId: legacyPreset?.vendorId,
+      deviceId: legacyPreset?.deviceId,
+    };
+  }
+
+  const selectedPreset = get_dxmt_gpu_identity_preset(options.dxmtGpuPreset);
+
+  if (selectedPreset) {
+    return {
+      preset: selectedPreset.id,
+      vendorId: selectedPreset.vendorId,
+      deviceId: selectedPreset.deviceId,
+    };
+  }
+
+  const vendorId = normalize_pci_id(options.dxmtGpuVendorId);
+  const deviceId = normalize_pci_id(options.dxmtGpuDeviceId);
+  const matchingPreset = find_dxmt_gpu_identity_preset(vendorId, deviceId);
+
+  if (matchingPreset) {
+    return {
+      preset: matchingPreset.id,
+      vendorId: matchingPreset.vendorId,
+      deviceId: matchingPreset.deviceId,
+    };
+  }
+
+  if (options.dxmtGpuPreset === "custom" || vendorId || deviceId) {
+    return {
+      preset: "custom",
+      vendorId,
+      deviceId,
+    };
+  }
+
+  return {};
+}
+
+function normalize_pci_id(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/^0x/, "");
+
+  return /^[0-9a-f]{4}$/.test(normalized) ? normalized : undefined;
 }
 
 function normalize_environment_variables(value: unknown): BottleEnvironmentVariablePayload[] | undefined {

@@ -31,6 +31,7 @@ import {
   create_hoyo_game_prefix_path,
   hoyo_game_from_bottle_app,
 } from "../../Common/Util/BottlePath";
+import { update_inline_dxmt_config } from "../../Common/Util/DxmtConfig";
 import type { HoyoGameKind } from "../../Common/Util/BottlePath";
 import {
   apply_wine_launcher_options_manifest_defaults,
@@ -1885,6 +1886,9 @@ export class BottleExecutionManager {
       );
 
       apply_launch_options_to_env(env, hsrLaunchOptions);
+      if (env.DXMT_ENABLE_NVEXT === undefined) {
+        set_boolean_env(env, "DXMT_ENABLE_NVEXT", gameProfile.launchRoutine.dxmtEnableNvExt);
+      }
       Object.assign(env, {
         WINEPREFIX: gamePrefixPath,
         WINE_ROOT: wineRoot,
@@ -1901,7 +1905,6 @@ export class BottleExecutionManager {
         WINEMSYNC: env.WINEMSYNC ?? "0",
         DXMT_LOG_PATH: env.DXMT_LOG_PATH ?? dataRootPath,
         DXMT_CONFIG: env.DXMT_CONFIG ?? gameProfile.launchRoutine.dxmtConfig,
-        DXMT_ENABLE_NVEXT: env.DXMT_ENABLE_NVEXT ?? (gameProfile.launchRoutine.dxmtEnableNvExt ? "1" : "0"),
         GST_PLUGIN_FEATURE_RANK: env.GST_PLUGIN_FEATURE_RANK ?? "atdec:MAX,avdec_h264:MAX",
         JADEITE_ALLOW_UNKNOWN: env.JADEITE_ALLOW_UNKNOWN ?? "1",
         JADEITE_DEBUG: env.JADEITE_DEBUG ?? "0",
@@ -1918,6 +1921,7 @@ export class BottleExecutionManager {
         WINE_HOYOPROTECT_FAKE_ZERO: env.WINE_HOYOPROTECT_FAKE_ZERO ?? "0",
       });
       Object.assign(env, resolve_gstreamer_environment(wineRoot, dataRootPath));
+      const nvExtensionEnabled = environment_value_is_enabled(env.DXMT_ENABLE_NVEXT);
 
       await this.bootstrapHoyoGamePrefix(effectiveRequest, effectiveWineCommand, gamePrefixPath, appLogger, env);
 
@@ -1933,7 +1937,13 @@ export class BottleExecutionManager {
 
       await apply_wine_registry_launch_options(effectiveWineCommand, gamePrefixPath, hsrLaunchOptions, appLogger);
       if (gameProfile.launchRoutine.applyNvExtensionRegistry) {
-        await apply_hsr_nv_extension_registry(effectiveWineCommand, gamePrefixPath, appLogger, env);
+        await sync_hsr_nv_extension_registry(
+          effectiveWineCommand,
+          gamePrefixPath,
+          nvExtensionEnabled,
+          appLogger,
+          env,
+        );
       }
       prepare_hoyo_builtin_dxmt_runtime_files({
         dxmtRuntimePath,
@@ -1941,12 +1951,22 @@ export class BottleExecutionManager {
         protonExtrasPath,
         wineRoot,
       });
-      prepare_hoyo_optional_dxmt_windows_runtime_files({
-        dxmtRuntimePath,
-        fileNames: gameProfile.launchRoutine.optionalDxmtWindowsFiles ?? [],
-        gamePrefixPath,
-        wineRoot,
-      });
+      const optionalDxmtWindowsFiles = gameProfile.launchRoutine.optionalDxmtWindowsFiles ?? [];
+
+      if (nvExtensionEnabled) {
+        prepare_hoyo_optional_dxmt_windows_runtime_files({
+          dxmtRuntimePath,
+          fileNames: optionalDxmtWindowsFiles,
+          gamePrefixPath,
+          wineRoot,
+        });
+      } else {
+        remove_matching_hoyo_optional_dxmt_windows_runtime_files({
+          dxmtRuntimePath,
+          fileNames: optionalDxmtWindowsFiles,
+          gamePrefixPath,
+        });
+      }
       mkdirSync(path.join(steamClientPath, "steamapps"), { recursive: true });
 
       const restoreGameDxmt = stash_game_local_dxmt_files(gameHostDir, gamePrefixPath, appLogger);
@@ -5360,40 +5380,71 @@ function prepare_hoyo_optional_dxmt_windows_runtime_files(options: {
   }
 }
 
-async function apply_hsr_nv_extension_registry(
+function remove_matching_hoyo_optional_dxmt_windows_runtime_files(options: {
+  dxmtRuntimePath: string;
+  fileNames: string[];
+  gamePrefixPath: string;
+}): void {
+  for (const fileName of options.fileNames) {
+    remove_optional_file_if_matches(
+      path.join(options.dxmtRuntimePath, "x86_64-windows", fileName),
+      path.join(options.gamePrefixPath, "drive_c", "windows", "system32", fileName),
+    );
+    remove_optional_file_if_matches(
+      path.join(options.dxmtRuntimePath, "i386-windows", fileName),
+      path.join(options.gamePrefixPath, "drive_c", "windows", "syswow64", fileName),
+    );
+  }
+}
+
+async function sync_hsr_nv_extension_registry(
   wineCommand: string,
   gamePrefixPath: string,
+  enabled: boolean,
   logger: ReturnType<typeof logManager.createLogger>,
   sourceEnv?: NodeJS.ProcessEnv | Record<string, string>,
 ): Promise<void> {
   const nvExtensionValue = "{41FCC608-8496-4DEF-B43E-7D9BD675A6FF}";
   const helperEnv = create_wine_helper_environment(sourceEnv, gamePrefixPath);
-  const registryWrites: Array<{ key: string; args: string[] }> = [
+  const registryValues: Array<{ key: string; name: string; type: string; data: string }> = [
     {
       key: "HKLM\\SOFTWARE\\NVIDIA Corporation\\Global",
-      args: ["/v", nvExtensionValue, "/t", "REG_BINARY", "/d", "1"],
+      name: nvExtensionValue,
+      type: "REG_BINARY",
+      data: "1",
     },
     {
       key: "HKLM\\SYSTEM\\CurrentControlSet\\Services\\nvlddmkm",
-      args: ["/v", nvExtensionValue, "/t", "REG_BINARY", "/d", "1"],
+      name: nvExtensionValue,
+      type: "REG_BINARY",
+      data: "1",
     },
     {
       key: "HKLM\\SYSTEM\\ControlSet001\\Services\\nvlddmkm",
-      args: ["/v", nvExtensionValue, "/t", "REG_BINARY", "/d", "1"],
+      name: nvExtensionValue,
+      type: "REG_BINARY",
+      data: "1",
     },
     {
       key: "HKLM\\SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore",
-      args: ["/v", "FullPath", "/t", "REG_SZ", "/d", "C:\\Windows\\System32"],
+      name: "FullPath",
+      type: "REG_SZ",
+      data: "C:\\Windows\\System32",
     },
   ];
 
-  for (const entry of registryWrites) {
+  for (const entry of registryValues) {
+    const args = enabled
+      ? ["reg", "add", entry.key, "/v", entry.name, "/t", entry.type, "/d", entry.data, "/f"]
+      : ["reg", "delete", entry.key, "/v", entry.name, "/f"];
+
     await run_wine_command_best_effort(
       wineCommand,
-      ["reg", "add", entry.key, ...entry.args, "/f"],
+      args,
       gamePrefixPath,
       helperEnv,
       logger,
+      { ignoreNonZeroExit: !enabled },
     );
   }
 }
@@ -5705,6 +5756,23 @@ function copy_optional_file(sourcePath: string, destinationPath: string): void {
   }
 
   copyFileSync(sourcePath, destinationPath);
+}
+
+function remove_optional_file_if_matches(sourcePath: string, destinationPath: string): void {
+  if (!existsSync(sourcePath) || !existsSync(destinationPath)) {
+    return;
+  }
+
+  try {
+    if (
+      statSync(sourcePath).size === statSync(destinationPath).size
+      && readFileSync(sourcePath).equals(readFileSync(destinationPath))
+    ) {
+      rmSync(destinationPath, { force: true });
+    }
+  } catch {
+    // Keep launch resilient if an optional file is concurrently replaced.
+  }
 }
 
 function resolve_wine_runtime_root(wineRuntimePath: string | undefined, wineCommand: string): string {
@@ -6072,6 +6140,9 @@ async function run_wine_command_best_effort(
   cwd: string,
   env: Record<string, string>,
   logger: ReturnType<typeof logManager.createLogger>,
+  options?: {
+    ignoreNonZeroExit?: boolean;
+  },
 ): Promise<void> {
   const process = processManager.startProcess(`wine-tool:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`, {
     command,
@@ -6085,7 +6156,7 @@ async function run_wine_command_best_effort(
   try {
     const code = await process.done;
 
-    if (code !== 0) {
+    if (code !== 0 && !options?.ignoreNonZeroExit) {
       logger.warn("Wine helper exited with non-zero code", { command, args, code });
     }
   } catch (error) {
@@ -6483,6 +6554,7 @@ function apply_launch_options_to_env(
   set_boolean_env(env, "WINEMSYNC", options.enableMsync);
   set_boolean_env(env, "WINE_ENABLE_TIMEOUT_FIX", options.enableTimeoutFix);
   set_boolean_env(env, "MTL_HUD_ENABLED", options.metalHud);
+  set_boolean_env(env, "DXMT_ENABLE_NVEXT", options.dxmtEnableNvExt);
   set_boolean_env(env, "DXMT_METALFX_SPATIAL_SWAPCHAIN", options.dxmtMetalFxSpatialUpscale);
   set_boolean_env(env, "WINE_ENABLE_DISCONNECT", options.networkGate);
   set_boolean_env(env, "WAIT_FOR_MANUAL_NETWORK_CUT", options.waitForManualNetworkCut);
@@ -6492,6 +6564,7 @@ function apply_launch_options_to_env(
   set_number_env(env, "AUTO_NETWORK_RECONNECT_SECONDS", options.autoNetworkReconnectSeconds);
   set_number_env(env, "SUPERVISE_STEAM_WAIT_SECONDS", options.superviseWaitSeconds);
   set_dxmt_config(env, "d3d11.preferredMaxFrameRate", options.dxmtPreferredMaxFrameRate);
+  set_dxmt_gpu_identity(env, options.dxmtGpuVendorId, options.dxmtGpuDeviceId);
   set_dxmt_config(env, "d3d11.metalSpatialUpscaleFactor", options.dxmtMetalFxSpatialUpscaleFactor);
 
   if (options.hoyoplayInProcessGpu) {
@@ -6719,6 +6792,27 @@ function set_dxmt_config(
     return;
   }
 
+  set_dxmt_config_value(env, name, String(value));
+}
+
+function set_dxmt_gpu_identity(
+  env: Record<string, string>,
+  vendorId: string | undefined,
+  deviceId: string | undefined,
+) {
+  if (vendorId === undefined || deviceId === undefined) {
+    return;
+  }
+
+  set_dxmt_config_value(env, "dxgi.customVendorId", vendorId);
+  set_dxmt_config_value(env, "dxgi.customDeviceId", deviceId);
+}
+
+function set_dxmt_config_value(
+  env: Record<string, string>,
+  name: string,
+  value: string | undefined,
+) {
   const existingConfig = env.DXMT_CONFIG?.trim();
   const existingConfigIsFile = Boolean(existingConfig && looks_like_dxmt_config_file(existingConfig));
 
@@ -6726,14 +6820,24 @@ function set_dxmt_config(
     env.DXMT_CONFIG_FILE = existingConfig;
   }
 
-  const configPrefix = existingConfig && !existingConfigIsFile
-    ? existingConfig.replace(/;?\s*$/, ";")
-    : "";
-  env.DXMT_CONFIG = `${configPrefix}${name}=${value};`;
+  const nextConfig = update_inline_dxmt_config(
+    existingConfig && !existingConfigIsFile ? existingConfig : undefined,
+    [[name, value]],
+  );
+
+  if (nextConfig) {
+    env.DXMT_CONFIG = nextConfig;
+  } else {
+    delete env.DXMT_CONFIG;
+  }
 }
 
 function looks_like_dxmt_config_file(value: string): boolean {
   return value.endsWith(".conf") || value.includes("/") || value.includes("\\");
+}
+
+function environment_value_is_enabled(value: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
 }
 
 function looks_like_hoyoplay_executable(executablePath: string): boolean {

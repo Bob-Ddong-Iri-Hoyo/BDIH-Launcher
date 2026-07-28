@@ -1,6 +1,7 @@
 import { existsSync, readlinkSync, type Dirent } from "fs";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
 import path from "path";
+import { fileURLToPath, pathToFileURL } from "url";
 import {
   BottleListPayload,
   BottleLauncherKind,
@@ -986,12 +987,11 @@ async function rename_bottle_directory_for_name(
   });
 
   if (sourcePath === nextPath) {
-    return {
-      ...bottle,
-      path: sourcePath,
-      prefixPath: parentPath,
-      updatedAt: new Date().toISOString(),
-    };
+    const renamedBottle = rebase_bottle_owned_paths(bottle, sourcePath, nextPath, parentPath);
+
+    await rewrite_renamed_prefix_metadata(renamedBottle);
+    await write_prefix_metadata(renamedBottle);
+    return renamedBottle;
   }
 
   if (path.dirname(nextPath) !== parentPath || !existsSync(sourcePath)) {
@@ -1000,7 +1000,7 @@ async function rename_bottle_directory_for_name(
 
   if (existsSync(nextPath)) {
     if (sourcePath.toLowerCase() !== nextPath.toLowerCase()) {
-      return bottle;
+      throw new Error(`A different bottle directory already exists at ${nextPath}.`);
     }
 
     const temporaryPath = path.join(parentPath, `.bdih-rename-${Date.now()}-${path.basename(sourcePath)}`);
@@ -1011,12 +1011,172 @@ async function rename_bottle_directory_for_name(
     await rename(sourcePath, nextPath);
   }
 
+  const renamedBottle = rebase_bottle_owned_paths(bottle, sourcePath, nextPath, parentPath);
+
+  await rewrite_renamed_prefix_metadata(renamedBottle);
+  await write_prefix_metadata(renamedBottle);
+
+  return renamedBottle;
+}
+
+function rebase_bottle_owned_paths(
+  bottle: BottleMetadataPayload,
+  sourcePath: string,
+  nextPath: string,
+  parentPath: string,
+): BottleMetadataPayload {
   return {
     ...bottle,
     path: nextPath,
     prefixPath: parentPath,
+    wineRuntimePath: rebase_optional_host_path_within_bottle(bottle.wineRuntimePath, sourcePath, nextPath),
+    dxmtPackagePath: rebase_optional_host_path_within_bottle(bottle.dxmtPackagePath, sourcePath, nextPath),
+    prefixes: bottle.prefixes?.map((prefix) => {
+      const prefixPath = rebase_host_path_within_bottle(prefix.path, sourcePath, nextPath);
+
+      return {
+        ...prefix,
+        id: prefix.id.startsWith("discovered:")
+          ? `discovered:${prefixPath}`
+          : prefix.id,
+        path: prefixPath,
+      };
+    }),
+    apps: bottle.apps.map((app) => ({
+      ...app,
+      executablePath: rebase_bottle_app_executable_path(app.executablePath, sourcePath, nextPath),
+      prefixPath: rebase_optional_host_path_within_bottle(app.prefixPath, sourcePath, nextPath),
+      steamManifestPath: rebase_optional_host_path_within_bottle(app.steamManifestPath, sourcePath, nextPath),
+      iconSrc: rebase_bottle_file_url(app.iconSrc, sourcePath, nextPath),
+      launchError: undefined,
+    })),
     updatedAt: new Date().toISOString(),
   };
+}
+
+function rebase_optional_host_path_within_bottle(
+  targetPath: string | undefined,
+  sourcePath: string,
+  nextPath: string,
+): string | undefined {
+  return targetPath
+    ? rebase_host_path_within_bottle(targetPath, sourcePath, nextPath)
+    : undefined;
+}
+
+function rebase_host_path_within_bottle(
+  targetPath: string,
+  sourcePath: string,
+  nextPath: string,
+): string {
+  const resolvedTargetPath = path.resolve(expand_user_home_path(targetPath));
+  const relativePath = path.relative(sourcePath, resolvedTargetPath);
+
+  if (relativePath === "") {
+    return nextPath;
+  }
+
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    return targetPath;
+  }
+
+  return path.join(nextPath, relativePath);
+}
+
+function rebase_bottle_app_executable_path(
+  executablePath: string | undefined,
+  sourcePath: string,
+  nextPath: string,
+): string | undefined {
+  if (!executablePath) {
+    return undefined;
+  }
+
+  if (/^[Zz]:[\\/]/.test(executablePath)) {
+    const hostPath = `/${executablePath.slice(3).replace(/\\/g, "/")}`;
+    const rebasedPath = rebase_host_path_within_bottle(hostPath, sourcePath, nextPath);
+
+    return rebasedPath === hostPath
+      ? executablePath
+      : `Z:${rebasedPath.replace(/\//g, "\\")}`;
+  }
+
+  if (path.isAbsolute(expand_user_home_path(executablePath))) {
+    return rebase_host_path_within_bottle(executablePath, sourcePath, nextPath);
+  }
+
+  return executablePath;
+}
+
+function rebase_bottle_file_url(
+  source: string | undefined,
+  sourcePath: string,
+  nextPath: string,
+): string | undefined {
+  if (!source?.startsWith("file:")) {
+    return source;
+  }
+
+  try {
+    const filePath = fileURLToPath(source);
+    const rebasedPath = rebase_host_path_within_bottle(filePath, sourcePath, nextPath);
+
+    return rebasedPath === filePath
+      ? source
+      : pathToFileURL(rebasedPath).href;
+  } catch {
+    return source;
+  }
+}
+
+async function rewrite_renamed_prefix_metadata(bottle: BottleMetadataPayload): Promise<void> {
+  const bottlePath = path.resolve(expand_user_home_path(bottle.path));
+  const prefixPaths = unique_paths([
+    ...(bottle.prefixes ?? []).map((prefix) => prefix.path),
+    ...bottle.apps
+      .map((app) => app.prefixPath)
+      .filter((prefixPath): prefixPath is string => Boolean(prefixPath)),
+  ]).filter((prefixPath) => {
+    const relativePath = path.relative(bottlePath, prefixPath);
+
+    return Boolean(relativePath) && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+  });
+
+  await Promise.all(prefixPaths.map(async (prefixPath) => {
+    const metadataPath = path.join(prefixPath, "bdih-bottle.json");
+
+    if (!existsSync(metadataPath)) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(await readFile(metadataPath, "utf8")) as unknown;
+
+      if (!is_record(parsed)) {
+        return;
+      }
+
+      await writeFile(
+        metadataPath,
+        JSON.stringify(
+          {
+            ...parsed,
+            id: bottle.id,
+            bottleId: bottle.id,
+            name: bottle.name,
+            bottleName: bottle.name,
+            path: prefixPath,
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+    } catch {
+      // Runtime metadata is best-effort; the bottle registry remains authoritative.
+    }
+  }));
 }
 
 function normalize_bottle(value: unknown, fallbackPath = ""): BottleMetadataPayload | null {

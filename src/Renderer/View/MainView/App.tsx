@@ -2652,24 +2652,44 @@ const App: React.FC = () => {
     }
   };
 
-  const handle_rename_bottle = (bottleId: string, name: string) => {
-    update_bottles((currentBottles) =>
-      currentBottles.map((bottle) => {
-        if (bottle.id !== bottleId) {
-          return bottle;
-        }
+  const handle_rename_bottle = async (bottleId: string, name: string) => {
+    const previousBottles = bottlesRef.current;
 
-        const prefixPath = bottle.prefixPath || parent_path_from_slash_path(bottle.path);
+    try {
+      const result = await update_bottles((currentBottles) =>
+        currentBottles.map((bottle) => {
+          if (bottle.id !== bottleId) {
+            return bottle;
+          }
 
-        return {
-          ...bottle,
-          name,
-          path: create_bottle_path_from_name(prefixPath, name),
-          prefixPath,
-          updatedAt: new Date().toISOString(),
-        };
-      }),
-    );
+          const prefixPath = bottle.prefixPath || parent_path_from_slash_path(bottle.path);
+
+          return {
+            ...bottle,
+            name,
+            path: create_bottle_path_from_name(prefixPath, name),
+            prefixPath,
+            updatedAt: new Date().toISOString(),
+          };
+        }),
+      );
+
+      if (!result?.bottles) {
+        throw new Error("Bottle metadata was not returned after the rename.");
+      }
+
+      const nextBottles = apply_prefix_sessions_to_bottles(
+        result.bottles.map(strip_transient_launcher_tasks),
+        activePrefixSessionsRef.current.values(),
+      );
+
+      bottlesRef.current = nextBottles;
+      setBottles(nextBottles);
+    } catch (error) {
+      bottlesRef.current = previousBottles;
+      setBottles(previousBottles);
+      throw error;
+    }
   };
 
   const handle_change_bottle_description = (bottleId: string, description: string) => {

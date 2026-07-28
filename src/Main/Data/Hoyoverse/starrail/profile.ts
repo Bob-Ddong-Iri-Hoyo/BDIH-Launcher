@@ -16,12 +16,12 @@ export const STARRAIL_HOYO_GAME_PROFILE = {
       enableTimeoutFix: true,
       networkGate: true,
       networkGateSeconds: 15,
+      dxmtPreferredMaxFrameRate: 60,
     },
     defaultExecutableArgs: [
       "-disable-gpu-skinning",
     ],
-    dxmtConfig: "d3d11.preferredMaxFrameRate=60;dxgi.customVendorId=10de;dxgi.customDeviceId=2684;",
-    dxmtEnableNvExt: true,
+    dxmtConfig: "d3d11.preferredMaxFrameRate=60;",
     optionalDxmtWindowsFiles: [
       "nvngx.dll",
     ],
@@ -58,19 +58,10 @@ export const STARRAIL_HOYO_GAME_PROFILE = {
       defaultValue: 60,
     },
     {
-      key: "dxmtNvidiaVendorId",
-      label: "DXMT NVIDIA vendor spoof",
-      type: "boolean",
-      envName: "DXMT_CONFIG",
-      defaultValue: true,
-      description: "Enables the NVIDIA vendor/device hints used by the Jadeite Star Rail launch path.",
-    },
-    {
       key: "dxmtEnableNvExt",
       label: "DXMT NVExtension",
       type: "boolean",
       envName: "DXMT_ENABLE_NVEXT",
-      defaultValue: true,
     },
     {
       key: "networkGate",

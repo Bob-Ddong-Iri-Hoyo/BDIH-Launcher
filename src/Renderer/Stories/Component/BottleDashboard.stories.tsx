@@ -119,3 +119,25 @@ export const Card: StoryObj<typeof BottleCard> = {
     </div>
   ),
 };
+
+export const CardSizes: StoryObj<typeof BottleCard> = {
+  parameters: {
+    layout: "centered",
+  },
+  render: () => (
+    <div className="flex items-start gap-5 bg-[#0b1020] p-6 text-slate-100">
+      <div className="w-[7.5rem]">
+        <BottleCard size="compact" bottle={mockBottle} onClick={() => undefined} />
+      </div>
+      <div className="w-36">
+        <BottleCard size="small" bottle={mockBottle} onClick={() => undefined} />
+      </div>
+      <div className="w-56">
+        <BottleCard size="medium" bottle={mockBottle} onClick={() => undefined} />
+      </div>
+      <div className="w-72">
+        <BottleCard size="large" bottle={mockBottle} onClick={() => undefined} />
+      </div>
+    </div>
+  ),
+};

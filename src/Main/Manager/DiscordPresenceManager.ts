@@ -5,6 +5,10 @@ import jaLocale from "../../../resouces/locales/ja.json";
 import koLocale from "../../../resouces/locales/ko.json";
 import zhLocale from "../../../resouces/locales/zh.json";
 import { logManager } from "./LogManager";
+import {
+  PromiseTimeoutError,
+  with_promise_timeout,
+} from "../Util/PromiseTimeout";
 
 const CLIENT_ID_ENV = "BDIH_DISCORD_CLIENT_ID";
 const SHOW_IDLE_ENV = "BDIH_DISCORD_SHOW_IDLE";
@@ -14,6 +18,7 @@ const SMALL_IMAGE_KEY_ENV = "BDIH_DISCORD_SMALL_IMAGE_KEY";
 const SMALL_IMAGE_TEXT_ENV = "BDIH_DISCORD_SMALL_IMAGE_TEXT";
 const DISCORD_TEXT_LIMIT = 128;
 const CONNECTION_ERROR_LOG_INTERVAL_MS = 60_000;
+const DEFAULT_SHUTDOWN_OPERATION_TIMEOUT_MS = 1000;
 const FALLBACK_PRESENCE_LOCALE = "ko";
 const BUILD_TIME_DISCORD_ENV = {
   [CLIENT_ID_ENV]: process.env.BDIH_DISCORD_CLIENT_ID,
@@ -60,21 +65,36 @@ interface DiscordPresenceActivity extends DiscordPresenceBottleActivityInput {
   startedAtMs: number;
 }
 
+export interface DiscordPresenceManagerOptions {
+  createClient?: () => Client;
+  shutdownOperationTimeoutMs?: number;
+}
+
 export class DiscordPresenceManager {
   private readonly logger = logManager.createLogger("DiscordPresence");
   private readonly launcherStartedAt = new Date();
   private readonly activities = new Map<string, DiscordPresenceActivity>();
+  private readonly createClient: () => Client;
+  private readonly shutdownOperationTimeoutMs: number;
   private clientId: string | undefined;
   private showIdle = true;
   private locale: PresenceLocale = FALLBACK_PRESENCE_LOCALE;
   private client: Client | null = null;
   private connecting: Promise<void> | null = null;
+  private pendingRefresh: Promise<void> = Promise.resolve();
   private ready = false;
   private initialized = false;
   private destroyed = false;
   private hasPublishedActivity = false;
   private lastPresenceKey: string | null = null;
   private lastConnectionErrorAt = 0;
+
+  constructor(options: DiscordPresenceManagerOptions = {}) {
+    this.createClient = options.createClient
+      ?? (() => new Client({ transport: "ipc" }));
+    this.shutdownOperationTimeoutMs = options.shutdownOperationTimeoutMs
+      ?? DEFAULT_SHUTDOWN_OPERATION_TIMEOUT_MS;
+  }
 
   init(language?: string): void {
     if (this.initialized) {
@@ -141,6 +161,8 @@ export class DiscordPresenceManager {
     this.activities.clear();
 
     const client = this.client;
+    const wasReady = this.ready;
+    const pendingRefresh = this.pendingRefresh;
     this.client = null;
     this.connecting = null;
     this.ready = false;
@@ -151,12 +173,30 @@ export class DiscordPresenceManager {
       return;
     }
 
-    await client.clearActivity().catch(() => undefined);
-    await client.destroy().catch(() => undefined);
+    const refreshSettled = await this.settleShutdownOperation(
+      "pending refresh",
+      pendingRefresh,
+    );
+
+    // A connecting or disconnected discord-rpc Client cannot safely send a
+    // SET_ACTIVITY request. Its transport may already have emitted `close`,
+    // leaving the request in discord-rpc's `_expecting` map forever.
+    if (wasReady && refreshSettled) {
+      await this.settleShutdownOperation(
+        "clear activity",
+        Promise.resolve().then(() => client.clearActivity()),
+      );
+    }
+
+    await this.settleShutdownOperation(
+      "destroy client",
+      Promise.resolve().then(() => client.destroy()),
+    );
   }
 
   private queueRefresh(): void {
-    void this.refresh().catch((error) => {
+    const refresh = this.pendingRefresh.then(() => this.refresh());
+    this.pendingRefresh = refresh.catch((error) => {
       this.logConnectionError(error);
     });
   }
@@ -242,7 +282,7 @@ export class DiscordPresenceManager {
       return this.client && this.ready ? this.client : null;
     }
 
-    const client = new Client({ transport: "ipc" });
+    const client = this.createClient();
 
     this.client = client;
     this.ready = false;
@@ -292,6 +332,34 @@ export class DiscordPresenceManager {
     });
 
     return this.client && this.ready ? this.client : null;
+  }
+
+  private async settleShutdownOperation(
+    operationName: string,
+    operation: PromiseLike<unknown>,
+  ): Promise<boolean> {
+    try {
+      await with_promise_timeout(
+        operation,
+        this.shutdownOperationTimeoutMs,
+        `Discord ${operationName}`,
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof PromiseTimeoutError) {
+        this.logger.warn("Discord shutdown operation timed out", {
+          operation: operationName,
+          timeoutMs: this.shutdownOperationTimeoutMs,
+        });
+        return false;
+      }
+
+      this.logger.debug("Discord shutdown operation failed", {
+        operation: operationName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   private logConnectionError(error: unknown): void {
