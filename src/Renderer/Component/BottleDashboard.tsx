@@ -107,8 +107,8 @@ const BOTTLE_ICON_IMAGE_BY_ID: Record<BottleIconId, string> = {
   icon13: bottleIcon13,
 };
 const BOTTLE_GRID_CLASSES: Record<BottleCardSize, string> = {
-  large: "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4",
-  medium: "grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5",
+  large: "grid w-full max-w-[113rem] grid-cols-[repeat(auto-fill,18rem)] justify-start gap-4",
+  medium: "grid w-full max-w-[102.5rem] grid-cols-[repeat(auto-fill,14rem)] justify-start gap-3",
   small: "grid grid-cols-[repeat(auto-fill,minmax(8rem,9rem))] justify-start gap-3",
   compact: "grid grid-cols-[repeat(auto-fill,minmax(6.5rem,7.5rem))] justify-start gap-2",
 };
@@ -304,9 +304,9 @@ export function BottleCard({
           : ""
       } ${isDragging ? "scale-[0.97] opacity-55" : ""} ${
         size === "large"
-          ? "min-h-40 p-4"
+          ? "h-56 p-4"
           : size === "medium"
-            ? "min-h-32 p-3"
+            ? "h-44 p-3"
             : size === "small"
               ? "aspect-square p-2"
               : "aspect-square p-2"
@@ -374,7 +374,7 @@ export function BottleCard({
             </IconSlot>
             <Stack className="min-w-0 flex-1 gap-1">
               <Inline className="min-w-0 items-start justify-between gap-1.5">
-                <InlineText className={`${size === "large" ? "text-lg leading-6" : "text-[13px] leading-5"} min-w-0 flex-1 whitespace-normal break-words font-bold text-slate-100`}>
+                <InlineText className={`${size === "large" ? "text-lg leading-6" : "text-[13px] leading-5"} min-w-0 flex-1 line-clamp-2 whitespace-normal [hyphens:none] [overflow-wrap:anywhere] [text-wrap:balance] [word-break:keep-all] font-bold text-slate-100`}>
                   {bottle.name}
                 </InlineText>
                 {isEditing ? (
@@ -386,11 +386,13 @@ export function BottleCard({
                     label={isRunning ? t("main.bottleStatus.running") : t(`main.bottleStatus.${bottle.status}`)}
                     tone={isRunning ? "success" : tone_from_bottle_status(bottle.status)}
                     animated={isRunning}
-                    className={size === "medium" ? "!h-5 rounded !px-2 text-[10px]" : undefined}
+                    className={size === "large"
+                      ? "!h-5 rounded !px-2 text-[10px]"
+                      : "!h-5 rounded !px-1.5 text-[9px]"}
                   />
                 )}
               </Inline>
-              <InlineText className={`${size === "large" ? "text-xs" : "text-[11px]"} ml-2 block min-w-0 whitespace-normal break-words leading-5 text-slate-400`}>
+              <InlineText className={`${size === "large" ? "line-clamp-4 text-xs" : "line-clamp-2 text-[11px]"} block min-w-0 whitespace-normal break-words leading-5 text-slate-400`}>
                 {bottle.description}
               </InlineText>
             </Stack>

@@ -980,15 +980,14 @@ async function rename_bottle_directory_for_name(
   const parentPath = path.dirname(sourcePath);
   const nextPath = path.resolve(parentPath, bottle_name_to_slug(bottle.name));
 
-  logManager.renameBottleLogs({
-    bottleId: bottle.id,
-    previousBottleName: previousBottle.name,
-    nextBottleName: bottle.name,
-  });
-
   if (sourcePath === nextPath) {
     const renamedBottle = rebase_bottle_owned_paths(bottle, sourcePath, nextPath, parentPath);
 
+    logManager.renameBottleLogs({
+      bottleId: bottle.id,
+      previousBottleName: previousBottle.name,
+      nextBottleName: bottle.name,
+    });
     await rewrite_renamed_prefix_metadata(renamedBottle);
     await write_prefix_metadata(renamedBottle);
     return renamedBottle;
@@ -1013,6 +1012,11 @@ async function rename_bottle_directory_for_name(
 
   const renamedBottle = rebase_bottle_owned_paths(bottle, sourcePath, nextPath, parentPath);
 
+  logManager.renameBottleLogs({
+    bottleId: bottle.id,
+    previousBottleName: previousBottle.name,
+    nextBottleName: bottle.name,
+  });
   await rewrite_renamed_prefix_metadata(renamedBottle);
   await write_prefix_metadata(renamedBottle);
 

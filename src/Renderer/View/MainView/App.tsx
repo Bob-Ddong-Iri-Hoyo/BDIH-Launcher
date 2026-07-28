@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { useTranslation } from "react-i18next";
 import "../../style/index.css";
 import { BDIH_YOUTUBE_HANDLE, STEAM_GAME_LAUNCH_ARGUMENT } from "../../../Common/Constant/RuntimeSources";
-import { AppUpdateInstallProgressPayload, AppUpdateStatusPayload, BottleExecutionAvailabilityPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskResultPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
+import { AppUpdateInstallProgressPayload, AppUpdateStatusPayload, BottleExecutionAvailabilityPayload, BottleLaunchOptionsPayload, BottleLauncherKind, BottleListPayload, BottlePrefixMetadataPayload, BottlePrefixSessionPayload, BottleProcessExitPayload, BottleTaskResultPayload, BottleTaskStatusPayload, DEBUG_FLAG_MODES, DebugFlagMode, DeleteBottlePrefixResultPayload, DeleteLauncherDataResultPayload, IPC_CHANNELS, LAUNCHER_LOG_LEVELS, LAUNCHER_SHORTCUT_ACTIONS, LAUNCHER_WINDOW_DEFAULT_SIZE, LAUNCHER_WINDOW_MIN_SIZE, LAUNCHER_WINDOW_STARTUP_SIZE_MODES, LauncherDataDeleteTarget, LauncherLogEntryPayload, LauncherLogLevel, LauncherLogSnapshotPayload, LauncherPreferencePayload, LauncherShortcutAction, LauncherShortcutMap, LauncherWindowStartupSizeMode, RENDERER_THEME_MODES, RendererThemeMode, SelectDirectoryResultPayload, SelectFileResultPayload, YouTubeLiveStatusPayload } from "../../../Common/Types/IPC";
 import {
   bottle_name_to_slug,
   create_bottle_app_prefix_path,
@@ -69,6 +70,12 @@ interface PreferenceDraftSnapshot {
   bottlePrefixPath: string;
   dxmtCachePath: string;
   gameInstallPath: string;
+}
+
+interface PendingLauncherExecutableConfirmation {
+  bottleId: string;
+  launcher: BottleLauncherKind;
+  installerPath: string;
 }
 
 type RendererConsoleMethod = "debug" | "info" | "log" | "warn" | "error";
@@ -870,6 +877,7 @@ function preference_snapshots_equal(left: PreferenceDraftSnapshot, right: Prefer
 }
 
 const App: React.FC = () => {
+  const { t } = useTranslation();
   const [activeView, setActiveView] = useState<RendererViewKey>("dashboard");
   const [locale, setLocale] = useState<SupportedLocale>(() => resolve_initial_locale());
   const [accentColor, setAccentColor] = useState<AccentColor>(() => resolve_initial_accent_color());
@@ -903,6 +911,8 @@ const App: React.FC = () => {
     wineVersionId: string;
     details: string;
   } | null>(null);
+  const [pendingLauncherExecutable, setPendingLauncherExecutable] =
+    useState<PendingLauncherExecutableConfirmation | null>(null);
   const [isPreferenceLoaded, setIsPreferenceLoaded] = useState(false);
   const [savedPreferenceSnapshot, setSavedPreferenceSnapshot] = useState<PreferenceDraftSnapshot>(() => ({
     locale: resolve_initial_locale(),
@@ -2224,7 +2234,26 @@ const App: React.FC = () => {
       return;
     }
 
-    await handle_install_bottle_launcher(bottleId, launcher, selectedFile.path);
+    setPendingLauncherExecutable({
+      bottleId,
+      launcher,
+      installerPath: selectedFile.path,
+    });
+  };
+
+  const handle_confirm_bottle_launcher_executable = async () => {
+    const pendingExecutable = pendingLauncherExecutable;
+
+    if (!pendingExecutable) {
+      return;
+    }
+
+    setPendingLauncherExecutable(null);
+    await handle_install_bottle_launcher(
+      pendingExecutable.bottleId,
+      pendingExecutable.launcher,
+      pendingExecutable.installerPath,
+    );
   };
 
   const handle_launch_bottle_app = async (bottleId: string, appId: string, executableArgs?: string[]) => {
@@ -3154,6 +3183,48 @@ const App: React.FC = () => {
       onDeleteLauncherData={handle_delete_launcher_data}
       onSavePreference={handle_save_preference}
     />
+    <Dialog
+      open={Boolean(pendingLauncherExecutable)}
+      title={t("main.installers.directRunWarningTitle")}
+      description={t("main.installers.directRunWarningDescription")}
+      tone="warning"
+      placement="center"
+      widthClassName="max-w-xl"
+      onClose={() => setPendingLauncherExecutable(null)}
+      closeOnBackdrop={false}
+      showCloseButton={false}
+      actions={[
+        {
+          label: t("common.actions.cancel"),
+          variant: "secondary",
+          autoFocus: true,
+          onClick: () => setPendingLauncherExecutable(null),
+        },
+        {
+          label: t("common.actions.run"),
+          variant: "primary",
+          onClick: () => void handle_confirm_bottle_launcher_executable(),
+        },
+      ]}
+    >
+      <Stack className="gap-3">
+        <Text className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+          {t("main.installers.directRunWarningBody", {
+            launcher: pendingLauncherExecutable?.launcher === "steam" ? "Steam" : "HoYoPlay",
+          })}
+        </Text>
+        <Stack className="gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-3">
+          <Text className="text-xs font-semibold text-slate-300">
+            {t("main.installers.directRunTarget", {
+              launcher: pendingLauncherExecutable?.launcher === "steam" ? "Steam" : "HoYoPlay",
+            })}
+          </Text>
+          <Text className="break-all font-mono text-[11px] leading-5 text-slate-400">
+            {pendingLauncherExecutable?.installerPath}
+          </Text>
+        </Stack>
+      </Stack>
+    </Dialog>
     <Dialog
       open={Boolean(deletingBottleModal)}
       title="Bottle 삭제 중"
