@@ -19,6 +19,7 @@ const UPDATE_TEST_NIGHTLY_PROFILE = "nightly";
 const LEGACY_APP_DATA_DIR_NAMES = [CURRENT_APP_DATA_DIR_NAME, "BDIH"];
 const APP_META_FILE_NAME = "appmeta.json";
 const CHANNEL_TRANSITION_STATE_FILE_NAME = "channel-transition.json";
+const APP_DATA_LIFECYCLE_STATE_FILE_NAME = "app-data-lifecycle.json";
 const SNAPSHOT_DIR_NAME = "Snapshots";
 const LEGACY_BOTTLE_REGISTRY_FILE_NAME = "bottles.json";
 const ENV_IS_PACKAGED = "BDIH_IS_PACKAGED";
@@ -284,6 +285,10 @@ export function get_settings_path(): string {
 
 export function get_channel_transition_state_path(): string {
   return path.join(path.dirname(get_settings_path()), CHANNEL_TRANSITION_STATE_FILE_NAME);
+}
+
+export function get_app_data_lifecycle_state_path(dataRootPath?: string): string {
+  return path.join(resolve_data_root_path(dataRootPath), APP_DATA_LIFECYCLE_STATE_FILE_NAME);
 }
 
 export function get_legacy_settings_path(): string {

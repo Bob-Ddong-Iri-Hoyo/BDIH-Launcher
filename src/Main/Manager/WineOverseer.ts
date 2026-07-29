@@ -58,6 +58,23 @@ const logger = logManager.createLogger({ file: "wine", source: "overseer" });
 export class WineOverseer {
   private readonly sessions = new Map<string, HoyoOverseerSession>();
 
+  attachSessionEnvironment(
+    processId: string,
+    environment: Readonly<Record<string, string>>,
+  ): Record<string, string> {
+    const session = this.sessions.get(processId);
+
+    if (!session || session.ended) {
+      throw new Error(`HoYo overseer session is not active: ${processId}`);
+    }
+
+    return attach_hoyo_overseer_connection(
+      environment,
+      session.fifoPath,
+      session.eventSessionId,
+    );
+  }
+
   async startHoyoPlay(request: StartHoyoOverseerRequest): Promise<{
     processId: string;
     eventSessionId: string;

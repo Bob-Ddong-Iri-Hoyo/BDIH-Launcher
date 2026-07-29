@@ -195,6 +195,13 @@ corresponding constant in `src/Common/Constant/DataSchema.ts`; user choices such
 as Wine/DXMT versions are data, not schema versions, and remain untouched during
 the normal return.
 
+App-data retirement is also channel-aware. Stable-to-Stable, Beta-to-Beta, and
+Nightly-to-Nightly version changes may remove only explicitly registered
+BDIH-owned legacy paths. Stable-to-Beta and Beta-to-Stable preserve retired
+paths even when the destination build no longer reads them. Do not implement
+cleanup by deleting unknown files. The authoritative matrix and retirement
+rules are maintained in [App-data lifecycle and channel-safe cleanup](data-lifecycle.md).
+
 For the first Production version there is no real predecessor. The staging
 workflow permits a synthetic target from another release train for update
 testing, but it does not queue Production approval. Both real Stable and Beta

@@ -231,6 +231,10 @@ flow below.
    directory may remain.
 9. Check for updates. When the confirmation dialog appears, click **Update**. The launcher now checks and closes running apps and Bottles while showing download and installation progress in a blocking dialog over the main view.
 10. Confirm that the app relaunches with the updated version. Use **Later** when verifying that dismissing the confirmation leaves the installed app unchanged.
+11. Place a registered legacy metadata fixture in a managed Prefix before the
+    transition. Confirm Stable-to-Beta preserves it. After a later Beta-to-Beta
+    update, confirm the registered metadata is removed while the installer,
+    Wine registry files, and unknown files remain.
 
 ## Manual Beta to Stable downgrade test
 
@@ -317,6 +321,9 @@ Nightly as a read-only value instead of rendering a channel Select menu.
 4. Quit that initial app, then build the next Nightly version.
 5. Reopen the same fixed app in Finder without installing the new build.
 6. Check for updates, click **Update** in the confirmation dialog, and verify the process-closing and download progress stages in the main-view update dialog before the Nightly-to-Nightly transition completes.
+7. Confirm the same-channel maintenance log reports
+   `reason: same-channel-update` and removes only registered retired BDIH
+   metadata.
 
 ```bash
 pnpm run build:test:nightly -- --version 1.2.0-nightly.1

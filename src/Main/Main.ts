@@ -19,6 +19,7 @@ import { windowManager } from "./Manager/WindowManager";
 import { youtubeManager } from "./Manager/YouTubeManager";
 import { channelTransitionManager } from "./Manager/ChannelTransitionManager";
 import { guardianManager } from "./Manager/GuardianManager";
+import { appDataMaintenanceManager } from "./Manager/AppDataMaintenanceManager";
 import {
   PromiseTimeoutError,
   with_promise_timeout,
@@ -136,6 +137,13 @@ async function createApp(): Promise<void> {
   // the main renderer have both opened. If startup fails earlier, the recovery
   // point remains active for diagnosis or recovery.
   await channelTransitionManager.reconcileStartup();
+  try {
+    await appDataMaintenanceManager.reconcileStartup(preference.dataRootPath);
+  } catch (error) {
+    // A failed retirement remains retryable because its lifecycle marker is not
+    // advanced. App-data maintenance must never prevent the launcher opening.
+    logManager.warn("Main", "App-data maintenance failed and will be retried.", error);
+  }
 
   if (preference.autoCheckUpdates) {
     // Only the startup check may automatically install and relaunch. Periodic

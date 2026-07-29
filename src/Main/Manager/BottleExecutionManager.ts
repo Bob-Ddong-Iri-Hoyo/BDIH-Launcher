@@ -61,6 +61,12 @@ import {
   type WineTelemetryEvent,
 } from "./WineProcessMonitor";
 import { hoyoPlayProxyManager } from "./HoyoPlayProxyManager";
+import {
+  HoyoPlayUpdateTracker,
+  parse_hoyoplay_version,
+  type HoyoPlayUpdateObservation,
+  type HoyoPlayUpdateRecoveryCandidate,
+} from "./HoyoPlayUpdateTracker";
 import { bottleManager } from "./BottleManager";
 import { get_hoyo_game_profile, type HoyoGameProfile } from "../Data/Hoyoverse/HoyoGameProfile";
 import { get_launcher_runtime_profile } from "../Data/GameProfile";
@@ -109,6 +115,11 @@ const LAUNCHER_EXECUTABLE_POST_INSTALLER_EXIT_GRACE_MS = 30_000;
 const PREFIX_SESSION_WATCH_DELAY_MS = 500;
 const WINE_PROCESS_TELEMETRY_STARTUP_FALLBACK_MS = 10_000;
 const STEAM_GAME_PROCESS_LOG_POLL_MS = 750;
+const HOYOPLAY_UPDATE_RECOVERY_GRACE_MS = 7_500;
+const HOYOPLAY_UPDATE_RECOVERY_MAX_WAIT_MS = 30_000;
+const HOYOPLAY_UPDATE_RECOVERY_RECHECK_MS = 2_500;
+const HOYOPLAY_UPDATE_RECOVERY_PROCESS_EXIT_WAIT_MS = 3_000;
+const HOYOPLAY_UPDATE_RECOVERY_VERIFY_MS = 15_000;
 const HOYO_STEAM_STUB_WIN_PATH = "C:\\windows\\system32\\steam.exe";
 const HOYO_PROXY_TEST_ENV = "BDIH_HOYO_PROXY_TEST";
 const HOYO_PROXY_TEST_EXE_ENV = "BDIH_HOYO_PROXY_TEST_EXE";
@@ -145,7 +156,21 @@ interface PrefixSession {
   wineTrackedSteamPidsByAppId?: Map<string, Set<number>>;
   wineTrackedSteamAppIdByPid?: Map<number, string>;
   steamLauncherOwnerAppId?: string;
+  hoyoPlayUpdateTracker?: HoyoPlayUpdateTracker;
+  hoyoPlayUpdateRecovery?: HoyoPlayUpdateRecoveryContext;
+  hoyoPlayUpdateRecoveryTimer?: NodeJS.Timeout;
+  hoyoPlayUpdateRecoveryDeadline?: number;
+  hoyoPlayUpdateVerificationTimer?: NodeJS.Timeout;
   ended: boolean;
+}
+
+interface HoyoPlayUpdateRecoveryContext {
+  overseerProcessId: string;
+  wineCommand: string;
+  launcherExecutablePath: string;
+  executableArgs: string[];
+  cwd: string;
+  environment: Record<string, string>;
 }
 
 interface SteamGameProcessWatcher {
@@ -1298,6 +1323,14 @@ export class BottleExecutionManager {
           appId: request.appId ?? "hoyoplay",
           appName,
           overseerProcessId: processId,
+          hoyoPlayUpdateRecovery: {
+            overseerProcessId: processId,
+            wineCommand: effectiveWineCommand,
+            launcherExecutablePath: hoyoplayExecutablePath,
+            executableArgs: [...executableArgs],
+            cwd: get_process_cwd(hoyoplayExecutablePath, launcherPrefixPath),
+            environment: { ...env },
+          },
         },
         sender,
       );
@@ -3234,6 +3267,7 @@ export class BottleExecutionManager {
       executionMode?: "app" | "installer";
       steamGameProcessLogPath?: string;
       overseerProcessId?: string;
+      hoyoPlayUpdateRecovery?: HoyoPlayUpdateRecoveryContext;
     },
     sender?: WebContents,
   ): string {
@@ -3253,6 +3287,11 @@ export class BottleExecutionManager {
       if (context.overseerProcessId) {
         existingSession.overseerProcessIds = existingSession.overseerProcessIds ?? new Set<string>();
         existingSession.overseerProcessIds.add(context.overseerProcessId);
+      }
+      if (context.hoyoPlayUpdateRecovery) {
+        existingSession.hoyoPlayUpdateRecovery = context.hoyoPlayUpdateRecovery;
+        existingSession.hoyoPlayUpdateTracker = existingSession.hoyoPlayUpdateTracker
+          ?? new HoyoPlayUpdateTracker();
       }
       if (context.steamGameProcessLogPath) {
         this.startSteamGameProcessWatcher(existingSession, context.steamGameProcessLogPath);
@@ -3289,6 +3328,10 @@ export class BottleExecutionManager {
       steamLauncherOwnerAppId: context.launcher === "steam" && context.appId?.startsWith("steam:")
         ? context.appId
         : undefined,
+      hoyoPlayUpdateTracker: context.hoyoPlayUpdateRecovery
+        ? new HoyoPlayUpdateTracker()
+        : undefined,
+      hoyoPlayUpdateRecovery: context.hoyoPlayUpdateRecovery,
       ended: false,
     };
 
@@ -3382,6 +3425,16 @@ export class BottleExecutionManager {
     }
 
     if (
+      session.hoyoPlayUpdateTracker
+      && event.type !== "server_start"
+    ) {
+      this.applyHoyoPlayUpdateObservations(
+        session,
+        session.hoyoPlayUpdateTracker.observe(event, snapshot),
+      );
+    }
+
+    if (
       session.launcher === "steam"
       && event.type !== "server_start"
     ) {
@@ -3412,12 +3465,363 @@ export class BottleExecutionManager {
         processId: session.processId,
         prefixPath: session.prefixPath,
       });
+      if (session.hoyoPlayUpdateTracker) {
+        this.applyHoyoPlayUpdateObservations(
+          session,
+          session.hoyoPlayUpdateTracker.observeSnapshot(snapshot),
+        );
+      }
       if (session.launcher === "steam") {
         for (const process of snapshot.processes) {
           this.trackSteamGameFromWineProcess(session, process);
         }
       }
     }
+  }
+
+  private applyHoyoPlayUpdateObservations(
+    session: PrefixSession,
+    observations: HoyoPlayUpdateObservation[],
+  ): void {
+    for (const observation of observations) {
+      switch (observation.kind) {
+        case "update-started":
+          this.logger.info("HoYoPlay update process detected", {
+            bottleId: session.bottleId,
+            prefixPath: session.prefixPath,
+            oldVersion: observation.oldHYP.version.value,
+            oldHYPWinePid: observation.oldHYP.winePid,
+            oldHYPUnixPid: observation.oldHYP.unixPid,
+            updaterWinePid: observation.updaterWinePid,
+          });
+          break;
+        case "launcher-started":
+          this.logger.info("HoYoPlay update launcher transition detected", {
+            bottleId: session.bottleId,
+            prefixPath: session.prefixPath,
+            oldVersion: observation.oldVersion,
+            launcherWinePid: observation.launcherWinePid,
+            parentKind: observation.parentKind,
+            parentWinePid: observation.parentWinePid,
+          });
+          break;
+        case "candidate-started":
+          this.logger.info("HoYoPlay updated version candidate started", {
+            bottleId: session.bottleId,
+            prefixPath: session.prefixPath,
+            oldVersion: observation.oldHYP.version.value,
+            oldHYPWinePid: observation.oldHYP.winePid,
+            newVersion: observation.newHYP.version.value,
+            newHYPWinePid: observation.newHYP.winePid,
+            newHYPUnixPid: observation.newHYP.unixPid,
+            launcherWinePid: observation.launcherWinePid,
+            parentKind: observation.parentKind,
+          });
+          break;
+        case "candidate-rejected":
+          this.logger.warn("HoYoPlay updated version was rejected by the existing singleton", {
+            bottleId: session.bottleId,
+            prefixPath: session.prefixPath,
+            oldVersion: observation.oldHYP.version.value,
+            oldHYPWinePid: observation.oldHYP.winePid,
+            newVersion: observation.newHYP.version.value,
+            newHYPWinePid: observation.newHYP.winePid,
+            launcherWinePid: observation.launcherWinePid,
+            parentKind: observation.parentKind,
+            exitCode: observation.exitCode,
+            exitCodeHex: windows_exit_code_hex(observation.exitCode),
+          });
+          this.scheduleHoyoPlayUpdateRecovery(session);
+          break;
+        case "update-succeeded":
+          this.clearHoyoPlayUpdateRecoveryTimer(session);
+          this.logger.info("HoYoPlay update completed normally", {
+            bottleId: session.bottleId,
+            prefixPath: session.prefixPath,
+            oldVersion: observation.oldHYP.version.value,
+            oldHYPWinePid: observation.oldHYP.winePid,
+            newVersion: observation.newHYP.version.value,
+            newHYPWinePid: observation.newHYP.winePid,
+          });
+          break;
+      }
+    }
+  }
+
+  private scheduleHoyoPlayUpdateRecovery(session: PrefixSession): void {
+    if (session.ended || !session.hoyoPlayUpdateTracker || !session.hoyoPlayUpdateRecovery) {
+      return;
+    }
+
+    this.clearHoyoPlayUpdateRecoveryTimer(session);
+    session.hoyoPlayUpdateRecoveryDeadline = Date.now() + HOYOPLAY_UPDATE_RECOVERY_MAX_WAIT_MS;
+    session.hoyoPlayUpdateRecoveryTimer = setTimeout(
+      () => this.checkHoyoPlayUpdateRecovery(session),
+      HOYOPLAY_UPDATE_RECOVERY_GRACE_MS,
+    );
+    session.hoyoPlayUpdateRecoveryTimer.unref?.();
+  }
+
+  private checkHoyoPlayUpdateRecovery(session: PrefixSession): void {
+    session.hoyoPlayUpdateRecoveryTimer = undefined;
+    if (session.ended || !session.hoyoPlayUpdateTracker || !session.hoyoPlayUpdateRecovery) {
+      return;
+    }
+
+    const snapshot = wineProcessMonitor.snapshot(session.prefixPath);
+    const candidate = session.hoyoPlayUpdateTracker.recoveryCandidate(snapshot);
+
+    if (candidate) {
+      session.hoyoPlayUpdateTracker.markRecoveryStarted();
+      session.hoyoPlayUpdateRecoveryDeadline = undefined;
+      void this.recoverStaleHoyoPlayUpdate(session, candidate);
+      return;
+    }
+
+    const deadline = session.hoyoPlayUpdateRecoveryDeadline ?? Date.now();
+    if (Date.now() < deadline) {
+      session.hoyoPlayUpdateRecoveryTimer = setTimeout(
+        () => this.checkHoyoPlayUpdateRecovery(session),
+        HOYOPLAY_UPDATE_RECOVERY_RECHECK_MS,
+      );
+      session.hoyoPlayUpdateRecoveryTimer.unref?.();
+      return;
+    }
+
+    session.hoyoPlayUpdateRecoveryDeadline = undefined;
+    this.logger.warn("HoYoPlay update recovery was not started because the safety conditions were not met", {
+      bottleId: session.bottleId,
+      prefixPath: session.prefixPath,
+      activeProcesses: summarize_hoyoplay_update_processes(snapshot),
+    });
+  }
+
+  private async recoverStaleHoyoPlayUpdate(
+    session: PrefixSession,
+    candidate: HoyoPlayUpdateRecoveryCandidate,
+  ): Promise<void> {
+    const recovery = session.hoyoPlayUpdateRecovery;
+
+    if (!recovery || session.ended) {
+      return;
+    }
+
+    this.logger.warn("HoYoPlay stale update state confirmed; starting targeted recovery", {
+      bottleId: session.bottleId,
+      prefixPath: session.prefixPath,
+      oldVersion: candidate.oldHYP.version.value,
+      oldHYPWinePid: candidate.oldHYP.winePid,
+      oldHYPUnixPid: candidate.oldHYP.unixPid,
+      newVersion: candidate.newHYP.version.value,
+      failedNewHYPWinePid: candidate.newHYP.winePid,
+      updaterWinePids: candidate.updaterWinePids,
+      launcherWinePid: candidate.launcherWinePid,
+      candidateExitCode: candidate.candidateExitCode,
+      candidateExitCodeHex: windows_exit_code_hex(candidate.candidateExitCode),
+    });
+
+    let taskkillCode: number;
+
+    try {
+      const taskkill = runProgram({
+        command: recovery.wineCommand,
+        args: [
+          "C:\\windows\\system32\\taskkill.exe",
+          "/PID",
+          String(candidate.oldHYP.winePid),
+          "/T",
+          "/F",
+        ],
+        cwd: session.prefixPath,
+        env: {
+          WINEPREFIX: session.prefixPath,
+          WINEDEBUG: "-all",
+        },
+        onLog: (data) => this.logger.info("HoYoPlay stale process taskkill stdout", data.trim()),
+        onError: (data) => this.logger.warn("HoYoPlay stale process taskkill stderr", data.trim()),
+      });
+
+      taskkillCode = await taskkill.done;
+    } catch (error) {
+      this.logger.error("HoYoPlay stale process taskkill failed", {
+        bottleId: session.bottleId,
+        prefixPath: session.prefixPath,
+        oldVersion: candidate.oldHYP.version.value,
+        oldHYPWinePid: candidate.oldHYP.winePid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    if (taskkillCode !== 0) {
+      this.logger.error("HoYoPlay stale process taskkill exited with non-zero code", {
+        bottleId: session.bottleId,
+        prefixPath: session.prefixPath,
+        oldVersion: candidate.oldHYP.version.value,
+        oldHYPWinePid: candidate.oldHYP.winePid,
+        code: taskkillCode,
+      });
+      return;
+    }
+
+    const staleProcessStopped = await wait_for_wine_process_to_exit(
+      session.prefixPath,
+      candidate.oldHYP.winePid,
+      candidate.oldHYP.startTimeTicks,
+      HOYOPLAY_UPDATE_RECOVERY_PROCESS_EXIT_WAIT_MS,
+    );
+
+    if (!staleProcessStopped || session.ended) {
+      this.logger.error("HoYoPlay stale process remained after targeted taskkill", {
+        bottleId: session.bottleId,
+        prefixPath: session.prefixPath,
+        oldVersion: candidate.oldHYP.version.value,
+        oldHYPWinePid: candidate.oldHYP.winePid,
+      });
+      return;
+    }
+
+    this.logger.info("HoYoPlay stale version stopped", {
+      bottleId: session.bottleId,
+      prefixPath: session.prefixPath,
+      oldVersion: candidate.oldHYP.version.value,
+      oldHYPWinePid: candidate.oldHYP.winePid,
+    });
+
+    let environment: Record<string, string>;
+
+    try {
+      environment = wineOverseer.attachSessionEnvironment(
+        recovery.overseerProcessId,
+        recovery.environment,
+      );
+    } catch (error) {
+      this.logger.error("HoYoPlay update recovery could not reuse the overseer session", {
+        bottleId: session.bottleId,
+        prefixPath: session.prefixPath,
+        oldVersion: candidate.oldHYP.version.value,
+        newVersion: candidate.newHYP.version.value,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    const recoveryProcessId =
+      `hoyoplay-update-recovery:${session.bottleId}:${Date.now().toString(36)}`;
+
+    try {
+      const process = processManager.startProcess(recoveryProcessId, {
+        command: recovery.wineCommand,
+        args: [
+          windows_path_from_prefix_host_path(
+            session.prefixPath,
+            recovery.launcherExecutablePath,
+          ),
+          ...recovery.executableArgs,
+        ],
+        cwd: recovery.cwd,
+        env: environment,
+        onLog: (data) => this.logger.info("HoYoPlay update recovery stdout", data.trim()),
+        onError: (data) => this.logger.warn("HoYoPlay update recovery stderr", data.trim()),
+      });
+
+      this.logger.info("HoYoPlay launcher restarted after stale update cleanup", {
+        bottleId: session.bottleId,
+        prefixPath: session.prefixPath,
+        recoveryProcessId,
+        oldVersion: candidate.oldHYP.version.value,
+        expectedNewVersion: candidate.newHYP.version.value,
+        launcherExecutablePath: recovery.launcherExecutablePath,
+      });
+      process.done.then(
+        (code) => this.logger.info("HoYoPlay update recovery bootstrap exited", {
+          bottleId: session.bottleId,
+          prefixPath: session.prefixPath,
+          recoveryProcessId,
+          code,
+        }),
+        (error) => this.logger.error("HoYoPlay update recovery bootstrap failed", {
+          bottleId: session.bottleId,
+          prefixPath: session.prefixPath,
+          recoveryProcessId,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    } catch (error) {
+      this.logger.error("HoYoPlay launcher restart failed after stale update cleanup", {
+        bottleId: session.bottleId,
+        prefixPath: session.prefixPath,
+        recoveryProcessId,
+        oldVersion: candidate.oldHYP.version.value,
+        expectedNewVersion: candidate.newHYP.version.value,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    if (session.hoyoPlayUpdateVerificationTimer) {
+      clearTimeout(session.hoyoPlayUpdateVerificationTimer);
+    }
+    session.hoyoPlayUpdateVerificationTimer = setTimeout(() => {
+      session.hoyoPlayUpdateVerificationTimer = undefined;
+      this.verifyHoyoPlayUpdateRecovery(session, candidate);
+    }, HOYOPLAY_UPDATE_RECOVERY_VERIFY_MS);
+    session.hoyoPlayUpdateVerificationTimer.unref?.();
+  }
+
+  private verifyHoyoPlayUpdateRecovery(
+    session: PrefixSession,
+    candidate: HoyoPlayUpdateRecoveryCandidate,
+  ): void {
+    if (session.ended) {
+      return;
+    }
+
+    const snapshot = wineProcessMonitor.snapshot(session.prefixPath);
+    const expectedVersion = candidate.newHYP.version.value;
+    const activeHYP = snapshot.processes.find((process) =>
+      wine_process_executable_name(process.imagePath) === "hyp.exe"
+      && parse_hoyoplay_version(process.imagePath)?.value === expectedVersion,
+    );
+    const activeHelper = snapshot.processes.find((process) =>
+      wine_process_executable_name(process.imagePath) === "hyphelper.exe"
+      && parse_hoyoplay_version(process.imagePath)?.value === expectedVersion,
+    );
+    const staleHYP = snapshot.processes.find((process) =>
+      process.winePid === candidate.oldHYP.winePid
+      && process.startTimeTicks === candidate.oldHYP.startTimeTicks,
+    );
+
+    if (activeHYP && activeHelper && !staleHYP) {
+      this.logger.info("HoYoPlay update recovery verified", {
+        bottleId: session.bottleId,
+        prefixPath: session.prefixPath,
+        oldVersion: candidate.oldHYP.version.value,
+        newVersion: expectedVersion,
+        newHYPWinePid: activeHYP.winePid,
+        newHYPUnixPid: activeHYP.unixPid,
+        helperWinePid: activeHelper.winePid,
+      });
+      session.hoyoPlayUpdateTracker?.reset();
+      return;
+    }
+
+    this.logger.warn("HoYoPlay update recovery could not be verified", {
+      bottleId: session.bottleId,
+      prefixPath: session.prefixPath,
+      oldVersion: candidate.oldHYP.version.value,
+      expectedNewVersion: expectedVersion,
+      staleHYPStillRunning: Boolean(staleHYP),
+      activeProcesses: summarize_hoyoplay_update_processes(snapshot),
+    });
+  }
+
+  private clearHoyoPlayUpdateRecoveryTimer(session: PrefixSession): void {
+    if (session.hoyoPlayUpdateRecoveryTimer) {
+      clearTimeout(session.hoyoPlayUpdateRecoveryTimer);
+      session.hoyoPlayUpdateRecoveryTimer = undefined;
+    }
+    session.hoyoPlayUpdateRecoveryDeadline = undefined;
   }
 
   private trackSteamGameFromWineProcess(
@@ -3789,6 +4193,12 @@ export class BottleExecutionManager {
       clearTimeout(session.wineProcessTelemetryFallbackTimer);
       session.wineProcessTelemetryFallbackTimer = undefined;
     }
+    this.clearHoyoPlayUpdateRecoveryTimer(session);
+    if (session.hoyoPlayUpdateVerificationTimer) {
+      clearTimeout(session.hoyoPlayUpdateVerificationTimer);
+      session.hoyoPlayUpdateVerificationTimer = undefined;
+    }
+    session.hoyoPlayUpdateTracker?.reset();
     hoyoPlayProxyManager.finishGameSession(session.processId);
     hoyoPlayProxyManager.finishLauncherPrefix(session.prefixPath);
     session.wineProcessUnsubscribe?.();
@@ -4240,6 +4650,63 @@ async function is_launcher_install_transition_ready(options: {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function wait_for_wine_process_to_exit(
+  prefixPath: string,
+  winePid: number,
+  startTimeTicks: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  const processStillRunning = () => wineProcessMonitor.snapshot(prefixPath).processes.some((process) =>
+    process.winePid === winePid && process.startTimeTicks === startTimeTicks,
+  );
+
+  while (Date.now() < deadline) {
+    if (!processStillRunning()) {
+      return true;
+    }
+    await delay(100);
+  }
+
+  return !processStillRunning();
+}
+
+function windows_exit_code_hex(exitCode: number): string {
+  return `0x${(exitCode >>> 0).toString(16).padStart(8, "0").toUpperCase()}`;
+}
+
+function summarize_hoyoplay_update_processes(
+  snapshot: WineProcessSnapshot,
+): Array<{
+  winePid: number;
+  parentWinePid: number;
+  executableName: string;
+  version?: string;
+}> {
+  const relevantNames = new Set([
+    "hyp.exe",
+    "hyphelper.exe",
+    "hyupdater.exe",
+    "launcher.exe",
+    "7z.exe",
+  ]);
+
+  return snapshot.processes.flatMap((process) => {
+    const executableName = wine_process_executable_name(process.imagePath);
+
+    if (!relevantNames.has(executableName)) {
+      return [];
+    }
+
+    return [{
+      winePid: process.winePid,
+      parentWinePid: process.parentWinePid,
+      executableName,
+      version: parse_hoyoplay_version(process.imagePath)?.value,
+    }];
+  });
 }
 
 interface InstallerDownloadPlan {
