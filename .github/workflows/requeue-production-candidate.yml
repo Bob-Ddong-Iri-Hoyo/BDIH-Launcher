@@ -1,0 +1,146 @@
+name: Requeue Production Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_tag:
+        description: "Existing published TestProduction candidate tag"
+        required: true
+        type: string
+
+concurrency:
+  group: requeue-production-candidate-${{ inputs.candidate_tag }}
+  cancel-in-progress: false
+
+env:
+  STAGING_REPOSITORY: Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction
+
+jobs:
+  requeue:
+    name: Requeue ${{ inputs.candidate_tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout trusted promotion policy
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate and requeue the existing candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: |
+          set -euo pipefail
+
+          candidate_dir="$RUNNER_TEMP/requeue-candidate"
+          mkdir -p "$candidate_dir"
+
+          gh release view "$CANDIDATE_TAG" \
+            --repo "$STAGING_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,url \
+            > "$candidate_dir/release.json"
+          gh release download "$CANDIDATE_TAG" \
+            --repo "$STAGING_REPOSITORY" \
+            --pattern staging-source.json \
+            --dir "$candidate_dir"
+
+          node scripts/staging-promotion-policy.mjs validate-candidate \
+            --file "$candidate_dir/staging-source.json" \
+            --expected-tag "$CANDIDATE_TAG" \
+            > "$candidate_dir/validated-candidate.json"
+
+          candidate_version="$(node scripts/staging-promotion-policy.mjs field \
+            --file "$candidate_dir/staging-source.json" --name version)"
+          target_version="$(node scripts/staging-promotion-policy.mjs field \
+            --file "$candidate_dir/staging-source.json" --name targetVersion)"
+          candidate_attempt="$(node scripts/staging-promotion-policy.mjs field \
+            --file "$candidate_dir/staging-source.json" --name attempt)"
+          candidate_channel="$(node scripts/staging-promotion-policy.mjs field \
+            --file "$candidate_dir/staging-source.json" --name channel)"
+          source_repository="$(node scripts/staging-promotion-policy.mjs field \
+            --file "$candidate_dir/staging-source.json" --name sourceRepository)"
+          source_commit="$(node scripts/staging-promotion-policy.mjs field \
+            --file "$candidate_dir/staging-source.json" --name sourceCommit)"
+          source_run_url="$(node scripts/staging-promotion-policy.mjs field \
+            --file "$candidate_dir/staging-source.json" --name sourceRunUrl)"
+
+          if [[ "$source_repository" != "$GITHUB_REPOSITORY" ]]; then
+            echo "::error::Candidate source repository mismatch: $source_repository"
+            exit 1
+          fi
+
+          CANDIDATE_CHANNEL="$candidate_channel" node - <<'NODE'
+          const fs = require("fs");
+          const release = JSON.parse(fs.readFileSync(
+            process.env.RUNNER_TEMP + "/requeue-candidate/release.json",
+            "utf8",
+          ));
+          const expectedPrerelease = process.env.CANDIDATE_CHANNEL === "beta";
+          if (
+            release.tagName !== process.env.CANDIDATE_TAG
+            || release.isDraft
+            || release.isPrerelease !== expectedPrerelease
+          ) {
+            throw new Error("The selected TestProduction candidate has the wrong GitHub release state.");
+          }
+          NODE
+
+          gh release list \
+            --repo "$STAGING_REPOSITORY" \
+            --limit 100 \
+            --json tagName,isDraft,isPrerelease \
+            > "$candidate_dir/releases.json"
+          node scripts/staging-promotion-policy.mjs assert-current-candidate \
+            --releases "$candidate_dir/releases.json" \
+            --target-version "$target_version" \
+            --candidate-tag "$CANDIDATE_TAG" \
+            > /dev/null
+
+          git fetch origin "refs/heads/main:refs/remotes/origin/main" --force
+          if ! git merge-base --is-ancestor "$source_commit" origin/main; then
+            echo "::error::Candidate source $source_commit is not reachable from origin/main."
+            exit 1
+          fi
+
+          CANDIDATE_VERSION="$candidate_version" \
+          TARGET_VERSION="$target_version" \
+          CANDIDATE_ATTEMPT="$candidate_attempt" \
+          CANDIDATE_CHANNEL="$candidate_channel" \
+          SOURCE_COMMIT="$source_commit" \
+          SOURCE_RUN_URL="$source_run_url" \
+          node <<'NODE'
+          const fs = require("fs");
+          fs.writeFileSync("dispatch.json", `${JSON.stringify({
+            event_type: "production_candidate_created",
+            client_payload: {
+              candidate_tag: process.env.CANDIDATE_TAG,
+              candidate_version: process.env.CANDIDATE_VERSION,
+              target_version: process.env.TARGET_VERSION,
+              channel: process.env.CANDIDATE_CHANNEL,
+              attempt: Number(process.env.CANDIDATE_ATTEMPT),
+              source_commit: process.env.SOURCE_COMMIT,
+              source_run_url: process.env.SOURCE_RUN_URL,
+            },
+          })}\n`);
+          NODE
+
+          gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/dispatches" \
+            --input dispatch.json
+
+          {
+            echo "## Production candidate requeued"
+            echo ""
+            echo "- Candidate: \`$candidate_version\`"
+            echo "- Tag: \`$CANDIDATE_TAG\`"
+            echo "- Target: \`$target_version\`"
+            echo "- Source commit: \`$source_commit\`"
+            echo ""
+            echo "A new Approve Production Candidate run was dispatched from the current default branch."
+          } >> "$GITHUB_STEP_SUMMARY"
