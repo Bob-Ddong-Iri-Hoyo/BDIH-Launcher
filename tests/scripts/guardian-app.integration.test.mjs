@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +16,7 @@ const require = createRequire(import.meta.url);
 const ELECTRON_PATH = require("electron");
 const PROCESS_TIMEOUT_MS = 20_000;
 
-test("single-instance lock, startup recovery, and crash Guardian work together", async () => {
+test("single-instance lock, startup recovery, and process-group-isolated crash Guardian work together", async () => {
   if (process.platform !== "darwin") {
     return;
   }
@@ -52,6 +52,7 @@ test("single-instance lock, startup recovery, and crash Guardian work together",
     primary = spawn(ELECTRON_PATH, [REPOSITORY_ROOT], {
       cwd: REPOSITORY_ROOT,
       env: environment,
+      detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const primaryOutput = collect_process_output(primary);
@@ -59,8 +60,13 @@ test("single-instance lock, startup recovery, and crash Guardian work together",
     await wait_for_child_exit(orphanWine, PROCESS_TIMEOUT_MS, () => {
       return `Launcher output:\n${primaryOutput()}`;
     });
-    const guardianPid = await wait_for_guardian_pid(primary.pid, PROCESS_TIMEOUT_MS);
-    assert.ok(guardianPid > 0, "The primary launcher should own a native Guardian.");
+    const guardianProcess = await wait_for_guardian_process(primary.pid, PROCESS_TIMEOUT_MS);
+    assert.ok(guardianProcess.pid > 0, "The primary launcher should own a native Guardian.");
+    assert.notEqual(
+      guardianProcess.processGroupId,
+      primary.pid,
+      "The Guardian must not share the launcher's process group.",
+    );
 
     crashWine = spawn(fakeWinePath, ["120"], {
       cwd: managedRoot,
@@ -84,21 +90,54 @@ test("single-instance lock, startup recovery, and crash Guardian work together",
       "A secondary launcher must not run orphan recovery against the primary instance.",
     );
 
-    process.kill(primary.pid, "SIGKILL");
+    // Simulate a VS Code or shell task teardown that kills the launcher's
+    // complete foreground process group. The detached Guardian must survive,
+    // observe Main exit, clean Wine, and then terminate itself.
+    process.kill(-primary.pid, "SIGKILL");
     await wait_for_child_exit(primary, 5_000);
     await wait_for_child_exit(crashWine, PROCESS_TIMEOUT_MS);
     await wait_for_condition(
-      () => !is_process_alive(guardianPid),
+      () => !is_process_alive(guardianProcess.pid),
       PROCESS_TIMEOUT_MS,
       "The Guardian remained alive after completing crash cleanup.",
     );
+    const guardianLog = await read_guardian_log(path.join(managedRoot, "logs"));
+    assert.match(guardianLog, /event=ready ownerPid=\d+ roots=\d+/);
+    assert.match(
+      guardianLog,
+      /event=cleanup trigger=(?:owner-exit|control-eof) detected=\d+ forced=\d+ remaining=0 result=0/,
+    );
   } finally {
-    terminate_if_alive(primary);
+    terminate_process_group(primary);
     terminate_if_alive(orphanWine);
     terminate_if_alive(crashWine);
     await rm(testRoot, { recursive: true, force: true });
   }
 });
+
+async function read_guardian_log(logRoot) {
+  const entries = await readdir(logRoot, { withFileTypes: true });
+  const sessionDirectories = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+
+  for (const sessionDirectory of sessionDirectories) {
+    try {
+      return await readFile(
+        path.join(logRoot, sessionDirectory, "guardian.log"),
+        "utf8",
+      );
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(`No Guardian event log was created below ${logRoot}.`);
+}
 
 function collect_process_output(child) {
   let output = "";
@@ -111,8 +150,8 @@ function collect_process_output(child) {
   return () => output;
 }
 
-async function wait_for_guardian_pid(ownerPid, timeoutMs) {
-  let guardianPid;
+async function wait_for_guardian_process(ownerPid, timeoutMs) {
+  let guardianProcess;
 
   await wait_for_condition(async () => {
     const processList = await read_process_list();
@@ -121,16 +160,16 @@ async function wait_for_guardian_pid(ownerPid, timeoutMs) {
       && entry.command.includes("bdih-guardian")
       && entry.command.includes(`--owner-pid ${ownerPid}`)
     ));
-    guardianPid = match?.pid;
-    return Boolean(guardianPid);
+    guardianProcess = match;
+    return Boolean(guardianProcess);
   }, timeoutMs, "The launcher did not start its native Guardian.");
 
-  return guardianPid;
+  return guardianProcess;
 }
 
 function read_process_list() {
   return new Promise((resolve, reject) => {
-    const ps = spawn("/bin/ps", ["-axo", "pid=,ppid=,command="], {
+    const ps = spawn("/bin/ps", ["-axo", "pid=,ppid=,pgid=,command="], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -150,12 +189,13 @@ function read_process_list() {
       }
 
       resolve(stdout.split("\n").flatMap((line) => {
-        const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+        const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
         return match
           ? [{
             pid: Number(match[1]),
             parentPid: Number(match[2]),
-            command: match[3],
+            processGroupId: Number(match[3]),
+            command: match[4],
           }]
           : [];
       }));
@@ -220,5 +260,17 @@ function terminate_if_alive(child) {
     process.kill(child.pid, "SIGKILL");
   } catch {
     // The child already exited between the liveness check and the signal.
+  }
+}
+
+function terminate_process_group(child) {
+  if (!child?.pid) {
+    return;
+  }
+
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    // The detached launcher's process group has already exited.
   }
 }

@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import {
   app_name_from_executable_path,
+  manual_app_id_from_executable_path,
   split_executable_args,
   to_wine_z_path,
 } from "../../Common/Util/ExecutablePath";
@@ -214,6 +215,9 @@ export function useDirectExecutableRunner({
 
     setStatusMessage(t("main.runner.starting"));
     const runExecutablePath = executable_path_for_wine_prefix(executablePath.trim(), manualPrefixPath);
+    const appId = isInstallerMode
+      ? undefined
+      : manual_app_id_from_executable_path(manualPrefixPath, runExecutablePath);
     const result = await (
       window.BTIH_API?.invoke(
         IPC_CHANNELS.BOTTLE.RUN_EXECUTABLE.channelName,
@@ -226,6 +230,7 @@ export function useDirectExecutableRunner({
           dxmtVersionId: bottle.dxmtVersionId,
           dxmtPackagePath,
           launcherOptionsManifest,
+          appId,
           appName: app_name_from_executable_path(runExecutablePath),
           executablePath: runExecutablePath,
           launchOptions,

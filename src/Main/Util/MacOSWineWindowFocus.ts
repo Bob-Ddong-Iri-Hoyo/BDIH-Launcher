@@ -97,6 +97,10 @@ export class MacOSWineWindowFocusManager {
     });
   }
 
+  cancel(prefixPath: string): void {
+    this.generations.delete(path.resolve(prefixPath));
+  }
+
   async focus(request: MacOSWineWindowFocusRequest): Promise<MacOSWineWindowFocusResult> {
     if (this.dependencies.platform !== "darwin") {
       return { status: "unsupported" };

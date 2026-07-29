@@ -329,7 +329,8 @@ export interface RunBottleExecutablePayload {
 }
 
 export interface StopBottleProcessPayload {
-  processId: string;
+  processId?: string;
+  bottleId?: string;
   appId?: string;
 }
 
@@ -338,8 +339,33 @@ export interface StopBottleProcessesPayload {
   bottlePath?: string;
 }
 
+export type BottleExecutionPhase =
+  | "preparing"
+  | "starting"
+  | "running"
+  | "stopping"
+  | "failed";
+
+export interface BottleAppExecutionStatePayload {
+  bottleId: string;
+  bottleName: string;
+  appId: string;
+  appName?: string;
+  targetKey: string;
+  operationId: string;
+  phase: BottleExecutionPhase;
+  revision: number;
+  processId?: string;
+  prefixPath?: string;
+  startedAt?: string;
+  updatedAt: string;
+  error?: string;
+}
+
 export interface BottleExecutionStatePayload {
   isRunning: boolean;
+  revision: number;
+  executions: BottleAppExecutionStatePayload[];
 }
 
 export interface BottleExecutionStateRequestPayload {
@@ -560,7 +586,9 @@ export interface InstalledBottleAppPayload {
   lastPlayed: string;
   lastPlayedKey?: string;
   status: "ready" | "needs-prefix" | "updating";
+  /** @deprecated Transient execution state is owned by Main and is never persisted. */
   processId?: string;
+  /** @deprecated Transient execution state is owned by Main and is never persisted. */
   launchError?: string;
 }
 
@@ -685,6 +713,7 @@ export interface BottleChannelSchema {
   readonly EXECUTION_AVAILABILITY_UPDATE: IpcChannelUnit<BottleExecutionAvailabilityPayload>;
   readonly PROCESS_EXIT: IpcChannelUnit<BottleProcessExitPayload>;
   readonly PREFIX_SESSION_UPDATE: IpcChannelUnit<BottlePrefixSessionPayload>;
+  readonly EXECUTION_STATE_UPDATE: IpcChannelUnit<BottleExecutionStatePayload>;
 }
 
 export interface DxmtChannelSchema {
@@ -908,6 +937,12 @@ export const BOTTLE = {
     method: "on",
     direction: "MAIN_TO_RENDERER",
     payload: {} as BottlePrefixSessionPayload,
+  },
+  EXECUTION_STATE_UPDATE: {
+    channelName: "bottle:execution-state-update",
+    method: "on",
+    direction: "MAIN_TO_RENDERER",
+    payload: {} as BottleExecutionStatePayload,
   },
 } as const;
 

@@ -1,13 +1,17 @@
+#define _DARWIN_C_SOURCE 1
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/event.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -27,6 +31,119 @@ typedef struct {
     size_t count;
     size_t capacity;
 } pid_list;
+
+typedef enum {
+    GUARDIAN_TRIGGER_CLEAN,
+    GUARDIAN_TRIGGER_CONTROL_EOF,
+    GUARDIAN_TRIGGER_OWNER_EXIT,
+    GUARDIAN_TRIGGER_SIGNAL_HUP,
+    GUARDIAN_TRIGGER_SIGNAL_TERM,
+    GUARDIAN_TRIGGER_SIGNAL_INT,
+    GUARDIAN_TRIGGER_MONITOR_ERROR,
+} guardian_trigger;
+
+typedef struct {
+    int queue_fd;
+    bool owner_exited;
+} guardian_monitor;
+
+typedef struct {
+    char line[CONTROL_LINE_CAPACITY];
+    size_t line_length;
+    bool clean_shutdown;
+} control_parser;
+
+typedef struct {
+    size_t detected;
+    size_t forced;
+    size_t remaining;
+    int result;
+} cleanup_result;
+
+static volatile sig_atomic_t termination_signal = 0;
+
+static void record_termination_signal(int signal_number) {
+    if (termination_signal == 0) {
+        termination_signal = signal_number;
+    }
+}
+
+static bool install_termination_signal_handlers(void) {
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = record_termination_signal;
+    sigemptyset(&action.sa_mask);
+
+    return sigaction(SIGHUP, &action, NULL) == 0
+        && sigaction(SIGTERM, &action, NULL) == 0
+        && sigaction(SIGINT, &action, NULL) == 0;
+}
+
+static guardian_trigger trigger_for_signal(int signal_number) {
+    switch (signal_number) {
+        case SIGHUP:
+            return GUARDIAN_TRIGGER_SIGNAL_HUP;
+        case SIGTERM:
+            return GUARDIAN_TRIGGER_SIGNAL_TERM;
+        case SIGINT:
+            return GUARDIAN_TRIGGER_SIGNAL_INT;
+        default:
+            return GUARDIAN_TRIGGER_MONITOR_ERROR;
+    }
+}
+
+static const char *trigger_name(guardian_trigger trigger) {
+    switch (trigger) {
+        case GUARDIAN_TRIGGER_CLEAN:
+            return "clean";
+        case GUARDIAN_TRIGGER_CONTROL_EOF:
+            return "control-eof";
+        case GUARDIAN_TRIGGER_OWNER_EXIT:
+            return "owner-exit";
+        case GUARDIAN_TRIGGER_SIGNAL_HUP:
+            return "signal-hup";
+        case GUARDIAN_TRIGGER_SIGNAL_TERM:
+            return "signal-term";
+        case GUARDIAN_TRIGGER_SIGNAL_INT:
+            return "signal-int";
+        case GUARDIAN_TRIGGER_MONITOR_ERROR:
+            return "monitor-error";
+    }
+
+    return "unknown";
+}
+
+static void write_guardian_event(int event_log_fd, const char *event) {
+    if (event_log_fd < 0) {
+        return;
+    }
+
+    struct timespec timestamp;
+    if (clock_gettime(CLOCK_REALTIME, &timestamp) != 0) {
+        timestamp.tv_sec = 0;
+        timestamp.tv_nsec = 0;
+    }
+    dprintf(
+        event_log_fd,
+        "%lld.%03ld pid=%d %s\n",
+        (long long)timestamp.tv_sec,
+        timestamp.tv_nsec / 1000000L,
+        getpid(),
+        event
+    );
+}
+
+static int open_event_log(const char *event_log_path) {
+    if (event_log_path == NULL || event_log_path[0] == '\0') {
+        return -1;
+    }
+
+    return open(
+        event_log_path,
+        O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW,
+        0600
+    );
+}
 
 static void free_roots(root_list *roots) {
     for (size_t index = 0; index < roots->count; index += 1) {
@@ -305,7 +422,7 @@ static void wait_milliseconds(long milliseconds) {
     }
 }
 
-static int clean_managed_wine_processes(
+static cleanup_result clean_managed_wine_processes(
     const root_list *roots,
     pid_t owner_pid
 ) {
@@ -326,71 +443,181 @@ static int clean_managed_wine_processes(
         remaining.count
     );
 
-    const int result = remaining.count == 0 ? 0 : 2;
+    cleanup_result result = {
+        .detected = detected.count,
+        .forced = forced.count,
+        .remaining = remaining.count,
+        .result = remaining.count == 0 ? 0 : 2,
+    };
     free_pids(&detected);
     free_pids(&forced);
     free_pids(&remaining);
     return result;
 }
 
-static bool read_clean_shutdown_command(void) {
-    char buffer[256];
-    char line[CONTROL_LINE_CAPACITY];
-    size_t line_length = 0;
-    bool clean_shutdown = false;
-
-    while (true) {
-        const ssize_t bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer));
-        if (bytes_read == 0) {
-            break;
+static void parse_control_bytes(
+    control_parser *parser,
+    const char *buffer,
+    ssize_t bytes_read
+) {
+    for (ssize_t index = 0; index < bytes_read; index += 1) {
+        const char character = buffer[index];
+        if (character == '\n') {
+            parser->line[parser->line_length] = '\0';
+            if (strcmp(parser->line, "CLEAN") == 0
+                || strcmp(parser->line, "CLEAN\r") == 0) {
+                parser->clean_shutdown = true;
+            }
+            parser->line_length = 0;
+            continue;
         }
-        if (bytes_read < 0) {
+
+        if (parser->line_length + 1 < sizeof(parser->line)) {
+            parser->line[parser->line_length] = character;
+            parser->line_length += 1;
+        }
+    }
+}
+
+static bool control_parser_has_clean_shutdown(control_parser *parser) {
+    if (parser->line_length > 0) {
+        parser->line[parser->line_length] = '\0';
+        if (strcmp(parser->line, "CLEAN") == 0
+            || strcmp(parser->line, "CLEAN\r") == 0) {
+            parser->clean_shutdown = true;
+        }
+    }
+
+    return parser->clean_shutdown;
+}
+
+static bool initialize_guardian_monitor(
+    pid_t owner_pid,
+    guardian_monitor *monitor
+) {
+    monitor->queue_fd = kqueue();
+    monitor->owner_exited = false;
+    if (monitor->queue_fd < 0) {
+        return false;
+    }
+
+    struct kevent control_change;
+    EV_SET(
+        &control_change,
+        (uintptr_t)STDIN_FILENO,
+        EVFILT_READ,
+        EV_ADD | EV_ENABLE,
+        0,
+        0,
+        NULL
+    );
+    if (kevent(monitor->queue_fd, &control_change, 1, NULL, 0, NULL) != 0) {
+        close(monitor->queue_fd);
+        monitor->queue_fd = -1;
+        return false;
+    }
+
+    struct kevent owner_change;
+    EV_SET(
+        &owner_change,
+        (uintptr_t)owner_pid,
+        EVFILT_PROC,
+        EV_ADD | EV_ENABLE,
+        NOTE_EXIT,
+        0,
+        NULL
+    );
+    if (kevent(monitor->queue_fd, &owner_change, 1, NULL, 0, NULL) != 0) {
+        if (errno == ESRCH) {
+            monitor->owner_exited = true;
+            return true;
+        }
+        close(monitor->queue_fd);
+        monitor->queue_fd = -1;
+        return false;
+    }
+
+    return true;
+}
+
+static guardian_trigger wait_for_shutdown_trigger(
+    guardian_monitor *monitor
+) {
+    if (monitor->owner_exited) {
+        return GUARDIAN_TRIGGER_OWNER_EXIT;
+    }
+
+    control_parser parser = {0};
+    while (true) {
+        if (termination_signal != 0) {
+            return trigger_for_signal(termination_signal);
+        }
+
+        struct kevent event;
+        const int event_count = kevent(
+            monitor->queue_fd,
+            NULL,
+            0,
+            &event,
+            1,
+            NULL
+        );
+        if (event_count < 0) {
             if (errno == EINTR) {
                 continue;
             }
-            break;
+            return GUARDIAN_TRIGGER_MONITOR_ERROR;
+        }
+        if (event_count == 0) {
+            continue;
+        }
+        if ((event.flags & EV_ERROR) != 0) {
+            return GUARDIAN_TRIGGER_MONITOR_ERROR;
+        }
+        if (event.filter == EVFILT_PROC
+            && (event.fflags & NOTE_EXIT) != 0) {
+            return GUARDIAN_TRIGGER_OWNER_EXIT;
+        }
+        if (event.filter != EVFILT_READ
+            || event.ident != (uintptr_t)STDIN_FILENO) {
+            continue;
         }
 
-        for (ssize_t index = 0; index < bytes_read; index += 1) {
-            const char character = buffer[index];
-            if (character == '\n') {
-                line[line_length] = '\0';
-                if (strcmp(line, "CLEAN") == 0 || strcmp(line, "CLEAN\r") == 0) {
-                    clean_shutdown = true;
-                }
-                line_length = 0;
-                continue;
-            }
+        char buffer[256];
+        const ssize_t bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer));
+        if (bytes_read > 0) {
+            parse_control_bytes(&parser, buffer, bytes_read);
+        } else if (bytes_read < 0 && errno != EINTR) {
+            return GUARDIAN_TRIGGER_MONITOR_ERROR;
+        }
 
-            if (line_length + 1 < sizeof(line)) {
-                line[line_length] = character;
-                line_length += 1;
-            }
+        if (bytes_read == 0 || (event.flags & EV_EOF) != 0) {
+            return control_parser_has_clean_shutdown(&parser)
+                ? GUARDIAN_TRIGGER_CLEAN
+                : GUARDIAN_TRIGGER_CONTROL_EOF;
         }
     }
-
-    if (line_length > 0) {
-        line[line_length] = '\0';
-        if (strcmp(line, "CLEAN") == 0 || strcmp(line, "CLEAN\r") == 0) {
-            clean_shutdown = true;
-        }
-    }
-    return clean_shutdown;
 }
 
 static void print_usage(const char *program_name) {
     fprintf(
         stderr,
-        "Usage: %s --owner-pid <pid> --root <path> [--root <path> ...]\n",
+        "Usage: %s --owner-pid <pid> --root <path> [--root <path> ...]"
+        " [--event-log <path>]\n",
         program_name
     );
 }
 
 int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
+    if (!install_termination_signal_handlers()) {
+        fprintf(stderr, "failed to install Guardian signal handlers: %s\n", strerror(errno));
+        return 70;
+    }
 
     root_list roots = {0};
     pid_t owner_pid = 0;
+    char *event_log_path = NULL;
 
     for (int index = 1; index < argc; index += 1) {
         if (strcmp(argv[index], "--owner-pid") == 0 && index + 1 < argc) {
@@ -401,6 +628,7 @@ int main(int argc, char **argv) {
                 || parsed_pid <= 1 || parsed_pid > INT_MAX) {
                 print_usage(argv[0]);
                 free_roots(&roots);
+                free(event_log_path);
                 return 64;
             }
             owner_pid = (pid_t)parsed_pid;
@@ -414,6 +642,7 @@ int main(int argc, char **argv) {
             if (root == NULL || strcmp(root, "/") == 0) {
                 free(root);
                 free_roots(&roots);
+                free(event_log_path);
                 return 64;
             }
             roots.items[roots.count] = root;
@@ -421,23 +650,79 @@ int main(int argc, char **argv) {
             continue;
         }
 
+        if (strcmp(argv[index], "--event-log") == 0 && index + 1 < argc) {
+            free(event_log_path);
+            event_log_path = strdup(argv[++index]);
+            if (event_log_path == NULL) {
+                free_roots(&roots);
+                return 70;
+            }
+            continue;
+        }
+
         print_usage(argv[0]);
         free_roots(&roots);
+        free(event_log_path);
         return 64;
     }
 
     if (owner_pid <= 1 || roots.count == 0) {
         print_usage(argv[0]);
         free_roots(&roots);
+        free(event_log_path);
         return 64;
     }
 
-    dprintf(STDOUT_FILENO, "READY pid=%d roots=%zu\n", getpid(), roots.count);
-    const bool clean_shutdown = read_clean_shutdown_command();
-    const int result = clean_shutdown
-        ? 0
-        : clean_managed_wine_processes(&roots, owner_pid);
+    guardian_monitor monitor;
+    if (!initialize_guardian_monitor(owner_pid, &monitor)) {
+        fprintf(stderr, "failed to initialize Guardian process monitor: %s\n", strerror(errno));
+        free_roots(&roots);
+        free(event_log_path);
+        return 70;
+    }
 
+    const int event_log_fd = open_event_log(event_log_path);
+    if (event_log_path != NULL && event_log_fd < 0) {
+        fprintf(stderr, "failed to open Guardian event log: %s\n", strerror(errno));
+    }
+
+    dprintf(STDOUT_FILENO, "READY pid=%d roots=%zu\n", getpid(), roots.count);
+    char ready_event[128];
+    snprintf(
+        ready_event,
+        sizeof(ready_event),
+        "event=ready ownerPid=%d roots=%zu",
+        owner_pid,
+        roots.count
+    );
+    write_guardian_event(event_log_fd, ready_event);
+
+    const guardian_trigger trigger = wait_for_shutdown_trigger(&monitor);
+    int result = 0;
+    if (trigger == GUARDIAN_TRIGGER_CLEAN) {
+        write_guardian_event(event_log_fd, "event=stop trigger=clean");
+    } else {
+        const cleanup_result cleanup = clean_managed_wine_processes(&roots, owner_pid);
+        char cleanup_event[256];
+        snprintf(
+            cleanup_event,
+            sizeof(cleanup_event),
+            "event=cleanup trigger=%s detected=%zu forced=%zu remaining=%zu result=%d",
+            trigger_name(trigger),
+            cleanup.detected,
+            cleanup.forced,
+            cleanup.remaining,
+            cleanup.result
+        );
+        write_guardian_event(event_log_fd, cleanup_event);
+        result = cleanup.result;
+    }
+
+    close(monitor.queue_fd);
+    if (event_log_fd >= 0) {
+        close(event_log_fd);
+    }
     free_roots(&roots);
+    free(event_log_path);
     return result;
 }

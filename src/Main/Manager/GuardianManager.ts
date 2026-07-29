@@ -30,10 +30,10 @@ type SpawnGuardian = typeof spawn;
 /**
  * Owns the native crash Guardian outside ProcessManager's lifecycle.
  *
- * The Guardian blocks on its stdin pipe. A normal BDIH shutdown writes CLEAN
- * after Wine cleanup and closes the pipe. A crash or SIGKILL closes the pipe
- * without CLEAN, so the native process removes Wine processes using the
- * managed data roots before it exits.
+ * The Guardian runs in a separate process group and watches both its private
+ * stdin pipe and the Electron Main PID. A normal BDIH shutdown writes CLEAN
+ * after Wine cleanup. A crash, owner exit, or termination signal makes the
+ * native process remove Wine processes under the managed roots before it exits.
  */
 export class GuardianManager {
   private readonly logger = logManager.createLogger("GuardianManager");
@@ -143,10 +143,15 @@ export class GuardianManager {
         "--owner-pid",
         String(process.pid),
         ...roots.flatMap((root) => ["--root", root]),
+        "--event-log",
+        path.join(logManager.getSessionDir(), "guardian.log"),
       ],
       {
         cwd: path.dirname(this.executablePath),
-        detached: false,
+        // Keep the Guardian outside the launcher's terminal/process group.
+        // VS Code and shell task teardown may signal that whole group; the
+        // Guardian must survive long enough to observe Main's pipe/PID exit.
+        detached: true,
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
       },

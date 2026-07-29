@@ -32,21 +32,43 @@ export function bottle_name_to_slug(name: string): string {
     .replace(/(^-|-$)/g, "") || "bottle";
 }
 
-export function create_bottle_path_from_name(rootPath: string, name: string): string {
-  const slug = bottle_name_to_slug(name);
-  const trimmedRoot = rootPath.trim().replace(/\/+$/, "") || DEFAULT_BOTTLE_PREFIX_ROOT;
-  const root = trimmedRoot.split("/").pop()?.toLowerCase() === slug
-    ? trimmedRoot.split("/").slice(0, -1).join("/") || trimmedRoot
-    : trimmedRoot;
+export function bottle_storage_hash(bottleId: string): string {
+  let hash = 0x811c9dc5;
 
-  return `${root}/${slug}`;
+  for (let index = 0; index < bottleId.length; index += 1) {
+    hash ^= bottleId.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return (hash >>> 0).toString(36).padStart(5, "0").slice(-5);
+}
+
+export function create_bottle_storage_path(rootPath: string, name: string, bottleId: string): string {
+  const slug = bottle_name_to_slug(name);
+  const root = normalize_bottle_prefix_root(rootPath, name);
+
+  return `${root}/${slug}-${bottle_storage_hash(bottleId)}`;
+}
+
+export function create_bottle_storage_path_preview(rootPath: string, name: string): string {
+  const slug = bottle_name_to_slug(name);
+  const root = normalize_bottle_prefix_root(rootPath, name);
+
+  return `${root}/${slug}-xxxxx`;
 }
 
 export function normalize_bottle_prefix_root(rootPath: string, name: string): string {
   const slug = bottle_name_to_slug(name);
   const trimmedRoot = rootPath.trim().replace(/\/+$/, "") || DEFAULT_BOTTLE_PREFIX_ROOT;
+  const lastPathPart = trimmedRoot.split("/").pop()?.toLowerCase() ?? "";
 
-  if (trimmedRoot.split("/").pop()?.toLowerCase() === slug) {
+  if (
+    lastPathPart === slug
+    || (
+      lastPathPart.startsWith(`${slug}-`)
+      && /^[a-z0-9]{5}$/.test(lastPathPart.slice(slug.length + 1))
+    )
+  ) {
     return trimmedRoot.split("/").slice(0, -1).join("/") || trimmedRoot;
   }
 

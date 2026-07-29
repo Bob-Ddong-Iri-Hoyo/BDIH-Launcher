@@ -1,4 +1,4 @@
-import { WebContents } from "electron";
+import { BrowserWindow, WebContents } from "electron";
 import { spawn } from "child_process";
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { request as httpsRequest } from "https";
@@ -8,9 +8,11 @@ import { HOYOPLAY_WINDOWS_INSTALLER_URL, STEAM_WEBHELPER_ARGUMENTS, STEAM_WINDOW
 import {
   ApplyBottleRecipePayload,
   BottleExecutionAvailabilityPayload,
+  BottleExecutionStatePayload,
   BottleLaunchOptionsPayload,
   BottleLauncherKind,
   BottlePrefixSessionPayload,
+  BottleProcessExitPayload,
   BottleTaskResultPayload,
   BottleTaskStatusPayload,
   DownloadBottleLauncherInstallerPayload,
@@ -67,6 +69,10 @@ import {
   type HoyoPlayUpdateObservation,
   type HoyoPlayUpdateRecoveryCandidate,
 } from "./HoyoPlayUpdateTracker";
+import {
+  HoyoPlayExitFallbackTracker,
+  type HoyoPlayExitFallbackDecision,
+} from "./HoyoPlayExitFallbackTracker";
 import { bottleManager } from "./BottleManager";
 import { get_hoyo_game_profile, type HoyoGameProfile } from "../Data/Hoyoverse/HoyoGameProfile";
 import { get_launcher_runtime_profile } from "../Data/GameProfile";
@@ -97,6 +103,11 @@ import {
   is_prefix_dxmt_runtime_ready,
   prepare_prefix_dxmt_runtime_files,
 } from "../Execution/DxmtPrefixRuntime";
+import { ExecutionLaunchCoordinator } from "../Execution/ExecutionLaunchCoordinator";
+import {
+  BottleExecutionStateRegistry,
+  bottle_execution_target_key,
+} from "../Execution/BottleExecutionStateRegistry";
 import {
   assert_launcher_install_plan_matches_request,
   create_launcher_install_plan_context,
@@ -113,6 +124,7 @@ const HOYOPLAY_FOREGROUND_TIMEOUT_MS = 120_000;
 const LAUNCHER_EXECUTABLE_STABLE_MS = 2000;
 const LAUNCHER_EXECUTABLE_POST_INSTALLER_EXIT_GRACE_MS = 30_000;
 const PREFIX_SESSION_WATCH_DELAY_MS = 500;
+const PREFIX_SESSION_TERMINAL_EVENT_GRACE_MS = 100;
 const WINE_PROCESS_TELEMETRY_STARTUP_FALLBACK_MS = 10_000;
 const STEAM_GAME_PROCESS_LOG_POLL_MS = 750;
 const HOYOPLAY_UPDATE_RECOVERY_GRACE_MS = 7_500;
@@ -120,6 +132,7 @@ const HOYOPLAY_UPDATE_RECOVERY_MAX_WAIT_MS = 30_000;
 const HOYOPLAY_UPDATE_RECOVERY_RECHECK_MS = 2_500;
 const HOYOPLAY_UPDATE_RECOVERY_PROCESS_EXIT_WAIT_MS = 3_000;
 const HOYOPLAY_UPDATE_RECOVERY_VERIFY_MS = 15_000;
+const HOYOPLAY_EXIT_FALLBACK_GRACE_MS = 5_000;
 const HOYO_STEAM_STUB_WIN_PATH = "C:\\windows\\system32\\steam.exe";
 const HOYO_PROXY_TEST_ENV = "BDIH_HOYO_PROXY_TEST";
 const HOYO_PROXY_TEST_EXE_ENV = "BDIH_HOYO_PROXY_TEST_EXE";
@@ -161,6 +174,10 @@ interface PrefixSession {
   hoyoPlayUpdateRecoveryTimer?: NodeJS.Timeout;
   hoyoPlayUpdateRecoveryDeadline?: number;
   hoyoPlayUpdateVerificationTimer?: NodeJS.Timeout;
+  hoyoPlayExitFallbackTracker?: HoyoPlayExitFallbackTracker;
+  hoyoPlayExitFallbackTimer?: NodeJS.Timeout;
+  terminalError?: string;
+  terminalFinishTimer?: NodeJS.Timeout;
   ended: boolean;
 }
 
@@ -211,6 +228,11 @@ export class BottleExecutionManager {
   }>();
   private readonly prefixSessionsByPrefixPath = new Map<string, PrefixSession>();
   private readonly prefixSessionsByProcessId = new Map<string, PrefixSession>();
+  private readonly executionLaunches = new ExecutionLaunchCoordinator<RunBottleExecutableResultPayload>();
+  private readonly executionStates = new BottleExecutionStateRegistry(
+    (snapshot) => this.broadcastExecutionState(snapshot),
+  );
+  private readonly stoppingWinePrefixes = new Map<string, number>();
 
   async setupPrefix(
     request: SetupBottlePrefixPayload & { launcher?: BottleLauncherKind },
@@ -743,7 +765,114 @@ export class BottleExecutionManager {
     }
   }
 
-  async runExecutable(
+  runExecutable(
+    request: RunBottleExecutablePayload,
+    sender?: WebContents,
+  ): Promise<RunBottleExecutableResultPayload> {
+    const executablePath = request.executablePath.trim();
+    const appName = request.appName?.trim() || app_name_from_executable_path(executablePath);
+    const hoyoGame = request.executionMode === "installer"
+      ? undefined
+      : hoyo_game_from_run_request(request, appName, executablePath);
+    const isHoyoPlayLaunch = request.executionMode !== "installer"
+      && !hoyoGame
+      && should_use_hoyo_overseer_launch(request, executablePath);
+
+    if (request.executionMode === "installer" || !request.appId) {
+      return this.runExecutableUncoordinated(request, sender);
+    }
+
+    const prefixPath = isHoyoPlayLaunch
+      ? prefix_session_key(create_launcher_prefix_path(
+          infer_hoyo_bottle_root_path(expand_user_home_path(request.bottlePath)),
+          "hoyoplay",
+        ))
+      : prefix_session_key(expand_user_home_path(request.bottlePath));
+    const targetKey = bottle_execution_target_key(
+      request.bottleId,
+      request.appId,
+      prefixPath,
+    );
+    let existingState: "running" | "stopping" | undefined;
+    const coordinated = this.executionLaunches.coordinate(
+      targetKey,
+      () => {
+        if (this.isWinePrefixStopping(prefixPath)) {
+          existingState = "stopping";
+          return {
+            ok: false,
+            error: `${appName} is still stopping. Please retry after shutdown completes.`,
+          };
+        }
+
+        const state = this.executionStates.find(request.bottleId, request.appId!);
+
+        if (state?.phase === "stopping") {
+          existingState = "stopping";
+          return {
+            ok: false,
+            error: `${appName} is still stopping. Please retry after shutdown completes.`,
+          };
+        }
+
+        if (state?.phase === "running" && state.processId) {
+          existingState = "running";
+          return {
+            ok: true,
+            processId: state.processId,
+          };
+        }
+
+        return undefined;
+      },
+      async () => {
+        const operation = this.executionStates.beginLaunch({
+          bottleId: request.bottleId,
+          bottleName: request.bottleName,
+          appId: request.appId!,
+          appName,
+          prefixPath,
+          targetKey,
+        });
+        this.executionStates.markStarting(operation);
+
+        try {
+          const result = await this.runExecutableUncoordinated(request, sender);
+
+          if (result.ok && result.processId) {
+            this.executionStates.markRunning(operation, result.processId, prefixPath);
+          } else {
+            this.executionStates.markFailed(
+              operation,
+              result.error ?? `Failed to start ${appName}.`,
+            );
+          }
+
+          return result;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.executionStates.markFailed(operation, message);
+          throw error;
+        }
+      },
+    );
+
+    if (coordinated.disposition !== "started") {
+      this.logger.info("Bottle application duplicate launch request coalesced", {
+        bottleId: request.bottleId,
+        bottleName: request.bottleName,
+        prefixPath,
+        targetId: request.appId,
+        executionClass: "application",
+        state: coordinated.disposition === "joined" ? "launching" : existingState,
+        disposition: coordinated.disposition,
+      });
+    }
+
+    return coordinated.result;
+  }
+
+  private async runExecutableUncoordinated(
     request: RunBottleExecutablePayload,
     sender?: WebContents,
   ): Promise<RunBottleExecutableResultPayload> {
@@ -1021,7 +1150,7 @@ export class BottleExecutionManager {
             appLogger.info("bottle app executable exited", { processId, code });
           }
 
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
+          this.sendProcessExit(sender, exitPayload);
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
@@ -1029,7 +1158,7 @@ export class BottleExecutionManager {
             discordPresenceManager.clearActivity(processId);
           }
           appLogger.error("bottle app executable failed", { processId, error: message });
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
+          this.sendProcessExit(sender, { processId, error: message });
         },
       );
       if (!prefixSessionProcessId) {
@@ -1276,12 +1405,13 @@ export class BottleExecutionManager {
 
           if (exitError) {
             appLogger.warn("HoYoPlay overseer exited with error", { processId, code });
+            this.recordPrefixSessionTerminalError(prefixSessionProcessId, exitError);
           } else {
             appLogger.info("HoYoPlay overseer exited", { processId, code });
           }
 
           if (exitError) {
-            send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
+            this.sendProcessExit(sender, {
               processId: prefixSessionProcessId || processId,
               code,
               error: exitError,
@@ -1293,7 +1423,8 @@ export class BottleExecutionManager {
             processId,
             error: error.message,
           });
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
+          this.recordPrefixSessionTerminalError(prefixSessionProcessId, error.message);
+          this.sendProcessExit(sender, {
             processId: prefixSessionProcessId || processId,
             error: error.message,
           });
@@ -1484,7 +1615,7 @@ export class BottleExecutionManager {
     }
 
     if (!result.ok) {
-      send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, {
+      this.sendProcessExit(sender, {
         processId: `overseer-event:${context.request.bottleId}:${event.game}:${Date.now().toString(36)}`,
         error: result.error ?? `${appName} launch failed.`,
       });
@@ -1745,12 +1876,12 @@ export class BottleExecutionManager {
             appLogger.info("HoYo ZZZ executable exited", { processId, code });
           }
 
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
+          this.sendProcessExit(sender, exitPayload);
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
           appLogger.error("HoYo ZZZ executable failed", { processId, error: message });
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
+          this.sendProcessExit(sender, { processId, error: message });
         },
       );
       appLogger.info("HoYo ZZZ executable started with Steam stub route", {
@@ -2093,12 +2224,12 @@ export class BottleExecutionManager {
             appLogger.info("HoYo Star Rail executable exited", { processId, code });
           }
 
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
+          this.sendProcessExit(sender, exitPayload);
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
           appLogger.error("HoYo Star Rail executable failed", { processId, error: message });
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
+          this.sendProcessExit(sender, { processId, error: message });
         },
       );
       appLogger.info("HoYo Star Rail executable started with Jadeite", {
@@ -2399,12 +2530,12 @@ export class BottleExecutionManager {
             appLogger.info("HoYo Genshin executable exited", { processId, code });
           }
 
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, exitPayload);
+          this.sendProcessExit(sender, exitPayload);
         },
         (error) => {
           const message = error instanceof Error ? error.message : String(error);
           appLogger.error("HoYo Genshin executable failed", { processId, error: message });
-          send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, { processId, error: message });
+          this.sendProcessExit(sender, { processId, error: message });
         },
       );
       appLogger.info("HoYo Genshin executable started", {
@@ -2949,6 +3080,9 @@ export class BottleExecutionManager {
   }
 
   async stopAllWineProcesses(): Promise<void> {
+    this.executionStates.markAllStopping();
+
+    try {
     // App shutdown uses this broad cleanup path. ProcessManager stops child
     // processes first, then wineserver is asked to terminate each tracked prefix.
     const sessions = [...this.prefixSessionsByPrefixPath.values()].filter((session) => !session.ended);
@@ -2970,6 +3104,7 @@ export class BottleExecutionManager {
       await processManager.stopAll();
       await this.stopDetachedManagedWineProcesses();
       discordPresenceManager.clearAllActivities();
+      this.executionStates.finishAll();
       return;
     }
 
@@ -2996,6 +3131,13 @@ export class BottleExecutionManager {
     this.activeWinePrefixes.clear();
     await this.stopDetachedManagedWineProcesses();
     discordPresenceManager.clearAllActivities();
+    this.executionStates.finishAll();
+    } catch (error) {
+      this.executionStates.cancelAllStopping(
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
   }
 
   async refreshSharedGamesDriveMappings(
@@ -3040,6 +3182,19 @@ export class BottleExecutionManager {
 
   hasActiveWineProcesses(): boolean {
     return this.activeWinePrefixes.size > 0 || processManager.listRunningProcessIds().length > 0;
+  }
+
+  getExecutionState(bottleId?: string): BottleExecutionStatePayload {
+    const snapshot = this.executionStates.snapshot(bottleId);
+
+    return {
+      ...snapshot,
+      isRunning: snapshot.isRunning || (
+        bottleId
+          ? this.hasActiveWineProcessesForBottle(bottleId)
+          : this.hasActiveWineProcesses()
+      ),
+    };
   }
 
   async hasManagedWineProcesses(): Promise<boolean> {
@@ -3104,6 +3259,9 @@ export class BottleExecutionManager {
   }
 
   async stopBottleWineProcesses(bottleId: string, bottlePath?: string): Promise<void> {
+    this.executionStates.markBottleStopping(bottleId);
+
+    try {
     const sessions = [...this.prefixSessionsByPrefixPath.values()].filter((session) =>
       !session.ended && session.bottleId === bottleId,
     );
@@ -3122,6 +3280,7 @@ export class BottleExecutionManager {
     }
 
     if (prefixContexts.size === 0 && sessions.length === 0 && !bottlePath) {
+      this.executionStates.finishBottle(bottleId);
       return;
     }
 
@@ -3154,28 +3313,108 @@ export class BottleExecutionManager {
         throw new Error(`Wine processes still use this Bottle: ${cleanup.remainingPids.join(", ")}`);
       }
     }
+    this.executionStates.finishBottle(bottleId);
+    } catch (error) {
+      this.executionStates.cancelBottleStopping(
+        bottleId,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
   }
 
-  async stopProcess(processId: string, appId?: string): Promise<void> {
-    const prefixSession = this.prefixSessionsByProcessId.get(processId);
+  async stopProcess(processId?: string, appId?: string, bottleId?: string): Promise<void> {
+    const authoritativeProcessId = processId
+      ?? (bottleId && appId
+        ? this.executionStates.find(bottleId, appId)?.processId
+        : undefined);
+    this.executionStates.markStopping({
+      processId: authoritativeProcessId,
+      bottleId,
+      appId,
+    });
 
-    if (prefixSession) {
-      if (
-        prefixSession.launcher === "steam"
-        && appId?.startsWith("steam:")
-        && prefixSession.steamLauncherOwnerAppId !== appId
-      ) {
-        await this.stopSteamGameProcess(prefixSession, appId);
+    try {
+      const exactPrefixSession = authoritativeProcessId
+        ? this.prefixSessionsByProcessId.get(authoritativeProcessId)
+        : undefined;
+      const fallbackPrefixSession = exactPrefixSession
+        ? undefined
+        : this.findActivePrefixSession(bottleId, appId);
+      const prefixSession = exactPrefixSession ?? fallbackPrefixSession;
+
+      if (prefixSession) {
+        if (fallbackPrefixSession) {
+          this.logger.info("resolved stale or missing process ID to active Prefix session", {
+            requestedProcessId: processId,
+            processId: prefixSession.processId,
+            bottleId: prefixSession.bottleId,
+            prefixPath: prefixSession.prefixPath,
+            launcher: prefixSession.launcher,
+            appId,
+          });
+        }
+
+        if (
+          prefixSession.launcher === "steam"
+          && appId?.startsWith("steam:")
+          && prefixSession.steamLauncherOwnerAppId !== appId
+        ) {
+          await this.stopSteamGameProcess(prefixSession, appId);
+          this.executionStates.finishTarget(prefixSession.bottleId, appId);
+          return;
+        }
+
+        await this.stopWinePrefix(prefixSession.prefixPath, prefixSession.wineRuntimePath);
+        await prefixSession.waiter?.Stop().catch(() => undefined);
+        this.finishPrefixSession(prefixSession);
         return;
       }
 
-      await this.stopWinePrefix(prefixSession.prefixPath, prefixSession.wineRuntimePath);
-      await prefixSession.waiter?.Stop().catch(() => undefined);
-      this.finishPrefixSession(prefixSession);
-      return;
+      if (authoritativeProcessId) {
+        await processManager.stopProcess(authoritativeProcessId);
+        this.executionStates.finishProcess(authoritativeProcessId);
+      } else if (bottleId && appId) {
+        this.executionStates.finishTarget(bottleId, appId);
+      }
+    } catch (error) {
+      this.executionStates.cancelStopping(
+        {
+          processId: authoritativeProcessId,
+          bottleId,
+          appId,
+        },
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
+  }
+
+  private findActivePrefixSession(
+    bottleId?: string,
+    appId?: string,
+  ): PrefixSession | undefined {
+    if (!bottleId || !appId) {
+      return undefined;
     }
 
-    await processManager.stopProcess(processId);
+    const matches = [...this.prefixSessionsByPrefixPath.values()].filter((session) =>
+      !session.ended
+      && session.bottleId === bottleId
+      && (
+        session.appId === appId
+        || session.appIds?.has(appId)
+        || (appId === "hoyoplay" && session.launcher === "hoyoplay")
+      ),
+    );
+
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple active Prefix sessions match Bottle ${bottleId} application ${appId}.`,
+      );
+    }
+
+    return matches[0];
   }
 
   private trackWinePrefix(request: Pick<SetupBottlePrefixPayload, "bottleId" | "bottlePath" | "bottleName" | "wineRuntimePath">): void {
@@ -3189,47 +3428,121 @@ export class BottleExecutionManager {
   }
 
   private async stopWinePrefix(bottlePath: string, wineRuntimePath?: string): Promise<void> {
-    await new Promise<void>((resolve) => {
+    const prefixPath = prefix_session_key(bottlePath);
+    this.markWinePrefixStopping(prefixPath);
+
+    try {
       const command = resolve_wine_tool(wineRuntimePath, "wineserver");
-      const killer = spawn(command, ["-k"], {
-        cwd: bottlePath,
-        env: {
-          ...process.env,
-          WINEPREFIX: bottlePath,
-        },
-        shell: false,
-        detached: false,
-        windowsHide: true,
-        stdio: "ignore",
+      this.logger.info("stopping Wine prefix", {
+        bottlePath: prefixPath,
+        wineRuntimePath,
       });
-      const timeout = setTimeout(() => {
-        killer.kill("SIGKILL");
-        resolve();
-      }, 1500);
-
-      killer.on("close", () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-      killer.on("error", (error) => {
-        clearTimeout(timeout);
-        this.logger.warn("failed to stop Wine prefix", {
-          bottlePath,
-          error: error instanceof Error ? error.message : String(error),
+      const wineserverResult = await new Promise<{
+        code: number | null;
+        signal: NodeJS.Signals | null;
+        timedOut: boolean;
+        error?: string;
+      }>((resolve) => {
+        let settled = false;
+        let timedOut = false;
+        const killer = spawn(command, ["-k"], {
+          cwd: prefixPath,
+          env: {
+            ...process.env,
+            WINEPREFIX: prefixPath,
+          },
+          shell: false,
+          detached: false,
+          windowsHide: true,
+          stdio: "ignore",
         });
-        resolve();
-      });
-    });
+        const finish = (
+          code: number | null,
+          signal: NodeJS.Signals | null,
+          error?: string,
+        ) => {
+          if (settled) {
+            return;
+          }
 
-    const cleanup = await terminate_managed_wine_processes([bottlePath]);
-    if (cleanup.detectedPids.length > 0) {
-      this.logger.warn("terminated detached Wine processes after wineserver shutdown", {
-        bottlePath,
+          settled = true;
+          clearTimeout(timeout);
+          resolve({ code, signal, timedOut, error });
+        };
+        const timeout = setTimeout(() => {
+          timedOut = true;
+          killer.kill("SIGKILL");
+          finish(null, "SIGKILL");
+        }, 1500);
+
+        killer.once("close", (code, signal) => finish(code, signal));
+        killer.once("error", (error) => {
+          finish(null, null, error instanceof Error ? error.message : String(error));
+        });
+      });
+
+      if (
+        wineserverResult.error
+        || wineserverResult.timedOut
+        || wineserverResult.code !== 0
+      ) {
+        this.logger.warn("wineserver shutdown did not complete cleanly", {
+          bottlePath: prefixPath,
+          ...wineserverResult,
+        });
+      } else {
+        this.logger.info("wineserver shutdown command completed", {
+          bottlePath: prefixPath,
+          ...wineserverResult,
+        });
+      }
+
+      const cleanup = await terminate_managed_wine_processes([prefixPath]);
+      const cleanupContext = {
+        bottlePath: prefixPath,
         detectedPids: cleanup.detectedPids,
         terminatedPids: cleanup.terminatedPids,
         remainingPids: cleanup.remainingPids,
-      });
+      };
+
+      if (cleanup.remainingPids.length > 0) {
+        this.logger.error("Wine prefix shutdown left managed processes alive", cleanupContext);
+        throw new Error(
+          `Wine processes still use this Prefix: ${cleanup.remainingPids.join(", ")}`,
+        );
+      }
+
+      if (cleanup.detectedPids.length > 0) {
+        this.logger.warn(
+          "terminated detached Wine processes after wineserver shutdown",
+          cleanupContext,
+        );
+      } else {
+        this.logger.info("Wine prefix shutdown verified", cleanupContext);
+      }
+    } finally {
+      this.unmarkWinePrefixStopping(prefixPath);
     }
+  }
+
+  private markWinePrefixStopping(prefixPath: string): void {
+    const key = prefix_session_key(prefixPath);
+    this.stoppingWinePrefixes.set(key, (this.stoppingWinePrefixes.get(key) ?? 0) + 1);
+  }
+
+  private unmarkWinePrefixStopping(prefixPath: string): void {
+    const key = prefix_session_key(prefixPath);
+    const remaining = (this.stoppingWinePrefixes.get(key) ?? 1) - 1;
+
+    if (remaining > 0) {
+      this.stoppingWinePrefixes.set(key, remaining);
+    } else {
+      this.stoppingWinePrefixes.delete(key);
+    }
+  }
+
+  private isWinePrefixStopping(prefixPath: string): boolean {
+    return (this.stoppingWinePrefixes.get(prefix_session_key(prefixPath)) ?? 0) > 0;
   }
 
   private async stopDetachedManagedWineProcesses(): Promise<void> {
@@ -3292,6 +3605,23 @@ export class BottleExecutionManager {
         existingSession.hoyoPlayUpdateRecovery = context.hoyoPlayUpdateRecovery;
         existingSession.hoyoPlayUpdateTracker = existingSession.hoyoPlayUpdateTracker
           ?? new HoyoPlayUpdateTracker();
+        existingSession.hoyoPlayExitFallbackTracker = existingSession.hoyoPlayExitFallbackTracker
+          ?? new HoyoPlayExitFallbackTracker();
+        const snapshot = wineProcessMonitor.snapshot(prefixPath);
+
+        if (snapshot.telemetryReceived) {
+          this.applyHoyoPlayUpdateObservations(
+            existingSession,
+            existingSession.hoyoPlayUpdateTracker.observeSnapshot(snapshot),
+          );
+          this.applyHoyoPlayExitFallbackDecision(
+            existingSession,
+            existingSession.hoyoPlayExitFallbackTracker.observeSnapshot(
+              snapshot,
+              existingSession.hoyoPlayUpdateTracker.hasActiveAttempt(),
+            ),
+          );
+        }
       }
       if (context.steamGameProcessLogPath) {
         this.startSteamGameProcessWatcher(existingSession, context.steamGameProcessLogPath);
@@ -3330,6 +3660,9 @@ export class BottleExecutionManager {
         : undefined,
       hoyoPlayUpdateTracker: context.hoyoPlayUpdateRecovery
         ? new HoyoPlayUpdateTracker()
+        : undefined,
+      hoyoPlayExitFallbackTracker: context.hoyoPlayUpdateRecovery
+        ? new HoyoPlayExitFallbackTracker()
         : undefined,
       hoyoPlayUpdateRecovery: context.hoyoPlayUpdateRecovery,
       ended: false,
@@ -3414,34 +3747,51 @@ export class BottleExecutionManager {
     }
 
     if (event.type === "server_stop") {
-      this.finishPrefixSession(session);
+      // The host process close callback can arrive a few milliseconds after
+      // Wine telemetry reports server_stop. Keep the session briefly so a
+      // non-zero bootstrap exit can be attached to the terminal UI event.
+      if (!session.terminalFinishTimer) {
+        session.terminalFinishTimer = setTimeout(() => {
+          session.terminalFinishTimer = undefined;
+          this.finishPrefixSession(session, session.terminalError);
+        }, PREFIX_SESSION_TERMINAL_EVENT_GRACE_MS);
+        session.terminalFinishTimer.unref?.();
+      }
       return;
     }
 
     this.activateWineProcessTelemetry(session, snapshot);
-    if (event.type !== "server_start") {
-      hoyoPlayProxyManager.observeLauncherProcess(session.prefixPath, event);
-      hoyoPlayProxyManager.observeGameProcess(session.prefixPath, event);
-    }
+    const processEvent = "winePid" in event ? event : undefined;
 
-    if (
-      session.hoyoPlayUpdateTracker
-      && event.type !== "server_start"
-    ) {
-      this.applyHoyoPlayUpdateObservations(
+    if (processEvent) {
+      hoyoPlayProxyManager.observeLauncherProcess(session.prefixPath, processEvent);
+      hoyoPlayProxyManager.observeGameProcess(session.prefixPath, processEvent);
+      if (session.hoyoPlayUpdateTracker) {
+        this.applyHoyoPlayUpdateObservations(
+          session,
+          session.hoyoPlayUpdateTracker.observe(processEvent, snapshot),
+        );
+      }
+    }
+    if (session.hoyoPlayExitFallbackTracker) {
+      this.applyHoyoPlayExitFallbackDecision(
         session,
-        session.hoyoPlayUpdateTracker.observe(event, snapshot),
+        session.hoyoPlayExitFallbackTracker.observe(
+          event,
+          snapshot,
+          session.hoyoPlayUpdateTracker?.hasActiveAttempt() ?? false,
+        ),
       );
     }
 
     if (
       session.launcher === "steam"
-      && event.type !== "server_start"
+      && processEvent
     ) {
-      if (event.type === "start") {
-        this.trackSteamGameFromWineProcess(session, event);
-      } else if (event.type === "exit") {
-        this.untrackSteamGameFromWineProcess(session, event.winePid);
+      if (processEvent.type === "start") {
+        this.trackSteamGameFromWineProcess(session, processEvent);
+      } else if (processEvent.type === "exit") {
+        this.untrackSteamGameFromWineProcess(session, processEvent.winePid);
       }
     }
   }
@@ -3469,6 +3819,15 @@ export class BottleExecutionManager {
         this.applyHoyoPlayUpdateObservations(
           session,
           session.hoyoPlayUpdateTracker.observeSnapshot(snapshot),
+        );
+      }
+      if (session.hoyoPlayExitFallbackTracker) {
+        this.applyHoyoPlayExitFallbackDecision(
+          session,
+          session.hoyoPlayExitFallbackTracker.observeSnapshot(
+            snapshot,
+            session.hoyoPlayUpdateTracker?.hasActiveAttempt() ?? false,
+          ),
         );
       }
       if (session.launcher === "steam") {
@@ -3546,6 +3905,101 @@ export class BottleExecutionManager {
           break;
       }
     }
+  }
+
+  private applyHoyoPlayExitFallbackDecision(
+    session: PrefixSession,
+    decision: HoyoPlayExitFallbackDecision,
+  ): void {
+    if (decision === "cancel") {
+      this.clearHoyoPlayExitFallbackTimer(session);
+      return;
+    }
+    if (
+      decision !== "schedule"
+      || session.ended
+      || session.hoyoPlayExitFallbackTimer
+      || this.isWinePrefixStopping(session.prefixPath)
+    ) {
+      return;
+    }
+
+    const snapshot = wineProcessMonitor.snapshot(session.prefixPath);
+    const hypWinePids = snapshot.processes
+      .filter((process) => wine_process_executable_name(process.imagePath) === "hyp.exe")
+      .map((process) => process.winePid);
+
+    this.logger.info("HoYoPlay UI helpers exited while HYP remained; waiting for graceful shutdown", {
+      bottleId: session.bottleId,
+      prefixPath: session.prefixPath,
+      processId: session.processId,
+      hypWinePids,
+      graceMs: HOYOPLAY_EXIT_FALLBACK_GRACE_MS,
+    });
+    session.hoyoPlayExitFallbackTimer = setTimeout(() => {
+      session.hoyoPlayExitFallbackTimer = undefined;
+      void this.stopStaleHoyoPlayAfterUiExit(session);
+    }, HOYOPLAY_EXIT_FALLBACK_GRACE_MS);
+    session.hoyoPlayExitFallbackTimer.unref?.();
+  }
+
+  private async stopStaleHoyoPlayAfterUiExit(session: PrefixSession): Promise<void> {
+    const tracker = session.hoyoPlayExitFallbackTracker;
+
+    if (!tracker || session.ended || this.isWinePrefixStopping(session.prefixPath)) {
+      return;
+    }
+
+    const snapshot = wineProcessMonitor.snapshot(session.prefixPath);
+    const updateInProgress = session.hoyoPlayUpdateTracker?.hasActiveAttempt() ?? false;
+
+    this.applyHoyoPlayExitFallbackDecision(
+      session,
+      tracker.observeSnapshot(snapshot, updateInProgress),
+    );
+    if (!tracker.shouldStop(snapshot, updateInProgress)) {
+      return;
+    }
+
+    const hypProcesses = snapshot.processes
+      .filter((process) => wine_process_executable_name(process.imagePath) === "hyp.exe")
+      .map((process) => ({
+        winePid: process.winePid,
+        unixPid: process.unixPid,
+        imagePath: process.imagePath,
+      }));
+
+    this.logger.warn("HoYoPlay did not exit after its UI helpers stopped; terminating launcher Prefix", {
+      bottleId: session.bottleId,
+      prefixPath: session.prefixPath,
+      processId: session.processId,
+      hypProcesses,
+      graceMs: HOYOPLAY_EXIT_FALLBACK_GRACE_MS,
+    });
+
+    try {
+      await this.stopProcess(
+        session.processId,
+        session.appId ?? "hoyoplay",
+        session.bottleId,
+      );
+    } catch (error) {
+      this.logger.error("HoYoPlay launcher Prefix fallback shutdown failed", {
+        bottleId: session.bottleId,
+        prefixPath: session.prefixPath,
+        processId: session.processId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private clearHoyoPlayExitFallbackTimer(session: PrefixSession): void {
+    if (!session.hoyoPlayExitFallbackTimer) {
+      return;
+    }
+
+    clearTimeout(session.hoyoPlayExitFallbackTimer);
+    session.hoyoPlayExitFallbackTimer = undefined;
   }
 
   private scheduleHoyoPlayUpdateRecovery(session: PrefixSession): void {
@@ -4189,16 +4643,22 @@ export class BottleExecutionManager {
     }
 
     session.ended = true;
+    if (session.terminalFinishTimer) {
+      clearTimeout(session.terminalFinishTimer);
+      session.terminalFinishTimer = undefined;
+    }
     if (session.wineProcessTelemetryFallbackTimer) {
       clearTimeout(session.wineProcessTelemetryFallbackTimer);
       session.wineProcessTelemetryFallbackTimer = undefined;
     }
     this.clearHoyoPlayUpdateRecoveryTimer(session);
+    this.clearHoyoPlayExitFallbackTimer(session);
     if (session.hoyoPlayUpdateVerificationTimer) {
       clearTimeout(session.hoyoPlayUpdateVerificationTimer);
       session.hoyoPlayUpdateVerificationTimer = undefined;
     }
     session.hoyoPlayUpdateTracker?.reset();
+    session.hoyoPlayExitFallbackTracker?.reset();
     hoyoPlayProxyManager.finishGameSession(session.processId);
     hoyoPlayProxyManager.finishLauncherPrefix(session.prefixPath);
     session.wineProcessUnsubscribe?.();
@@ -4220,6 +4680,7 @@ export class BottleExecutionManager {
     this.prefixSessionsByProcessId.delete(session.processId);
     this.activeWinePrefixes.delete(session.prefixPath);
     wineProcessMonitor.close(session.prefixPath);
+    macOSWineWindowFocusManager.cancel(session.prefixPath);
     this.logger.info("prefix session ended", {
       processId: session.processId,
       bottleId: session.bottleId,
@@ -4237,6 +4698,18 @@ export class BottleExecutionManager {
     discordPresenceManager.clearActivity(session.processId);
   }
 
+  private recordPrefixSessionTerminalError(processId: string, error: string): void {
+    if (!processId) {
+      return;
+    }
+
+    const session = this.prefixSessionsByProcessId.get(processId);
+
+    if (session && !session.ended) {
+      session.terminalError = error;
+    }
+  }
+
   private finishPrefixSessionByProcessId(processId: string, error?: string): void {
     const session = this.prefixSessionsByProcessId.get(processId);
 
@@ -4252,12 +4725,6 @@ export class BottleExecutionManager {
     isRunning: boolean,
     error?: string,
   ): void {
-    const sender = session.sender;
-
-    if (!sender || sender.isDestroyed()) {
-      return;
-    }
-
     const payload: BottlePrefixSessionPayload = {
       bottleId: session.bottleId,
       bottleName: session.bottleName,
@@ -4274,7 +4741,32 @@ export class BottleExecutionManager {
       error,
     };
 
-    send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PREFIX_SESSION_UPDATE.channelName, payload);
+    this.executionStates.applyPrefixSession(payload);
+
+    const sender = session.sender;
+    if (sender && !sender.isDestroyed()) {
+      send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PREFIX_SESSION_UPDATE.channelName, payload);
+    }
+  }
+
+  private sendProcessExit(
+    sender: WebContents | undefined,
+    payload: BottleProcessExitPayload,
+  ): void {
+    // Keep the legacy event first so log-session consumers can still resolve
+    // the process against the last authoritative running snapshot.
+    send_to_web_contents(sender, IPC_CHANNELS.BOTTLE.PROCESS_EXIT.channelName, payload);
+    this.executionStates.finishProcess(payload.processId, payload.error);
+  }
+
+  private broadcastExecutionState(snapshot: BottleExecutionStatePayload): void {
+    for (const window of BrowserWindow.getAllWindows()) {
+      send_to_web_contents(
+        window.webContents,
+        IPC_CHANNELS.BOTTLE.EXECUTION_STATE_UPDATE.channelName,
+        snapshot,
+      );
+    }
   }
 
   private async runWineTool(
@@ -4976,7 +5468,8 @@ interface SteamBuiltinDxmtWineRuntime {
 }
 
 interface SteamBuiltinDxmtWineMetadata {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  cacheWineRoot: string;
   baseWineRoot: string;
   baseWineSignature?: string;
   dxmtVersionId?: string;
@@ -4992,7 +5485,8 @@ interface HoyoBuiltinDxmtWineRuntime {
 }
 
 interface HoyoBuiltinDxmtWineMetadata {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  cacheWineRoot: string;
   baseWineRoot: string;
   baseWineSignature?: string;
   dxmtVersionId?: string;
@@ -5452,7 +5946,8 @@ async function prepare_bottle_builtin_dxmt_wine_runtime(options: {
   const bottleWineRoot = path.join(options.bottlePath, ".cache", "builtin-wine", cacheName);
   const metadataPath = path.join(bottleWineRoot, ".bdih-bottle-dxmt-wine.json");
   const metadata: HoyoBuiltinDxmtWineMetadata = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    cacheWineRoot: bottleWineRoot,
     baseWineRoot,
     baseWineSignature: wine_runtime_cache_signature(baseWineRoot),
     dxmtVersionId: options.request.dxmtVersionId,
@@ -5514,7 +6009,8 @@ async function prepare_steam_builtin_dxmt_wine_runtime(options: {
   const steamWineRoot = path.join(options.bottlePath, ".cache", "builtin-wine", cacheName);
   const metadataPath = path.join(steamWineRoot, ".bdih-bottle-dxmt-wine.json");
   const metadata: SteamBuiltinDxmtWineMetadata = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    cacheWineRoot: steamWineRoot,
     baseWineRoot,
     baseWineSignature: wine_runtime_cache_signature(baseWineRoot),
     dxmtVersionId: runtimeRequest.dxmtVersionId,
@@ -5570,7 +6066,8 @@ async function prepare_hoyo_builtin_dxmt_wine_runtime(options: {
   const hoyoWineRoot = path.join(options.bottleRootPath, ".cache", "builtin-wine", cacheName);
   const metadataPath = path.join(hoyoWineRoot, ".bdih-bottle-dxmt-wine.json");
   const metadata: HoyoBuiltinDxmtWineMetadata = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    cacheWineRoot: hoyoWineRoot,
     baseWineRoot,
     baseWineSignature: wine_runtime_cache_signature(baseWineRoot),
     dxmtVersionId: runtimeRequest.dxmtVersionId,
@@ -5624,6 +6121,7 @@ function is_hoyo_builtin_dxmt_wine_cache_valid(
     const parsed = JSON.parse(readFileSync(metadataPath, "utf8")) as Partial<HoyoBuiltinDxmtWineMetadata>;
 
     return parsed.schemaVersion === expected.schemaVersion &&
+      parsed.cacheWineRoot === expected.cacheWineRoot &&
       parsed.baseWineRoot === expected.baseWineRoot &&
       parsed.baseWineSignature === expected.baseWineSignature &&
       parsed.dxmtVersionId === expected.dxmtVersionId &&
@@ -5656,6 +6154,7 @@ function is_steam_builtin_dxmt_wine_cache_valid(
     const parsed = JSON.parse(readFileSync(metadataPath, "utf8")) as Partial<SteamBuiltinDxmtWineMetadata>;
 
     return parsed.schemaVersion === expected.schemaVersion &&
+      parsed.cacheWineRoot === expected.cacheWineRoot &&
       parsed.baseWineRoot === expected.baseWineRoot &&
       parsed.baseWineSignature === expected.baseWineSignature &&
       parsed.dxmtVersionId === expected.dxmtVersionId &&

@@ -114,6 +114,29 @@ describe("macOS Wine window focus", () => {
     expect(activateProcessIds).toHaveBeenCalledTimes(1);
   });
 
+  it("cancels a pending focus request when its Prefix session ends", async () => {
+    let resolveDiscovery: ((value: Array<{ pid: number; command: string }>) => void) | undefined;
+    const discovery = new Promise<Array<{ pid: number; command: string }>>((resolve) => {
+      resolveDiscovery = resolve;
+    });
+    const activateProcessIds = jest.fn().mockResolvedValue({ status: "focused", pid: 401 });
+    const manager = new MacOSWineWindowFocusManager({
+      platform: "darwin",
+      findProcesses: async () => discovery,
+      activateProcessIds,
+    });
+    const focus = manager.focus({
+      prefixPath: "/tmp/bottle/prefix",
+      executableNames: ["HYP.exe"],
+    });
+
+    manager.cancel("/tmp/bottle/prefix");
+    resolveDiscovery?.([{ pid: 401, command: String.raw`C:\Program Files\HoYoPlay\HYP.exe` }]);
+
+    await expect(focus).resolves.toEqual({ status: "superseded" });
+    expect(activateProcessIds).not.toHaveBeenCalled();
+  });
+
   it("does nothing outside macOS", async () => {
     const manager = new MacOSWineWindowFocusManager({ platform: "linux" });
 

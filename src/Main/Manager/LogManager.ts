@@ -202,19 +202,31 @@ export class LogManager {
   }
 
   private resolveLogFileNameAlias(fileName: string): string {
-    const directAlias = this.logFileNameAliases.get(fileName);
+    let resolvedFileName = fileName;
+    const visitedFileNames = new Set<string>();
 
-    if (directAlias) {
-      return directAlias;
-    }
+    while (!visitedFileNames.has(resolvedFileName)) {
+      visitedFileNames.add(resolvedFileName);
 
-    for (const [previousPrefix, nextPrefix] of this.logFilePrefixAliases.entries()) {
-      if (fileName.startsWith(previousPrefix)) {
-        return `${nextPrefix}${fileName.slice(previousPrefix.length)}`;
+      const directAlias = this.logFileNameAliases.get(resolvedFileName);
+
+      if (directAlias) {
+        resolvedFileName = directAlias;
+        continue;
       }
+
+      const prefixAlias = [...this.logFilePrefixAliases.entries()]
+        .find(([previousPrefix]) => resolvedFileName.startsWith(previousPrefix));
+
+      if (!prefixAlias) {
+        break;
+      }
+
+      const [previousPrefix, nextPrefix] = prefixAlias;
+      resolvedFileName = `${nextPrefix}${resolvedFileName.slice(previousPrefix.length)}`;
     }
 
-    return fileName;
+    return resolvedFileName;
   }
 
   getSnapshot(): LauncherLogSnapshotPayload {
@@ -364,10 +376,14 @@ export class LogManager {
       const nextBottleDirPath = path.join(sessionDir, BOTTLE_LOG_DIR_NAME, nextBottlePart);
 
       try {
-        if (existsSync(previousBottleDirPath) && !existsSync(nextBottleDirPath)) {
-          mkdirSync(path.dirname(nextBottleDirPath), { recursive: true });
-          renameSync(previousBottleDirPath, nextBottleDirPath);
-          renamedPaths.push(nextBottleDirPath);
+        if (existsSync(previousBottleDirPath)) {
+          if (existsSync(nextBottleDirPath)) {
+            renamedPaths.push(...merge_log_directories(previousBottleDirPath, nextBottleDirPath));
+          } else {
+            mkdirSync(path.dirname(nextBottleDirPath), { recursive: true });
+            renameSync(previousBottleDirPath, nextBottleDirPath);
+            renamedPaths.push(nextBottleDirPath);
+          }
         }
       } catch {
         // Individual files below can still be migrated if the folder move fails.
@@ -835,6 +851,43 @@ function next_bottle_log_file_name(
   }
 
   return undefined;
+}
+
+function merge_log_directories(sourceDir: string, targetDir: string): string[] {
+  const mergedPaths: string[] = [];
+
+  mkdirSync(targetDir, { recursive: true });
+
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.join(targetDir, entry.name);
+
+    if (entry.isDirectory()) {
+      mergedPaths.push(...merge_log_directories(sourcePath, targetPath));
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    if (!existsSync(targetPath)) {
+      renameSync(sourcePath, targetPath);
+      mergedPaths.push(targetPath);
+      continue;
+    }
+
+    const sourceText = readFileSync(sourcePath, "utf8").trimEnd();
+    const targetText = readFileSync(targetPath, "utf8").trimStart();
+    const mergedText = [sourceText, targetText].filter(Boolean).join("\n");
+
+    writeFileSync(targetPath, mergedText ? `${mergedText}\n` : "", "utf8");
+    rmSync(sourcePath, { force: true });
+    mergedPaths.push(targetPath);
+  }
+
+  rmSync(sourceDir, { recursive: true, force: true });
+  return mergedPaths;
 }
 
 function create_bottle_log_delete_tokens(target: { bottleId: string; bottleName?: string }): string[] {

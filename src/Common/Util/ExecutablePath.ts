@@ -19,3 +19,10 @@ export function split_executable_args(rawArgs: string): string[] {
     ?.map((arg) => arg.replace(/^"|"$/g, ""))
     .filter(Boolean) ?? [];
 }
+
+export function manual_app_id_from_executable_path(
+  prefixPath: string,
+  executablePath: string,
+): string {
+  return `manual:${`${prefixPath}:${executablePath}`.toLowerCase()}`;
+}

@@ -38,6 +38,7 @@ describe("HoyoPlayUpdateTracker", () => {
         updaterWinePid: 1340,
       }),
     ]);
+    expect(tracker.hasActiveAttempt()).toBe(true);
     expect(tracker.observe(launcher, snapshot([oldHYP, updater, launcher]))).toEqual([
       expect.objectContaining({
         kind: "launcher-started",
@@ -57,6 +58,7 @@ describe("HoyoPlayUpdateTracker", () => {
         newHYP: expect.objectContaining({ winePid: 1500 }),
       }),
     ]);
+    expect(tracker.hasActiveAttempt()).toBe(false);
     expect(tracker.recoveryCandidate(snapshot([newHYP, helper]))).toBeUndefined();
   });
 

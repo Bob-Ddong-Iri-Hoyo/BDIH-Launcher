@@ -21,7 +21,7 @@ import { useTranslation } from "react-i18next";
 import type { BottleLaunchOptionsPayload, BottleLauncherKind, BottlePrefixMetadataPayload, DeleteLauncherDataResultPayload } from "../../Common/Types/IPC";
 import type { DxmtVersion, JadeiteVersion, WineVersion } from "../../Common/Types/Wine";
 import type { Bottle, CreateBottleInput } from "../Types/Bottle";
-import { create_bottle_path_from_name, normalize_bottle_prefix_root } from "../../Common/Util/BottlePath";
+import { create_bottle_storage_path_preview, normalize_bottle_prefix_root } from "../../Common/Util/BottlePath";
 import { assign_missing_bottle_icon_ids, BOTTLE_ICON_IDS, BottleIconId, is_bottle_icon_id, pick_bottle_icon_id } from "../../Common/Util/BottleIcon";
 import bottleIcon1 from "../../../resouces/app/images/bottles/icon1.png";
 import bottleIcon2 from "../../../resouces/app/images/bottles/icon2.png";
@@ -1653,7 +1653,7 @@ export function CreateBottleDialog({
     is_runtime_version_ready(wineVersions.find((version) => version.id === form.wineVersionId)) &&
     is_runtime_version_ready(dxmtVersions.find((version) => version.id === form.dxmtVersionId));
   const normalizedPrefixPath = normalize_bottle_prefix_root(form.prefixPath, form.name);
-  const computedBottlePath = create_bottle_path_from_name(normalizedPrefixPath, form.name);
+  const computedBottlePath = create_bottle_storage_path_preview(normalizedPrefixPath, form.name);
 
   React.useEffect(() => {
     if (!open) {

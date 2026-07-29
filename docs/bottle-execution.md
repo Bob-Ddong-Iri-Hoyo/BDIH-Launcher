@@ -58,13 +58,14 @@ BDIH protects managed Wine processes with three independent stages:
    because the Wine processes belong to the primary instance.
 2. **Native crash Guardian.** The primary Main process starts
    `bdih-guardian`, a small C command-line child, before it recovers or launches
-   Wine. The Guardian sleeps in a blocking read on a private stdin pipe; it does
-   not poll, create a window, appear in the Dock, or register with BDIH's
-   `ProcessManager`. Normal shutdown first stops Wine and then writes
-   `CLEAN\n`. A crash, `SIGKILL`, or sudden Main-process loss closes the pipe
-   without that command, causing the Guardian to terminate only Wine processes
-   whose executable, current directory, or loaded text image is inside a
-   launcher-managed root.
+   Wine. It runs in its own process session, outside the terminal or VS Code
+   task process group that contains Electron Main. It does not poll, create a
+   window, appear in the Dock, or register with BDIH's `ProcessManager`.
+   A macOS `kqueue` watches both the private stdin control pipe and the Main
+   owner PID. Normal shutdown first stops Wine and then writes `CLEAN\n`.
+   Control-pipe EOF, owner exit, or a direct `SIGHUP`, `SIGTERM`, or `SIGINT`
+   makes the Guardian terminate only Wine processes whose executable, current
+   directory, or loaded text image is inside a launcher-managed root.
 3. **Next-start orphan recovery.** After a later primary instance starts its
    Guardian, `BottleExecutionManager` performs the same bounded managed-root
    scan and removes Wine left by an interrupted or incomplete cleanup. Startup
@@ -73,14 +74,28 @@ BDIH protects managed Wine processes with three independent stages:
 The native helper is intentionally outside the ordinary child-process graph:
 
 ```text
-Electron Main
-  | private control pipe
-  +-- bdih-guardian (C, no UI, idle blocking read)
+terminal / VS Code task process group
+  +-- Electron Main
+        | private control pipe
+        | owner PID
+        +--------------------> bdih-guardian (independent session)
 
 Normal quit: stop Wine -> CLEAN -> Guardian exits
-Main SIGKILL: pipe EOF -> Guardian TERM/KILL scan -> Guardian exits
+Main/group death: pipe EOF or owner exit -> Guardian TERM/KILL scan -> exits
+Direct Guardian HUP/TERM/INT: record signal -> TERM/KILL scan -> exits
 Next launch: single-instance lock -> Guardian starts -> orphan recovery
 ```
+
+The signal handlers only record a `sig_atomic_t` flag. Process discovery,
+logging, and termination run afterward in ordinary control flow rather than
+inside an async signal handler. Cleanup is bounded: the Guardian sends
+`SIGTERM`, waits briefly, escalates remaining managed processes to `SIGKILL`,
+records the result, and exits. When Main has already died, macOS reparents and
+reaps the detached Guardian after that exit, so it does not remain as a
+launcher-owned zombie. No process can handle a direct `SIGKILL` sent to itself;
+the separate process session is what keeps the Guardian alive when a launcher
+task group receives `SIGKILL`. Next-start recovery remains the final fallback
+for machine shutdowns or a direct Guardian `SIGKILL`.
 
 Data-root changes replace the Guardian only after a new one is ready. Every
 root used during that launcher lifetime remains protected, so an old-root Wine
@@ -96,10 +111,17 @@ pnpm test:guardian
 pnpm test:guardian:app
 ```
 
-`test:guardian` verifies the native clean/EOF protocol.
+`test:guardian` verifies clean disarm, control-pipe EOF, owner-PID exit, and
+direct `SIGHUP`, `SIGTERM`, and `SIGINT` cleanup.
 `test:guardian:app` additionally launches an isolated Electron instance and
-verifies startup recovery, secondary-instance rejection, and real Main-process
-`SIGKILL` cleanup.
+verifies startup recovery, secondary-instance rejection, and cleanup after the
+launcher's entire process group receives `SIGKILL`.
+
+Every Guardian writes a small append-only `guardian.log` in the current session
+log directory. It records readiness, the shutdown trigger, detected and
+force-killed process counts, remaining process count, and cleanup result. This
+native log is intentionally independent of `app.log`, so the final cleanup
+result survives even when Electron Main can no longer flush its logger.
 
 ### Request flow
 
@@ -107,12 +129,16 @@ Bottle execution currently follows this general path:
 
 ```text
 Renderer
-  -> IPC payload
+  -> launch/stop command
   -> IPCManager
   -> BottleExecutionManager
-  -> Wine/DXMT/Jadeite/process helpers
-  -> prefix session events
-  -> Renderer Bottle state
+  -> BottleExecutionStateRegistry
+     -> Wine/DXMT/Jadeite/process helpers
+     -> process and Prefix telemetry
+     -> authoritative versioned snapshot/event
+  -> Renderer projection only
+
+Bottle metadata edits
   -> BottleManager persistence
 ```
 
@@ -133,7 +159,61 @@ interface RunBottleExecutablePayload {
 `BottleExecutionManager` then combines these flags with executable inspection,
 Profile lookup, Wine setup, DXMT preparation, process creation, launcher
 discovery, prefix session tracking, Discord activity, logs, and Bottle metadata
-updates.
+updates. Before asynchronous launch preparation starts,
+`BottleExecutionStateRegistry` installs the logical application state in Main.
+
+The registry owns `preparing`, `starting`, `running`, `stopping`, and `failed`
+state, assigns an operation ID and monotonic revision, and maps a logical target
+to its process or Prefix-session ID. `GET_EXECUTION_STATE` returns a full
+snapshot and `EXECUTION_STATE_UPDATE` publishes each revision. Renderer reloads
+therefore request a snapshot instead of reconstructing lifecycle from the order
+of launch responses, Prefix events, and process-exit events.
+
+### Application launch and stop ownership
+
+Registered application launch ownership is authoritative in Main, not in
+Renderer card state. Main canonicalizes the target Prefix and installs a
+synchronous reservation before availability checks or runtime preparation:
+
+```text
+first request       -> reserve -> prepare -> start one Wine route
+concurrent request  -> join the same launch result
+running request     -> return the existing logical process ID
+stopping request    -> reject with a retryable result
+```
+
+This applies to HoYoPlay, Steam, HoYo games, and registered manual
+applications. HoYoPlay additionally uses its canonical `hoyo-prefix`, which
+prevents a second `HYP.exe` bootstrap from being created and merged into the
+first Prefix session. Prefix telemetry projects one shared Steam session onto
+the Steam launcher and each observed Steam AppID without making Renderer infer
+that relationship.
+
+Renderer stop requests contain Bottle and application identity; the process ID
+is optional compatibility data. Main resolves the current process or matching
+Prefix session from its own registry. Shutdown first invokes the Prefix's own `wineserver
+-k`, then performs bounded managed-root TERM/KILL cleanup. It reports success
+only when a final scan finds no process still using the Prefix. Launch
+coalescing, fallback resolution, `wineserver` outcome, and final PID sets are
+recorded in `wine.log`.
+
+Wine telemetry can report `server_stop` just before Node receives the bootstrap
+process's final non-zero exit code. Main keeps the terminal Prefix session for a
+short bounded grace interval so that exit reason is included in the final
+session event. Main also retains a bounded terminal-process history. If a
+process exits before the launch Promise returns, the late success result cannot
+resurrect it; Main completes or fails that operation before publishing the next
+snapshot. Renderer no longer needs an exited-process race cache.
+
+HoYoPlay has an additional Wine-only shutdown fallback. A normal launcher
+session must first have created at least one `HYPHelper.exe`; if every helper
+then exits cleanly while `HYP.exe` remains by itself, Main waits five seconds
+for the native shutdown to finish. When the root process still survives, Main
+marks the application as stopping and shuts down only the managed
+`hoyo-prefix`. The fallback is cancelled when a helper restarts, the Wine
+server changes, or a HoYoPlay updater/launcher handoff is active. Detection is
+logged at info level and an actual fallback termination at warning level so a
+later report can distinguish an ordinary close from a stuck HYP/Wine shutdown.
 
 ### What Profiles already solve
 
@@ -324,12 +404,14 @@ Adding a new launcher often requires editing the manager in several unrelated
 places. It is also difficult to test one lifecycle without constructing many
 of the manager's dependencies.
 
-### Transient and persistent state are coupled
+### Task progress and persistent state remain partly coupled
 
-Renderer status events update Bottle state and can enqueue a full Bottle save
-for each progress update. Main-process launcher tasks can write the same
-registry and prefix metadata independently. Forced metadata reloads may run
-while these writes are in progress.
+Application execution state is now separate: it lives in Main's
+`BottleExecutionStateRegistry`, is projected into Renderer view objects, and is
+stripped from every Bottle save. Renderer status events for setup/download
+tasks can still enqueue a full Bottle save for each progress update.
+Main-process launcher tasks can write the same registry and prefix metadata
+independently, so that task-progress path remains a future separation target.
 
 Process IDs, download progress, and temporary installer phases are session
 state. They should not share the same write lifecycle as selected runtimes,
@@ -782,8 +864,10 @@ Future launches use this binding and do not repeat heuristic recognition.
 
 ## Execution sessions and UI state
 
-Live execution belongs in an `ExecutionSessionStore`, not in
-`Bottle.apps[].processId` or repeated Bottle metadata writes.
+Live application execution now lives in Main's
+`BottleExecutionStateRegistry`, not in `Bottle.apps[].processId` or repeated
+Bottle metadata writes. The broader provider-session shape below remains the
+target for installer and handoff unification.
 
 ```ts
 interface ExecutionSession {
@@ -797,9 +881,11 @@ interface ExecutionSession {
 }
 ```
 
-The UI derives **Running**, installer progress, and handoff state from active
-sessions. It does not require a discovered app to exist before showing that a
-Bottle has an active installer session.
+The UI derives application **Preparing**, **Running**, and failure state from
+the versioned Main snapshot. Installer progress and provider handoff still use
+their existing task/session events until they migrate to the broader session
+contract. The Renderer may retain selection, dialogs, drafts, and animations,
+but it does not make execution-lifecycle decisions.
 
 A live Bottle log line is not considered process-liveness evidence. Only an
 explicit successful launch result, prefix-session update, or process exit

@@ -204,7 +204,11 @@ export class IPCManager {
     ipcMain.handle(
       IPC_CHANNELS.BOTTLE.STOP_PROCESS.channelName,
       async (_event, request: StopBottleProcessPayload) => {
-        await this.bottleExecutions.stopProcess(request.processId, request.appId);
+        await this.bottleExecutions.stopProcess(
+          request.processId,
+          request.appId,
+          request.bottleId,
+        );
         return { ok: true };
       },
     );
@@ -228,11 +232,8 @@ export class IPCManager {
     ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.GET_EXECUTION_STATE.channelName);
     ipcMain.handle(
       IPC_CHANNELS.BOTTLE.GET_EXECUTION_STATE.channelName,
-      async (_event, request?: BottleExecutionStateRequestPayload): Promise<BottleExecutionStatePayload> => ({
-        isRunning: request?.bottleId
-          ? this.bottleExecutions.hasActiveWineProcessesForBottle(request.bottleId)
-          : this.bottleExecutions.hasActiveWineProcesses(),
-      }),
+      async (_event, request?: BottleExecutionStateRequestPayload): Promise<BottleExecutionStatePayload> =>
+        this.bottleExecutions.getExecutionState(request?.bottleId),
     );
 
     ipcMain.removeHandler(IPC_CHANNELS.BOTTLE.STOP_ALL_PROCESSES.channelName);

@@ -81,6 +81,84 @@ describe("LogManager", () => {
     }
   });
 
+  it("keeps existing and live bottle logs together across repeated display name changes", async () => {
+    const consoleInfo = jest.spyOn(console, "info").mockImplementation(() => undefined);
+
+    try {
+      const { LogManager } = require("../../../src/Main/Manager/LogManager") as typeof import("../../../src/Main/Manager/LogManager");
+      const manager = new LogManager();
+
+      manager.init({
+        logDir: environment.devLogRoot,
+        sessionName: "2026-06-17_120500",
+        patchConsole: false,
+      });
+
+      const originalLogger = manager.createLogger({
+        file: "wine",
+        source: "unit",
+        fileName: "bottles/nahida/steam.log",
+        sessionKind: "bottle",
+        bottleId: "nahida-fixture",
+        bottleName: "Nahida",
+      });
+
+      originalLogger.info("before first rename");
+      manager.renameBottleLogs({
+        bottleId: "nahida-fixture",
+        previousBottleName: "Nahida",
+        nextBottleName: "NahidaDD",
+      });
+
+      const middleLogger = manager.createLogger({
+        file: "wine",
+        source: "unit",
+        fileName: "bottles/nahidadd/steam.log",
+        sessionKind: "bottle",
+        bottleId: "nahida-fixture",
+        bottleName: "NahidaDD",
+      });
+      const finalLogger = manager.createLogger({
+        file: "wine",
+        source: "unit",
+        fileName: "bottles/nahidadd3/steam.log",
+        sessionKind: "bottle",
+        bottleId: "nahida-fixture",
+        bottleName: "NahidaDD3",
+      });
+
+      middleLogger.info("after first rename");
+      finalLogger.info("existing final-name log");
+      manager.renameBottleLogs({
+        bottleId: "nahida-fixture",
+        previousBottleName: "NahidaDD",
+        nextBottleName: "NahidaDD3",
+      });
+      originalLogger.info("original logger after second rename");
+      middleLogger.info("middle logger after second rename");
+
+      const sessionDir = path.join(environment.devLogRoot, "2026-06-17_120500", "bottles");
+      const finalLogPath = path.join(sessionDir, "nahidadd3", "steam.log");
+      const finalLogText = await readFile(finalLogPath, "utf8");
+      const bottleSessions = manager.getSnapshot().sessions.filter((session) => session.kind === "bottle");
+
+      expect(existsSync(path.join(sessionDir, "nahida"))).toBe(false);
+      expect(existsSync(path.join(sessionDir, "nahidadd"))).toBe(false);
+      expect(finalLogText).toContain("before first rename");
+      expect(finalLogText).toContain("after first rename");
+      expect(finalLogText).toContain("existing final-name log");
+      expect(finalLogText).toContain("original logger after second rename");
+      expect(finalLogText).toContain("middle logger after second rename");
+      expect(bottleSessions).toEqual([
+        expect.objectContaining({
+          logFileName: "bottles/nahidadd3/steam.log",
+        }),
+      ]);
+    } finally {
+      consoleInfo.mockRestore();
+    }
+  });
+
   it("does not write app log entries when the minimum level is off", async () => {
     const { LogManager, log_level_from_preference } = require("../../../src/Main/Manager/LogManager") as typeof import("../../../src/Main/Manager/LogManager");
     const manager = new LogManager();

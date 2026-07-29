@@ -1,5 +1,5 @@
 import { existsSync, readlinkSync, type Dirent } from "fs";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import {
@@ -21,7 +21,6 @@ import { HOYOPLAY_ICON_URL, STEAM_GAME_LAUNCH_ARGUMENT, STEAM_ICON_URL } from ".
 import { BOTTLE_REGISTRY_SCHEMA_VERSION } from "../../Common/Constant/DataSchema";
 import { assign_missing_bottle_icon_ids, is_bottle_icon_id } from "../../Common/Util/BottleIcon";
 import {
-  bottle_name_to_slug,
   create_bottle_app_prefix_path,
   create_default_wine_prefix_path,
   create_hoyo_game_prefix_path,
@@ -154,7 +153,7 @@ export class BottleManager {
     const registry = await this.loadRegistryState();
     const normalizedIncomingBottles = normalize_bottle_array(payload?.bottles);
 
-    const incomingBottles = await rename_incoming_bottle_directories(
+    const incomingBottles = await apply_incoming_bottle_display_name_changes(
       normalizedIncomingBottles,
       registry.bottles,
     );
@@ -955,7 +954,7 @@ function normalize_bottle_array(value: unknown): BottleMetadataPayload[] {
   );
 }
 
-async function rename_incoming_bottle_directories(
+async function apply_incoming_bottle_display_name_changes(
   incomingBottles: BottleMetadataPayload[],
   registryBottles: BottleMetadataPayload[],
 ): Promise<BottleMetadataPayload[]> {
@@ -968,20 +967,21 @@ async function rename_incoming_bottle_directories(
       return bottle;
     }
 
-    return rename_bottle_directory_for_name(bottle, previousBottle);
-  }));
-}
-
-async function rename_bottle_directory_for_name(
-  bottle: BottleMetadataPayload,
-  previousBottle: BottleMetadataPayload,
-): Promise<BottleMetadataPayload> {
-  const sourcePath = path.resolve(expand_user_home_path(previousBottle.path || bottle.path));
-  const parentPath = path.dirname(sourcePath);
-  const nextPath = path.resolve(parentPath, bottle_name_to_slug(bottle.name));
-
-  if (sourcePath === nextPath) {
-    const renamedBottle = rebase_bottle_owned_paths(bottle, sourcePath, nextPath, parentPath);
+    const stableBottlePath = path.resolve(expand_user_home_path(previousBottle.path));
+    const incomingBottlePath = path.resolve(expand_user_home_path(bottle.path));
+    const renamedBottle = incomingBottlePath === stableBottlePath
+      ? {
+          ...bottle,
+          path: stableBottlePath,
+          prefixPath: previousBottle.prefixPath,
+          updatedAt: new Date().toISOString(),
+        }
+      : rebase_bottle_owned_paths(
+          bottle,
+          incomingBottlePath,
+          stableBottlePath,
+          previousBottle.prefixPath || path.dirname(stableBottlePath),
+        );
 
     logManager.renameBottleLogs({
       bottleId: bottle.id,
@@ -991,36 +991,7 @@ async function rename_bottle_directory_for_name(
     await rewrite_renamed_prefix_metadata(renamedBottle);
     await write_prefix_metadata(renamedBottle);
     return renamedBottle;
-  }
-
-  if (path.dirname(nextPath) !== parentPath || !existsSync(sourcePath)) {
-    return bottle;
-  }
-
-  if (existsSync(nextPath)) {
-    if (sourcePath.toLowerCase() !== nextPath.toLowerCase()) {
-      throw new Error(`A different bottle directory already exists at ${nextPath}.`);
-    }
-
-    const temporaryPath = path.join(parentPath, `.bdih-rename-${Date.now()}-${path.basename(sourcePath)}`);
-
-    await rename(sourcePath, temporaryPath);
-    await rename(temporaryPath, nextPath);
-  } else {
-    await rename(sourcePath, nextPath);
-  }
-
-  const renamedBottle = rebase_bottle_owned_paths(bottle, sourcePath, nextPath, parentPath);
-
-  logManager.renameBottleLogs({
-    bottleId: bottle.id,
-    previousBottleName: previousBottle.name,
-    nextBottleName: bottle.name,
-  });
-  await rewrite_renamed_prefix_metadata(renamedBottle);
-  await write_prefix_metadata(renamedBottle);
-
-  return renamedBottle;
+  }));
 }
 
 function rebase_bottle_owned_paths(
@@ -1052,7 +1023,6 @@ function rebase_bottle_owned_paths(
       prefixPath: rebase_optional_host_path_within_bottle(app.prefixPath, sourcePath, nextPath),
       steamManifestPath: rebase_optional_host_path_within_bottle(app.steamManifestPath, sourcePath, nextPath),
       iconSrc: rebase_bottle_file_url(app.iconSrc, sourcePath, nextPath),
-      launchError: undefined,
     })),
     updatedAt: new Date().toISOString(),
   };
@@ -1411,7 +1381,6 @@ function normalize_apps(value: unknown): InstalledBottleAppPayload[] {
         lastPlayed: string_or_default(app.lastPlayed, "Never launched"),
         lastPlayedKey: optional_string(app.lastPlayedKey),
         status: app_status_or_default(app.status),
-        launchError: optional_string(app.launchError),
       };
     })
     .filter((app): app is InstalledBottleAppPayload => Boolean(app));
@@ -2605,8 +2574,6 @@ function merge_apps(
       ...app,
       lastPlayed: previousApp?.lastPlayed ?? app.lastPlayed,
       lastPlayedKey: previousApp?.lastPlayedKey ?? app.lastPlayedKey,
-      processId: previousApp?.processId,
-      launchError: previousApp?.launchError,
       launchOptions: previousApp?.launchOptions ?? app.launchOptions,
     };
 

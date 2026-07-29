@@ -10,3 +10,4 @@ tmp*
 .env
 private/
 build/native/bdih-guardian
+resethoyo.sh

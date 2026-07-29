@@ -292,6 +292,10 @@ export class HoyoPlayUpdateTracker {
     }
   }
 
+  hasActiveAttempt(): boolean {
+    return Boolean(this.attempt);
+  }
+
   reset(): void {
     this.attempt = undefined;
     this.serverPid = undefined;

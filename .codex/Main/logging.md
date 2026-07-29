@@ -11,18 +11,25 @@
     <YYYY-MM-DD_HHmmss>/
         app.log
         wine.log
+        guardian.log
         app.log.1
         wine.log.1
 ```
 
-세션마다 폴더를 만들고, 큰 범주만 `app`, `wine`으로 나눈다.
+세션마다 폴더를 만들고, 일반 실행 로그는 큰 범주인 `app`, `wine`으로
+나눈다. `guardian.log`는 Main process가 이미 사라진 뒤에도 마지막
+cleanup 결과를 남겨야 하므로 네이티브 Guardian이 직접 기록하는 예외다.
 
 | 파일 | 내용 |
 | --- | --- |
 | `app.log` | 앱 초기화, window, IPC, preference, update, renderer 연결, 일반 console log |
 | `wine.log` | Wine catalog/install, 다운로드, curl, Wine 실행 관련 stdout/stderr |
+| `guardian.log` | Guardian 준비/종료 원인, 발견·강제 종료·잔존 Wine PID 수, cleanup 결과 |
 
-너무 세분화된 파일을 만들지 않는 이유는 사용자가 문제를 볼 때 `app`과 `wine` 정도의 큰 경계가 가장 이해하기 쉽고, 파일 수가 과도하게 늘어나는 것을 피하기 위해서다.
+너무 세분화된 파일을 만들지 않는 이유는 사용자가 문제를 볼 때 `app`과
+`wine` 정도의 큰 경계가 가장 이해하기 쉽고, 파일 수가 과도하게 늘어나는
+것을 피하기 위해서다. `guardian.log`는 session별 append-only 소형
+진단 로그이며 Main logger나 log rotation에 의존하지 않는다.
 
 ## Logger 사용 방식
 
