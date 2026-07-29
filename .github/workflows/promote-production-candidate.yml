@@ -189,6 +189,10 @@ jobs:
               echo "::error::Published Production release $production_tag already exists."
               exit 1
             fi
+            if git ls-remote --exit-code --tags origin "refs/tags/$production_tag" >/dev/null 2>&1; then
+              echo "::error::Production tag $production_tag already exists. Draft tags are immutable and cannot be replaced."
+              exit 1
+            fi
             replace_draft="true"
           elif git ls-remote --exit-code --tags origin "refs/tags/$production_tag" >/dev/null 2>&1; then
             echo "::error::Production tag $production_tag already exists without a replaceable Draft."
@@ -351,9 +355,12 @@ jobs:
               echo "::error::The previous Production Draft changed while the replacement was building."
               exit 1
             fi
+            if git ls-remote --exit-code --tags origin "refs/tags/$PRODUCTION_TAG" >/dev/null 2>&1; then
+              echo "::error::Production tag $PRODUCTION_TAG appeared while the replacement was building."
+              exit 1
+            fi
             gh release delete "$PRODUCTION_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --cleanup-tag \
               --yes
           fi
 
