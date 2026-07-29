@@ -190,6 +190,27 @@ interface HoyoPlayUpdateRecoveryContext {
   environment: Record<string, string>;
 }
 
+function prefix_session_owned_app_ids(
+  launcher?: BottleLauncherKind,
+  appId?: string,
+): Set<string> | undefined {
+  const appIds = new Set<string>();
+
+  if (appId) {
+    appIds.add(appId);
+  }
+
+  // Steam runs its client and games in one shared Prefix. A session started
+  // from a Steam game shortcut must therefore continue to own the launcher
+  // target as well. HoYo games use separate Prefixes and must not inherit the
+  // HoYoPlay launcher target merely because they were routed by HoYoPlay.
+  if (launcher === "steam") {
+    appIds.add("steam");
+  }
+
+  return appIds.size > 0 ? appIds : undefined;
+}
+
 interface SteamGameProcessWatcher {
   logPath: string;
   offset: number;
@@ -3591,9 +3612,15 @@ export class BottleExecutionManager {
       existingSession.sender = sender ?? existingSession.sender;
       existingSession.launcher = context.launcher ?? existingSession.launcher;
       existingSession.appId = context.appId ?? existingSession.appId;
-      if (context.appId) {
+      const ownedAppIds = prefix_session_owned_app_ids(
+        existingSession.launcher,
+        context.appId,
+      );
+      if (ownedAppIds) {
         existingSession.appIds = existingSession.appIds ?? new Set<string>();
-        existingSession.appIds.add(context.appId);
+        for (const appId of ownedAppIds) {
+          existingSession.appIds.add(appId);
+        }
       }
       existingSession.appName = context.appName ?? existingSession.appName;
       existingSession.executionMode = context.executionMode ?? existingSession.executionMode;
@@ -3646,7 +3673,7 @@ export class BottleExecutionManager {
       processId,
       launcher: context.launcher,
       appId: context.appId,
-      appIds: context.appId ? new Set([context.appId]) : undefined,
+      appIds: prefix_session_owned_app_ids(context.launcher, context.appId),
       appName: context.appName,
       executionMode: context.executionMode,
       wineRuntimePath: request.wineRuntimePath,

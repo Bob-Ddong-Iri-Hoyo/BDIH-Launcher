@@ -232,7 +232,6 @@ export class BottleExecutionStateRegistry {
     const appIds = new Set<string>([
       ...(session.appId ? [session.appId] : []),
       ...(session.appIds ?? []),
-      ...(session.launcher ? [session.launcher] : []),
     ]);
     const previousTargetKeys = new Set(this.targetKeysByProcessId.get(session.processId) ?? []);
     const activeTargetKeys = new Set<string>();

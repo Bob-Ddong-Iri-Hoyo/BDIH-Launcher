@@ -66,7 +66,7 @@ describe("BottleExecutionStateRegistry", () => {
       isRunning: true,
       launcher: "steam",
       appId: "steam:123",
-      appIds: ["steam:123"],
+      appIds: ["steam", "steam:123"],
       startedAt: "2026-07-30T00:00:00.000Z",
     });
 
@@ -86,6 +86,91 @@ describe("BottleExecutionStateRegistry", () => {
 
     expect(registry.find("bottle-1", "steam")?.phase).toBe("running");
     expect(registry.find("bottle-1", "steam:123")).toBeUndefined();
+  });
+
+  it("keeps HoYoPlay running when a game in a separate Prefix exits", () => {
+    const registry = new BottleExecutionStateRegistry();
+
+    registry.applyPrefixSession({
+      bottleId: "bottle-1",
+      bottleName: "Bottle 1",
+      prefixPath: "/tmp/bottle-1/hoyo-prefix",
+      processId: "prefix-session:hoyoplay",
+      isRunning: true,
+      launcher: "hoyoplay",
+      appId: "hoyoplay",
+      appIds: ["hoyoplay"],
+      startedAt: "2026-07-30T00:00:00.000Z",
+    });
+    registry.applyPrefixSession({
+      bottleId: "bottle-1",
+      bottleName: "Bottle 1",
+      prefixPath: "/tmp/bottle-1/zzz-prefix",
+      processId: "prefix-session:zzz",
+      isRunning: true,
+      launcher: "hoyoplay",
+      appId: "hoyo:zzz",
+      appIds: ["hoyo:zzz"],
+      startedAt: "2026-07-30T00:01:00.000Z",
+    });
+
+    expect(registry.find("bottle-1", "hoyoplay")?.processId)
+      .toBe("prefix-session:hoyoplay");
+    expect(registry.find("bottle-1", "hoyo:zzz")?.processId)
+      .toBe("prefix-session:zzz");
+
+    registry.applyPrefixSession({
+      bottleId: "bottle-1",
+      bottleName: "Bottle 1",
+      prefixPath: "/tmp/bottle-1/zzz-prefix",
+      processId: "prefix-session:zzz",
+      isRunning: false,
+      launcher: "hoyoplay",
+      appId: "hoyo:zzz",
+      appIds: ["hoyo:zzz"],
+      endedAt: "2026-07-30T00:02:00.000Z",
+    });
+
+    expect(registry.find("bottle-1", "hoyo:zzz")).toBeUndefined();
+    expect(registry.find("bottle-1", "hoyoplay")).toEqual(expect.objectContaining({
+      phase: "running",
+      processId: "prefix-session:hoyoplay",
+    }));
+    expect(registry.snapshot().isRunning).toBe(true);
+  });
+
+  it("keeps Steam running when a game leaves its shared Prefix session", () => {
+    const registry = new BottleExecutionStateRegistry();
+
+    registry.applyPrefixSession({
+      bottleId: "bottle-1",
+      bottleName: "Bottle 1",
+      prefixPath: "/tmp/bottle-1/steam-prefix",
+      processId: "prefix-session:steam",
+      isRunning: true,
+      launcher: "steam",
+      appId: "steam:123",
+      appIds: ["steam", "steam:123"],
+      startedAt: "2026-07-30T00:00:00.000Z",
+    });
+    registry.applyPrefixSession({
+      bottleId: "bottle-1",
+      bottleName: "Bottle 1",
+      prefixPath: "/tmp/bottle-1/steam-prefix",
+      processId: "prefix-session:steam",
+      isRunning: true,
+      launcher: "steam",
+      appId: "steam",
+      appIds: ["steam"],
+      startedAt: "2026-07-30T00:00:00.000Z",
+    });
+
+    expect(registry.find("bottle-1", "steam:123")).toBeUndefined();
+    expect(registry.find("bottle-1", "steam")).toEqual(expect.objectContaining({
+      phase: "running",
+      processId: "prefix-session:steam",
+    }));
+    expect(registry.snapshot().isRunning).toBe(true);
   });
 
   it("rejects late updates from an older launch operation", () => {

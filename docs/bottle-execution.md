@@ -187,7 +187,10 @@ applications. HoYoPlay additionally uses its canonical `hoyo-prefix`, which
 prevents a second `HYP.exe` bootstrap from being created and merged into the
 first Prefix session. Prefix telemetry projects one shared Steam session onto
 the Steam launcher and each observed Steam AppID without making Renderer infer
-that relationship.
+that relationship. These targets are explicit session ownership: HoYo games
+running in their own `zzz-prefix`, `hsr-prefix`, or `genshin-prefix` own only
+their game target and cannot replace the independent `hoyo-prefix` HoYoPlay
+launcher state.
 
 Renderer stop requests contain Bottle and application identity; the process ID
 is optional compatibility data. Main resolves the current process or matching
