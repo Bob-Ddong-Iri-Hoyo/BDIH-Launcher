@@ -39,6 +39,63 @@ export function resolve_staging_candidate(targetVersion, attemptValue) {
   };
 }
 
+export function resolve_next_staging_candidate(candidates, targetVersion) {
+  if (!Array.isArray(candidates)) {
+    throw new Error("Candidate identity list must be a JSON array.");
+  }
+
+  const target = resolve_staging_candidate(targetVersion, 1);
+  const attempts = candidates.flatMap((candidate) => {
+    if (!is_record(candidate) || typeof candidate.tagName !== "string") {
+      return [];
+    }
+
+    const attempt = attempt_from_tag(candidate.tagName, target);
+    return attempt === undefined ? [] : [attempt];
+  });
+  const nextAttempt = attempts.length === 0 ? 1 : Math.max(...attempts) + 1;
+
+  return {
+    ...resolve_staging_candidate(target.targetVersion, nextAttempt),
+    expectedAttempt: nextAttempt,
+  };
+}
+
+export function resolve_production_target(sourceVersion, channelValue, betaNumberValue) {
+  const releaseTrain = String(sourceVersion ?? "").trim();
+  const channel = String(channelValue ?? "").trim();
+  if (!FINAL_VERSION_PATTERN.test(releaseTrain)) {
+    throw new Error(
+      `Source package.json version must be a final release train such as 1.0.0. Got: ${releaseTrain || "<empty>"}`,
+    );
+  }
+
+  if (channel === "beta") {
+    const betaNumber = normalize_attempt(betaNumberValue);
+    return {
+      releaseTrain,
+      channel,
+      betaNumber,
+      targetVersion: `${releaseTrain}-beta.${betaNumber}`,
+    };
+  }
+
+  if (channel === "stable") {
+    const betaNumber = String(betaNumberValue ?? "").trim();
+    if (betaNumber !== "" && betaNumber !== "0") {
+      throw new Error("beta_number is only valid for the Beta channel.");
+    }
+    return {
+      releaseTrain,
+      channel,
+      betaNumber: null,
+      targetVersion: releaseTrain,
+    };
+  }
+
+  throw new Error(`Channel must be beta or stable. Got: ${channel || "<empty>"}`);
+}
+
 export function validate_source_train_version(sourceVersion, targetVersion) {
   const source = String(sourceVersion ?? "").trim();
   const target = resolve_staging_candidate(targetVersion, 1);
@@ -156,15 +213,10 @@ export function assert_next_attempt(releases, targetVersion, attemptValue) {
   }
 
   const resolved = resolve_staging_candidate(targetVersion, attemptValue);
-  const attempts = releases.flatMap((release) => {
-    if (!is_record(release) || release.isDraft === true || typeof release.tagName !== "string") {
-      return [];
-    }
-
-    const attempt = attempt_from_tag(release.tagName, resolved);
-    return attempt === undefined ? [] : [attempt];
-  });
-  const expectedAttempt = attempts.length === 0 ? 1 : Math.max(...attempts) + 1;
+  const expectedAttempt = resolve_next_staging_candidate(
+    releases,
+    resolved.targetVersion,
+  ).expectedAttempt;
 
   if (resolved.attempt !== expectedAttempt) {
     throw new Error(
@@ -328,6 +380,27 @@ async function run_cli(argv) {
       } else {
         process.stdout.write(`${JSON.stringify(resolved, null, 2)}\n`);
       }
+      return;
+    }
+    case "resolve-next": {
+      const resolved = resolve_next_staging_candidate(
+        await read_json(options.releases),
+        options["target-version"],
+      );
+      if (options["github-output"]) {
+        await append_github_output(options["github-output"], resolved);
+      } else {
+        process.stdout.write(`${JSON.stringify(resolved, null, 2)}\n`);
+      }
+      return;
+    }
+    case "resolve-target": {
+      const resolved = resolve_production_target(
+        options["source-version"],
+        options.channel,
+        options["beta-number"],
+      );
+      process.stdout.write(`${resolved.targetVersion}\n`);
       return;
     }
     case "validate-source-train": {

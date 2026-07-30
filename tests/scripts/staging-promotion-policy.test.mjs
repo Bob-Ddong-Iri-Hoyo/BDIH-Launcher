@@ -8,6 +8,8 @@ import {
   assert_current_candidate,
   create_promotion_provenance,
   prepare_production_package_version,
+  resolve_next_staging_candidate,
+  resolve_production_target,
   resolve_staging_candidate,
   validate_candidate_metadata,
   validate_candidate_lineage,
@@ -70,6 +72,56 @@ test("resolves Stable RC and Beta staging versions from target plus attempt", ()
     version: "1.0.0-beta.2.staging.3",
     tag: "v1.0.0-beta.2.staging.3+staging.beta",
   });
+});
+
+test("resolves the next immutable candidate number from existing releases and tags", () => {
+  const candidates = [
+    { tagName: "v1.0.0-rc.1+staging.stable", isDraft: false },
+    { tagName: "v1.0.0-rc.2+staging.stable", isDraft: true },
+    { tagName: "v1.0.0-beta.1.staging.5+staging.beta", isDraft: false },
+    { tagName: "v1.0.0-beta.1.staging.6+staging.beta" },
+  ];
+
+  assert.deepEqual(resolve_next_staging_candidate(candidates, "1.0.0"), {
+    targetVersion: "1.0.0",
+    attempt: 3,
+    channel: "stable",
+    channelLabel: "Stable",
+    version: "1.0.0-rc.3",
+    tag: "v1.0.0-rc.3+staging.stable",
+    expectedAttempt: 3,
+  });
+  assert.equal(
+    resolve_next_staging_candidate(candidates, "1.0.0-beta.1").version,
+    "1.0.0-beta.1.staging.7",
+  );
+});
+
+test("derives the Production target from package.json, channel, and Beta number", () => {
+  assert.deepEqual(resolve_production_target("1.0.0", "beta", 2), {
+    releaseTrain: "1.0.0",
+    channel: "beta",
+    betaNumber: 2,
+    targetVersion: "1.0.0-beta.2",
+  });
+  assert.deepEqual(resolve_production_target("1.0.0", "stable", 0), {
+    releaseTrain: "1.0.0",
+    channel: "stable",
+    betaNumber: null,
+    targetVersion: "1.0.0",
+  });
+  assert.throws(
+    () => resolve_production_target("1.0.0", "beta", 0),
+    /positive integer/,
+  );
+  assert.throws(
+    () => resolve_production_target("1.0.0", "stable", 2),
+    /only valid for the Beta channel/,
+  );
+  assert.throws(
+    () => resolve_production_target("1.0.0-beta.1", "beta", 2),
+    /final release train/,
+  );
 });
 
 test("keeps package.json on the release train while allowing Beta and Stable targets", () => {

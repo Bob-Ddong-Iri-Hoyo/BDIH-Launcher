@@ -79,28 +79,34 @@ the installed Production or Nightly app.
 Run **TestProduction Candidate** manually from GitHub Actions and provide:
 
 - `source_ref`: the exact branch, tag, or commit SHA to test.
-- `target_version`: `1.0.0` for a Production Stable target or
-  `1.0.0-beta.1` for a Production Beta target.
-- `attempt`: a positive candidate attempt number such as `1` or `2`.
-- `promoted_from_beta_tag`: leave empty for Beta. For Stable, enter the exact
-  tested Beta staging tag that becomes the RC's source baseline.
+- `channel`: choose `beta` or `stable`.
+- `beta_number`: for Beta only, enter the Production Beta number such as `1`.
+- `stable_parent_beta_tag`: for Stable only, enter the exact tested Beta
+  staging tag that becomes the RC's source baseline.
 
-The workflow derives the update channel from `target_version`; there is no
-separate channel choice to enter incorrectly. A plain target becomes a Stable
-RC, while a Beta target becomes a Beta staging attempt:
+The workflow reads the release train from the selected source's `package.json`.
+It derives the Production target from the channel and Beta number, then scans
+both TestProduction Releases and Git tags to select the next unused immutable
+candidate number. Users do not enter the target version or attempt:
 
 `RC` means **Release Candidate**. The Beta candidate suffix deliberately uses
 the full word `staging` instead of a project-specific abbreviation.
 
 ```text
-target_version=1.0.0, attempt=2
-promoted_from_beta_tag=v1.0.0-beta.2.staging.3+staging.beta
--> stable channel, version 1.0.0-rc.2
+package.json=1.0.0, channel=stable
+stable_parent_beta_tag=v1.0.0-beta.2.staging.3+staging.beta
+existing Stable candidates=rc.1
+-> version 1.0.0-rc.2
 
-target_version=1.0.0-beta.1, attempt=2
-promoted_from_beta_tag=
--> beta channel, version 1.0.0-beta.1.staging.2
+package.json=1.0.0, channel=beta, beta_number=1
+stable_parent_beta_tag=
+existing Beta candidates=beta.1.staging.1
+-> version 1.0.0-beta.1.staging.2
 ```
+
+GitHub's native manual-run form cannot conditionally hide inputs, so both
+channel-specific fields remain visible. Fill only `beta_number` for Beta or
+`stable_parent_beta_tag` for Stable; the workflow validates the combination.
 
 The workflow builds and verifies the signed app before publishing. It then
 updates the target repository's `staging` anchor branch and uploads the DMG,
@@ -123,7 +129,8 @@ v1.0.0-rc.2+staging.stable
 v1.0.0-beta.1.staging.2+staging.beta
 ```
 
-All target tags are immutable. If a candidate needs a code change, publish the
+All target tags are immutable. If a candidate needs a code change, rerun the
+same channel selection and let the workflow publish the automatically resolved
 next attempt instead of replacing the old tag:
 
 ```text
@@ -139,9 +146,10 @@ deliberately deleting both that TestProduction Release and its Git tag, which
 should be reserved for pre-release repository cleanup rather than normal
 candidate iteration.
 
-The workflow enforces the next attempt for the same target. `package.json`
-stores the release train only: source `1.0.0` may produce `1.0.0-beta.N`,
-`1.0.0-rc.N`, or final `1.0.0`. A different train such as `1.1.0` is rejected.
+The workflow calculates and enforces the next attempt for the same target.
+`package.json` stores the release train only: source `1.0.0` may produce
+`1.0.0-beta.N`, `1.0.0-rc.N`, or final `1.0.0`. A different train such as
+`1.1.0` is rejected.
 The candidate version is injected into the Staging package, and its target
 version is injected again when the exact source commit is rebuilt for
 Production. After a promotable candidate is published, `repository_dispatch`
@@ -150,14 +158,14 @@ entered again. The same workflow can be started manually with an existing
 candidate tag to recover from a transient failure without rebuilding the
 immutable TestProduction candidate.
 
-A Stable RC additionally embeds the complete selected Beta candidate metadata.
-The Staging workflow rejects a Beta from another final-version line, a
-superseded attempt for that Beta target, or a Stable source commit that does not
-descend from the Beta source commit. The candidate and final publication gates
-download the Beta metadata again, verify the lineage, and show the Beta and RC
-source SHAs. Source changes after Beta are allowed because release metadata or
-fixes may be necessary, but the file diff is displayed and the Stable RC must
-be tested again.
+A Stable RC additionally embeds the complete manually selected Beta candidate
+metadata. The Staging workflow rejects a Beta from another final-version line,
+a superseded attempt for that Beta target, or a Stable source commit that does
+not contain the Beta source commit in its Git history. The candidate and final
+publication gates download the Beta metadata again, verify the lineage, and
+show the Beta and RC source SHAs. Source changes after Beta are allowed because
+release metadata or fixes may be necessary, but the file diff is displayed and
+the Stable RC must be tested again.
 
 The candidate approval job accepts only the highest published attempt for the
 exact Stable or Beta target. It rebuilds the exact candidate source with the
@@ -181,13 +189,12 @@ verification. A published Production release is never replaced.
 
 Stable staging candidates use the `latest` update metadata and normal GitHub
 Release status. Beta candidates use `beta` metadata and GitHub prerelease
-status. The channel derived from `target_version` becomes the first-run default,
-but the Staging app keeps the same bundle identifier and allows switching
-between Stable and Beta in Settings just like Production. Generated update
-metadata for both channels lets Beta candidates update to later Beta candidates
-or a final Stable candidate. The TestProduction repository must remain public
-because packaged clients cannot safely contain a private-repository access
-token.
+status. The selected channel becomes the first-run default, but the Staging app
+keeps the same bundle identifier and allows switching between Stable and Beta
+in Settings just like Production. Generated update metadata for both channels
+lets Beta candidates update to later Beta candidates or a final Stable
+candidate. The TestProduction repository must remain public because packaged
+clients cannot safely contain a private-repository access token.
 
 When Stable switches to Beta, the app records that exact Stable version as its
 return target. A later Stable return reads update metadata directly from that
@@ -210,14 +217,12 @@ paths even when the destination build no longer reads them. Do not implement
 cleanup by deleting unknown files. The authoritative matrix and retirement
 rules are maintained in [App-data lifecycle and channel-safe cleanup](data-lifecycle.md).
 
-For the first Production version there is no real predecessor. The staging
-workflow permits a synthetic target from another release train for update
-testing, but it does not queue Production approval. Both real Stable and Beta
-candidates for the `1.0.0` train require `package.json: 1.0.0`. The approved
-Staging source is rebuilt as Production with the target version injected and
-without the `rc.N` or `staging.N` candidate suffix. Production and Staging use
-different bundle identifiers and update repositories, so the Staging app does
-not update directly into the Production app.
+For the first Production version there is no real predecessor. Both Stable and
+Beta candidates for the `1.0.0` train derive from `package.json: 1.0.0`. The
+approved Staging source is rebuilt as Production with the target version
+injected and without the `rc.N` or `staging.N` candidate suffix. Production and
+Staging use different bundle identifiers and update repositories, so the
+Staging app does not update directly into the Production app.
 
 The first certificate-signed build cannot update an installation made with the
 old per-build ad-hoc signature. Install that first signed build manually once;

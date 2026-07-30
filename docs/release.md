@@ -20,24 +20,26 @@ instead of leaving it pending indefinitely.
 
 ## Stable release
 
-Prepare the intended Production version in `package.json` and commit it before
-creating the RC. A synthetic Staging version remains useful for update tests,
-but it is deliberately not promotable.
+Prepare the intended Production release train in `package.json` and commit it
+before creating the RC.
 
 Run **TestProduction Candidate**:
 
 ```text
 source_ref: main or an exact commit SHA
-target_version: 1.2.3
-attempt: 1
-promoted_from_beta_tag: v1.2.3-beta.2.staging.3+staging.beta
+channel: stable
+beta_number: leave empty
+stable_parent_beta_tag: v1.2.3-beta.2.staging.3+staging.beta
 ```
 
-The selected Beta source commit must be an ancestor of `source_ref`, and both
-must belong to the `1.2.3` version line. The workflow records the complete Beta
-metadata in the Stable RC and shows every changed file since that Beta in the
-run summary. This publishes `1.2.3-rc.1` to TestProduction. After the candidate
-is tested:
+The workflow reads `1.2.3` from the selected source's `package.json` and
+automatically chooses the next unused RC number from the TestProduction
+Releases and tags. The selected Beta source commit must be an ancestor of
+`source_ref`, and both must belong to the `1.2.3` version line. Commits made
+after the tested Beta are allowed, so a Beta bug can be fixed before the Stable
+RC is built. The workflow records the complete Beta metadata in the Stable RC
+and shows every changed file since that Beta in the run summary. After the
+candidate is tested:
 
 1. Open the automatically queued **Production Release** run.
 2. Verify the job title says `Draft 1.2.3 from 1.2.3-rc.1` and follow its
@@ -134,14 +136,17 @@ Candidate** without creating a Production tag:
 
 ```text
 source_ref: main or an exact commit SHA
-target_version: 1.2.3-beta.1
-attempt: 1
-promoted_from_beta_tag: leave empty
+channel: beta
+beta_number: 1
+stable_parent_beta_tag: leave empty
 ```
 
-This produces `1.2.3-beta.1.staging.1`. If it fails testing, keep the same
-target and publish attempt `2`, `3`, and so on. Only the highest attempt for
-that exact Beta target can pass approval.
+The workflow reads `1.2.3` from the selected source's `package.json`, derives
+the Production target `1.2.3-beta.1`, and automatically chooses the next
+unused Staging attempt. The first candidate is
+`1.2.3-beta.1.staging.1`; rerunning the same Beta number after a failed test
+automatically advances to `.staging.2`, `.staging.3`, and so on. Only the
+highest attempt for that exact Beta target can pass approval.
 
 After testing, use the same two **Production Release** approval gates. The
 approved source is rebuilt as Production
@@ -169,3 +174,9 @@ Production release:       1.2.3-beta.2
 `package.json` defines the release train, not the channel build. A `1.2.3`
 source may produce `1.2.3-beta.N`, `1.2.3-rc.N`, and final `1.2.3`, but it
 cannot produce a `1.2.4` or `1.3.0` target.
+
+GitHub's native manual-run form cannot hide or disable one input based on
+another input. `beta_number` and `stable_parent_beta_tag` are therefore both
+visible: fill only the field for the selected channel. The workflow rejects a
+Stable parent from another release train, a non-Beta Release, or a Beta source
+that is not contained in the Stable source history.
