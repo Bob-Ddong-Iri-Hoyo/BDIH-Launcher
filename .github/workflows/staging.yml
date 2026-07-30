@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: "Source branch, tag, or commit SHA to stage"
-        required: true
+        description: "Source ref; Stable only: clear to reuse the selected Beta source"
+        required: false
         default: "main"
         type: string
       channel:
@@ -51,10 +51,100 @@ jobs:
       source_run_url: ${{ steps.candidate.outputs.source_run_url }}
 
     steps:
+      - name: Checkout trusted staging policy
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve candidate source
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.STAGING_RELEASE_TOKEN }}
+          REQUESTED_CHANNEL: ${{ inputs.channel }}
+          REQUESTED_SOURCE_REF: ${{ inputs.source_ref }}
+          STABLE_PARENT_BETA_TAG: ${{ inputs.stable_parent_beta_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Add STAGING_RELEASE_TOKEN to the source repository Actions secrets."
+            exit 1
+          fi
+
+          trusted_main_sha="$(git rev-parse HEAD)"
+          trusted_policy="$RUNNER_TEMP/staging-promotion-policy.mjs"
+          cp scripts/staging-promotion-policy.mjs "$trusted_policy"
+
+          source_ref="$REQUESTED_SOURCE_REF"
+          source_mode="requested"
+          if [[ -z "$source_ref" && "$REQUESTED_CHANNEL" == "beta" ]]; then
+            source_ref="main"
+            source_mode="default-main"
+          elif [[ -z "$source_ref" && "$REQUESTED_CHANNEL" == "stable" ]]; then
+            if [[ -z "$STABLE_PARENT_BETA_TAG" ]]; then
+              echo "::error::Stable with an empty source_ref requires stable_parent_beta_tag."
+              exit 1
+            fi
+
+            parent_dir="$RUNNER_TEMP/stable-parent-source"
+            mkdir -p "$parent_dir"
+            gh release view "$STABLE_PARENT_BETA_TAG" \
+              --repo "$TARGET_REPOSITORY" \
+              --json tagName,isDraft,isPrerelease \
+              > "$parent_dir/release.json"
+            STABLE_PARENT_BETA_TAG="$STABLE_PARENT_BETA_TAG" \
+            PARENT_RELEASE_FILE="$parent_dir/release.json" \
+            node - <<'NODE'
+            const fs = require("fs");
+            const release = JSON.parse(fs.readFileSync(process.env.PARENT_RELEASE_FILE, "utf8"));
+            if (
+              release.tagName !== process.env.STABLE_PARENT_BETA_TAG
+              || release.isDraft
+              || !release.isPrerelease
+            ) {
+              throw new Error("The selected Stable parent must be a published TestProduction Beta.");
+            }
+          NODE
+            gh release download "$STABLE_PARENT_BETA_TAG" \
+              --repo "$TARGET_REPOSITORY" \
+              --pattern staging-source.json \
+              --dir "$parent_dir"
+            node "$trusted_policy" validate-candidate \
+              --file "$parent_dir/staging-source.json" \
+              --expected-tag "$STABLE_PARENT_BETA_TAG" \
+              --expected-channel beta >/dev/null
+
+            parent_repository="$(node "$trusted_policy" field \
+              --file "$parent_dir/staging-source.json" --name sourceRepository)"
+            if [[ "$parent_repository" != "$GITHUB_REPOSITORY" ]]; then
+              echo "::error::Beta candidate source repository mismatch: $parent_repository"
+              exit 1
+            fi
+
+            source_ref="$(node "$trusted_policy" field \
+              --file "$parent_dir/staging-source.json" --name sourceCommit)"
+            if ! git cat-file -e "${source_ref}^{commit}" 2>/dev/null; then
+              git fetch origin "$source_ref"
+            fi
+            if ! git diff --quiet "$source_ref" "$trusted_main_sha" -- .github/workflows; then
+              echo "::error::The exact Beta source predates current workflow changes. Keep source_ref as main or enter a descendant ref that contains the current workflows."
+              exit 1
+            fi
+            source_mode="exact-beta"
+          fi
+
+          {
+            echo "ref=$source_ref"
+            echo "mode=$source_mode"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout candidate source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ steps.source.outputs.ref }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -85,7 +175,7 @@ jobs:
           fi
 
           package_version="$(node -p "require('./package.json').version")"
-          target_version="$(node scripts/staging-promotion-policy.mjs resolve-target \
+          target_version="$(node "$RUNNER_TEMP/staging-promotion-policy.mjs" resolve-target \
             --source-version "$package_version" \
             --channel "$REQUESTED_CHANNEL" \
             --beta-number "${BETA_NUMBER:-0}")"
@@ -124,7 +214,7 @@ jobs:
           );
           NODE
 
-          node scripts/staging-promotion-policy.mjs resolve-next \
+          node "$RUNNER_TEMP/staging-promotion-policy.mjs" resolve-next \
             --target-version "$target_version" \
             --releases "$RUNNER_TEMP/staging-candidate-identities.json" \
             --github-output "$GITHUB_OUTPUT"
@@ -132,7 +222,7 @@ jobs:
           source_sha="$(git rev-parse HEAD)"
           source_short_sha="$(git rev-parse --short=8 HEAD)"
           source_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          node scripts/staging-promotion-policy.mjs validate-source-train \
+          node "$RUNNER_TEMP/staging-promotion-policy.mjs" validate-source-train \
             --source-version "$package_version" \
             --target-version "$target_version" >/dev/null
           {
@@ -164,7 +254,7 @@ jobs:
           fi
 
           package_version="$(node -p "require('./package.json').version")"
-          node scripts/staging-promotion-policy.mjs validate-source-train \
+          node "$RUNNER_TEMP/staging-promotion-policy.mjs" validate-source-train \
             --source-version "$package_version" \
             --target-version "$TARGET_VERSION" >/dev/null
 
@@ -178,7 +268,7 @@ jobs:
             --repo "$TARGET_REPOSITORY" \
             --limit 100 \
             --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/staging-releases.json"
-          node scripts/staging-promotion-policy.mjs assert-next-attempt \
+          node "$RUNNER_TEMP/staging-promotion-policy.mjs" assert-next-attempt \
             --releases "$RUNNER_TEMP/staging-candidate-identities.json" \
             --target-version "$TARGET_VERSION" \
             --attempt "$STAGING_ATTEMPT"
@@ -219,14 +309,14 @@ jobs:
               --repo "$TARGET_REPOSITORY" \
               --pattern staging-source.json \
               --dir "$promoted_dir"
-            node scripts/staging-promotion-policy.mjs validate-candidate \
+            node "$RUNNER_TEMP/staging-promotion-policy.mjs" validate-candidate \
               --file "$promoted_dir/staging-source.json" \
               --expected-tag "$STABLE_PARENT_BETA_TAG" \
               --expected-channel beta >/dev/null
 
-            beta_target="$(node scripts/staging-promotion-policy.mjs field --file "$promoted_dir/staging-source.json" --name targetVersion)"
-            beta_source="$(node scripts/staging-promotion-policy.mjs field --file "$promoted_dir/staging-source.json" --name sourceCommit)"
-            beta_repository="$(node scripts/staging-promotion-policy.mjs field --file "$promoted_dir/staging-source.json" --name sourceRepository)"
+            beta_target="$(node "$RUNNER_TEMP/staging-promotion-policy.mjs" field --file "$promoted_dir/staging-source.json" --name targetVersion)"
+            beta_source="$(node "$RUNNER_TEMP/staging-promotion-policy.mjs" field --file "$promoted_dir/staging-source.json" --name sourceCommit)"
+            beta_repository="$(node "$RUNNER_TEMP/staging-promotion-policy.mjs" field --file "$promoted_dir/staging-source.json" --name sourceRepository)"
             if [[ "${beta_target%%-*}" != "$TARGET_VERSION" ]]; then
               echo "::error::Beta target $beta_target cannot be promoted to Stable $TARGET_VERSION."
               exit 1
@@ -235,7 +325,7 @@ jobs:
               echo "::error::Beta candidate source repository mismatch: $beta_repository"
               exit 1
             fi
-            node scripts/staging-promotion-policy.mjs assert-current-candidate \
+            node "$RUNNER_TEMP/staging-promotion-policy.mjs" assert-current-candidate \
               --releases "$RUNNER_TEMP/staging-releases.json" \
               --target-version "$beta_target" \
               --candidate-tag "$STABLE_PARENT_BETA_TAG" >/dev/null
@@ -424,7 +514,7 @@ jobs:
             ].join("\n"));
           }
           NODE
-          node "$GITHUB_WORKSPACE/scripts/staging-promotion-policy.mjs" validate-candidate \
+          node "$RUNNER_TEMP/staging-promotion-policy.mjs" validate-candidate \
             --file candidate-source.json >/dev/null
 
           git add README.md candidate-source.json
@@ -492,7 +582,7 @@ jobs:
             "",
           ].join("\n"));
           NODE
-          node scripts/staging-promotion-policy.mjs validate-candidate \
+          node "$RUNNER_TEMP/staging-promotion-policy.mjs" validate-candidate \
             --file release/staging-source.json >/dev/null
 
           assets=(release/*.dmg release/*.zip release/*.yml release/*.blockmap release/staging-source.json)

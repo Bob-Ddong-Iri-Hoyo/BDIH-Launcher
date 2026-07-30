@@ -78,7 +78,9 @@ the installed Production or Nightly app.
 
 Run **TestProduction Candidate** manually from GitHub Actions and provide:
 
-- `source_ref`: the exact branch, tag, or commit SHA to test.
+- `source_ref`: defaults to `main`. For Stable only, clear it to reuse the exact
+  source commit recorded by `stable_parent_beta_tag`, or enter a descendant ref
+  containing fixes made after Beta.
 - `channel`: choose `beta` or `stable`.
 - `beta_number`: for Beta only, enter the Production Beta number such as `1`.
 - `stable_parent_beta_tag`: for Stable only, enter the exact tested Beta
@@ -107,6 +109,28 @@ existing Beta candidates=beta.1.staging.1
 GitHub's native manual-run form cannot conditionally hide inputs, so both
 channel-specific fields remain visible. Fill only `beta_number` for Beta or
 `stable_parent_beta_tag` for Stable; the workflow validates the combination.
+`source_ref` remains `main` by default so a Beta build needs no extra source
+selection.
+
+For Stable, source selection behaves as follows:
+
+```text
+source_ref=main
+-> build the RC from current main; the selected Beta must be in its history
+
+source_ref=
+-> read sourceCommit from stable_parent_beta_tag and reuse that exact Beta source
+
+source_ref=<branch, tag, or SHA>
+-> build from that explicit descendant and show every change since Beta
+```
+
+The workflow checks out current `main` first and copies its trusted promotion
+policy to runner temporary storage before checking out the resolved build
+source. Exact Beta-source reuse is allowed only when that source has the same
+`.github/workflows` tree as current `main`. Otherwise the later Production
+Draft would fail GitHub's workflow-write protection, so use `main` or a
+descendant ref containing the current workflows.
 
 The workflow builds and verifies the signed app before publishing. It then
 updates the target repository's `staging` anchor branch and uploads the DMG,

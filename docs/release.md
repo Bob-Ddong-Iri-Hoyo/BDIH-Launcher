@@ -26,7 +26,7 @@ before creating the RC.
 Run **TestProduction Candidate**:
 
 ```text
-source_ref: main or an exact commit SHA
+source_ref: main, a descendant ref with fixes, or clear it to reuse the Beta source
 channel: stable
 beta_number: leave empty
 stable_parent_beta_tag: v1.2.3-beta.2.staging.3+staging.beta
@@ -34,12 +34,18 @@ stable_parent_beta_tag: v1.2.3-beta.2.staging.3+staging.beta
 
 The workflow reads `1.2.3` from the selected source's `package.json` and
 automatically chooses the next unused RC number from the TestProduction
-Releases and tags. The selected Beta source commit must be an ancestor of
-`source_ref`, and both must belong to the `1.2.3` version line. Commits made
-after the tested Beta are allowed, so a Beta bug can be fixed before the Stable
-RC is built. The workflow records the complete Beta metadata in the Stable RC
-and shows every changed file since that Beta in the run summary. After the
-candidate is tested:
+Releases and tags. Keep the default `main` to build the RC from current main.
+If no commit was added after the Beta, `main` resolves to the same source SHA.
+Clear `source_ref` to read and reuse the exact source commit recorded by
+`stable_parent_beta_tag`. Enter another branch, tag, or commit SHA to build
+from a specific descendant containing Beta fixes.
+
+The selected Beta source commit must be an ancestor of the resolved Stable
+source, and both must belong to the `1.2.3` version line. Commits made after the
+tested Beta are allowed, so a Beta bug can be fixed before the Stable RC is
+built. The workflow records the complete Beta metadata in the Stable RC and
+shows every changed file since that Beta in the run summary. After the candidate
+is tested:
 
 1. Open the automatically queued **Production Release** run.
 2. Verify the job title says `Draft 1.2.3 from 1.2.3-rc.1` and follow its
@@ -135,7 +141,7 @@ apps, so no Beta-only version commit is required. Run **TestProduction
 Candidate** without creating a Production tag:
 
 ```text
-source_ref: main or an exact commit SHA
+source_ref: main or an exact source-repository ref
 channel: beta
 beta_number: 1
 stable_parent_beta_tag: leave empty
@@ -180,3 +186,11 @@ another input. `beta_number` and `stable_parent_beta_tag` are therefore both
 visible: fill only the field for the selected channel. The workflow rejects a
 Stable parent from another release train, a non-Beta Release, or a Beta source
 that is not contained in the Stable source history.
+
+`source_ref` defaults to `main` for convenient Beta and Stable builds. Clearing
+it has special meaning only for Stable: the workflow downloads the selected
+Beta's `staging-source.json` and checks out its recorded source commit. The
+current trusted policy is preserved separately before that checkout. Exact
+reuse is rejected when the Beta predates current workflow changes, because
+GitHub cannot create the later Production Release against that outdated
+workflow tree; keep `main` or enter a descendant ref in that case.
