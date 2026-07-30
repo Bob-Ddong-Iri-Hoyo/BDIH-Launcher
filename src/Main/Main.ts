@@ -3,7 +3,7 @@ import { config as load_dotenv_config } from "dotenv";
 import { mkdirSync } from "fs";
 import path from "path";
 import { BDIH_YOUTUBE_HANDLE } from "../Common/Constant/RuntimeSources";
-import { get_update_test_runtime_paths, is_nightly_launcher_build, is_staging_launcher_build, is_update_test_build } from "./Environment/AppPaths";
+import { get_app_data_root, get_update_test_runtime_paths, is_nightly_launcher_build, is_staging_launcher_build, is_update_test_build } from "./Environment/AppPaths";
 import { get_app_icon_path } from "./Environment/AppIcon";
 import { apply_localized_app_name } from "./Environment/AppIdentity";
 import { bottleManager } from "./Manager/BottleManager";
@@ -77,6 +77,14 @@ if (IS_UPDATE_TEST_BUILD) {
   app.setPath("music", runtimePaths.musicRoot);
   app.setPath("pictures", runtimePaths.picturesRoot);
   app.setPath("videos", runtimePaths.videosRoot);
+} else {
+  // Keep Electron's Chromium profile in the same channel-specific application
+  // data root as the launcher instead of deriving another directory from the
+  // package name (for example, the legacy "BDIH-Launcher" path).
+  const appDataRoot = get_app_data_root();
+  mkdirSync(appDataRoot, { recursive: true });
+  app.setPath("userData", appDataRoot);
+  app.setPath("sessionData", appDataRoot);
 }
 
 load_dotenv_config({ quiet: true });

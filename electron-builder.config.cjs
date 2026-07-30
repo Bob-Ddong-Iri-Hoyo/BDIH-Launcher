@@ -9,7 +9,10 @@ const releaseType = process.env.RELEASE_TYPE || "release";
 const releaseChannel = process.env.BDIH_RELEASE_CHANNEL || channel;
 const isNightly = releaseChannel === "nightly";
 const requireCodeSigning = process.env.BDIH_REQUIRE_CODE_SIGNING === "true";
-const productName = isNightly ? "BDIH-Launcher Nightly" : "BDIH-Launcher";
+const productName = isNightly ? "BDIH Launcher Nightly" : "BDIH Launcher";
+const artifactName = isNightly
+  ? "BDIH-Launcher-Nightly-${version}-${arch}.${ext}"
+  : "BDIH-Launcher-${version}-${arch}.${ext}";
 const appId = isNightly ? "day.faby.bdih-launcher.nightly" : "day.faby.bdih-launcher";
 
 function resolveBridgeRequirements() {
@@ -51,8 +54,8 @@ const bridgeRequirements = requireCodeSigning
 module.exports = {
   appId,
   productName,
+  artifactName,
   ...(isNightly ? {
-    artifactName: "BDIH-Launcher-Nightly-${version}-${arch}.${ext}",
     extraMetadata: {
       name: "bdih-launcher-nightly",
       productName,

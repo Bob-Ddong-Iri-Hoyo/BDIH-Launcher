@@ -439,7 +439,7 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name 'BDIH-Launcher.app' -print -quit)"
+          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name 'BDIH Launcher.app' -print -quit)"
           if [[ -z "$app_path" ]]; then
             echo "::error::No packaged Production application was found."
             exit 1
@@ -793,9 +793,9 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/verified-app"
           ditto -x -k "${zips[0]}" "$RUNNER_TEMP/verified-app"
-          app_path="$(find "$RUNNER_TEMP/verified-app" -maxdepth 2 -type d -name 'BDIH-Launcher.app' -print -quit)"
+          app_path="$(find "$RUNNER_TEMP/verified-app" -maxdepth 2 -type d -name 'BDIH Launcher.app' -print -quit)"
           if [[ -z "$app_path" ]]; then
-            echo "::error::Production ZIP does not contain BDIH-Launcher.app."
+            echo "::error::Production ZIP does not contain BDIH Launcher.app."
             exit 1
           fi
 

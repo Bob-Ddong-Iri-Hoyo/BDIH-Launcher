@@ -386,7 +386,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name '*.app' -print -quit)"
+          app_path="$(find release -mindepth 2 -maxdepth 2 -type d -name 'BDIH Launcher Nightly.app' -print -quit)"
           if [[ -z "$app_path" ]]; then
             echo "::error::No packaged macOS application was found."
             exit 1

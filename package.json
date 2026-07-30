@@ -65,7 +65,8 @@
   "license": "MIT",
   "build": {
     "appId": "day.faby.bdih-launcher",
-    "productName": "BDIH-Launcher",
+    "productName": "BDIH Launcher",
+    "artifactName": "BDIH-Launcher-${version}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },

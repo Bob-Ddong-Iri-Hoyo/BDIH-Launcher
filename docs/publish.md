@@ -336,8 +336,8 @@ install a bridge release may require a manual reinstall after activation.
 Inspect a bridge build when needed:
 
 ```bash
-codesign -dr - "/Applications/BDIH-Launcher.app"
-codesign -dr - "/Applications/BDIH-Launcher Nightly.app"
+codesign -dr - "/Applications/BDIH Launcher.app"
+codesign -dr - "/Applications/BDIH Launcher Nightly.app"
 ```
 
 The output must contain the old and replacement SHA-1 certificate hashes shown
