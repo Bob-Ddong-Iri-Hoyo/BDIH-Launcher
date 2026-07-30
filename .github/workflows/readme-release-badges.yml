@@ -1,0 +1,84 @@
+name: README Release Badges
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - README.MD
+      - scripts/generate-readme-release-badges.mjs
+      - .github/workflows/readme-release-badges.yml
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Nightly
+      - TestProduction Candidate
+      - Production Release
+    types:
+      - completed
+
+concurrency:
+  group: readme-release-badges
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout trusted source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Generate release badge data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/generate-readme-release-badges.mjs \
+            --output "$RUNNER_TEMP/readme-release-badges"
+
+      - name: Publish badge data branch
+        env:
+          BADGE_BRANCH: readme-badges
+          BADGE_OUTPUT: ${{ runner.temp }}/readme-release-badges
+          BADGE_WORKTREE: ${{ runner.temp }}/readme-release-badges-branch
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --heads origin "refs/heads/$BADGE_BRANCH" >/dev/null; then
+            git fetch --depth=1 origin "$BADGE_BRANCH"
+            git worktree add --detach "$BADGE_WORKTREE" FETCH_HEAD
+            git -C "$BADGE_WORKTREE" switch -C "$BADGE_BRANCH"
+          else
+            git worktree add --detach "$BADGE_WORKTREE" HEAD
+            git -C "$BADGE_WORKTREE" switch --orphan "$BADGE_BRANCH"
+            git -C "$BADGE_WORKTREE" rm -r --cached --ignore-unmatch .
+          fi
+
+          git -C "$BADGE_WORKTREE" rm -r --ignore-unmatch release
+          mkdir -p "$BADGE_WORKTREE/release"
+          cp "$BADGE_OUTPUT"/*.json "$BADGE_WORKTREE/release/"
+          touch "$BADGE_WORKTREE/.nojekyll"
+
+          git -C "$BADGE_WORKTREE" add .nojekyll release
+          if git -C "$BADGE_WORKTREE" diff --cached --quiet; then
+            echo "README release badge data is already current."
+            exit 0
+          fi
+
+          git -C "$BADGE_WORKTREE" config user.name "github-actions[bot]"
+          git -C "$BADGE_WORKTREE" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$BADGE_WORKTREE" commit -m "update README release badges"
+          git -C "$BADGE_WORKTREE" push origin "HEAD:refs/heads/$BADGE_BRANCH"

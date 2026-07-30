@@ -32,7 +32,7 @@
     <tr>
       <th>Channel</th>
       <th>Latest version</th>
-      <th>Latest release downloads</th>
+      <th>Latest installer downloads (.dmg/.zip)</th>
     </tr>
   </thead>
   <tbody>
@@ -40,12 +40,12 @@
       <td align="center"><b>Stable</b></td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/releases/latest">
-          <img alt="Latest stable release" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher?display_name=tag&amp;sort=semver&amp;label=Stable&amp;color=2ea44f&amp;style=flat-square"/>
+          <img alt="Latest stable release" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fstable-version.json&amp;style=flat-square"/>
         </a>
       </td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/releases/latest">
-          <img alt="Latest stable release downloads" src="https://img.shields.io/github/downloads/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/latest/total?label=Downloads&amp;color=2ea44f&amp;style=flat-square"/>
+          <img alt="Latest stable installer downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fstable-downloads.json&amp;style=flat-square"/>
         </a>
       </td>
     </tr>
@@ -53,12 +53,12 @@
       <td align="center"><b>Beta</b></td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/releases?q=beta">
-          <img alt="Latest beta release" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher?include_prereleases&amp;filter=%2A-beta.%2A&amp;display_name=tag&amp;sort=semver&amp;label=Beta&amp;color=d97706&amp;style=flat-square"/>
+          <img alt="Latest beta release" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fbeta-version.json&amp;style=flat-square"/>
         </a>
       </td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/releases?q=beta">
-          <img alt="Latest beta release downloads" src="https://img.shields.io/github/downloads-pre/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/latest/total?sort=semver&amp;label=Downloads&amp;color=d97706&amp;style=flat-square"/>
+          <img alt="Latest beta installer downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fbeta-downloads.json&amp;style=flat-square"/>
         </a>
       </td>
     </tr>
@@ -66,12 +66,12 @@
       <td align="center"><b>Staging</b></td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction/releases">
-          <img alt="Latest staging release" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction?include_prereleases&amp;display_name=tag&amp;sort=date&amp;label=Staging&amp;color=7c3aed&amp;style=flat-square"/>
+          <img alt="Latest staging release" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fstaging-version.json&amp;style=flat-square"/>
         </a>
       </td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction/releases">
-          <img alt="Staging release downloads" src="https://img.shields.io/github/downloads/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction/total?label=Downloads&amp;color=7c3aed&amp;style=flat-square"/>
+          <img alt="Latest staging installer downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fstaging-downloads.json&amp;style=flat-square"/>
         </a>
       </td>
     </tr>
@@ -79,12 +79,12 @@
       <td align="center"><b>Nightly</b></td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-nightly/releases">
-          <img alt="Latest nightly release" src="https://img.shields.io/github/v/release/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-nightly?include_prereleases&amp;filter=%2A-nightly.%2A&amp;display_name=tag&amp;sort=date&amp;label=Nightly&amp;color=2563eb&amp;style=flat-square"/>
+          <img alt="Latest nightly release" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fnightly-version.json&amp;style=flat-square"/>
         </a>
       </td>
       <td align="left">
         <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-nightly/releases">
-          <img alt="Latest nightly release downloads" src="https://img.shields.io/github/downloads-pre/Bob-Ddong-Iri-Hoyo/BDIH-Launcher-nightly/latest/total?sort=date&amp;label=Downloads&amp;color=2563eb&amp;style=flat-square"/>
+          <img alt="Latest nightly installer downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fnightly-downloads.json&amp;style=flat-square"/>
         </a>
       </td>
     </tr>
@@ -93,7 +93,7 @@
 
 <p align="center">
   <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/releases">
-    <img alt="Stable repository total downloads" src="https://img.shields.io/github/downloads/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/total?label=Stable%20All%20Downloads&amp;color=444444&amp;style=flat-square"/>
+    <img alt="Production installer downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FBob-Ddong-Iri-Hoyo%2FBDIH-Launcher%2Freadme-badges%2Frelease%2Fproduction-downloads.json&amp;style=flat-square"/>
   </a>
 </p>
 

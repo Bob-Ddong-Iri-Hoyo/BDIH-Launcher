@@ -43,6 +43,7 @@
     "test:jest": "jest",
     "test:update-build-script": "node --test tests/scripts/build-update-test.test.mjs",
     "test:staging-promotion-policy": "node --test tests/scripts/staging-promotion-policy.test.mjs",
+    "test:readme-release-badges": "node --test tests/scripts/generate-readme-release-badges.test.mjs",
     "test:signing-script": "node --test tests/scripts/create-p12.test.mjs",
     "test:guardian": "node --test tests/scripts/guardian.test.mjs",
     "test:guardian:app": "pnpm build && node --test tests/scripts/guardian-app.integration.test.mjs",
