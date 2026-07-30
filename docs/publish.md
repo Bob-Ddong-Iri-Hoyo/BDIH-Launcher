@@ -163,11 +163,10 @@ The candidate approval job accepts only the highest published attempt for the
 exact Stable or Beta target. It rebuilds the exact candidate source with the
 Production identity, verifies its signature and channel update metadata,
 records SHA-256 checksums in `promotion-source.json`, and creates a Draft.
-The next job in the same run calls the reusable Production publish gate and
-waits on the separate `production-release` environment. It downloads
-everything again, confirms the candidate is still current, checks provenance,
-checksums, tag target, and the signed app from the ZIP, then publishes the
-Draft using the candidate channel.
+The next job in the same run waits on the separate `production-release`
+environment. It downloads everything again, confirms the candidate is still
+current, checks provenance, checksums, tag target, and the signed app from the
+ZIP, then publishes the Draft using the candidate channel.
 
 A manually requeued candidate must contain the same `.github/workflows` tree
 as current `main`. GitHub cannot use the workflow `GITHUB_TOKEN` to create a

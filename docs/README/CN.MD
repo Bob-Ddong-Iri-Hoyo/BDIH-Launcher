@@ -101,10 +101,7 @@
 
 <p align="center">
   <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/promote-production-candidate.yml">
-    <img alt="Production候选审批状态" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/promote-production-candidate.yml/badge.svg"/>
-  </a>
-  <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/publish-production-draft.yml">
-    <img alt="Production发布工作流状态" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/publish-production-draft.yml/badge.svg"/>
+    <img alt="Production发布工作流状态" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/promote-production-candidate.yml/badge.svg"/>
   </a>
   <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/staging.yml">
     <img alt="Staging 工作流状态" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/staging.yml/badge.svg"/>

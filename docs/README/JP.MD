@@ -101,10 +101,7 @@
 
 <p align="center">
   <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/promote-production-candidate.yml">
-    <img alt="Production候補承認の状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/promote-production-candidate.yml/badge.svg"/>
-  </a>
-  <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/publish-production-draft.yml">
-    <img alt="Production公開ワークフローの状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/publish-production-draft.yml/badge.svg"/>
+    <img alt="Productionリリースワークフローの状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/promote-production-candidate.yml/badge.svg"/>
   </a>
   <a href="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/staging.yml">
     <img alt="Stagingワークフローの状態" src="https://github.com/Bob-Ddong-Iri-Hoyo/BDIH-Launcher/actions/workflows/staging.yml/badge.svg"/>
