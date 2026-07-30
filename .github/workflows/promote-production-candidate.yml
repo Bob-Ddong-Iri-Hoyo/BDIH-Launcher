@@ -414,6 +414,8 @@ jobs:
           PUBLISH_REPOSITORY: ${{ github.repository }}
           UPDATE_CHANNEL: ${{ github.event.client_payload.channel == 'beta' && 'beta' || 'latest' }}
           RELEASE_TYPE: ${{ github.event.client_payload.channel == 'beta' && 'prerelease' || 'release' }}
+          BDIH_RELEASE_CHANNEL: ${{ github.event.client_payload.channel }}
+          BDIH_RELEASE_SOURCE_COMMIT: ${{ github.event.client_payload.source_commit }}
           BDIH_REQUIRE_CODE_SIGNING: "true"
           BDIH_DISCORD_CLIENT_ID: ${{ vars.BDIH_DISCORD_CLIENT_ID || secrets.BDIH_DISCORD_CLIENT_ID }}
           BDIH_DISCORD_SHOW_IDLE: ${{ vars.BDIH_DISCORD_SHOW_IDLE || 'true' }}
@@ -435,6 +437,7 @@ jobs:
           MACOS_SIGNING_IDENTITY: BDIH Launcher Update Signing
           TARGET_VERSION: ${{ github.event.client_payload.target_version }}
           CANDIDATE_CHANNEL: ${{ github.event.client_payload.channel }}
+          SOURCE_SHA: ${{ github.event.client_payload.source_commit }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -471,6 +474,47 @@ jobs:
             echo "::error::$metadata_name does not describe Production $TARGET_VERSION."
             exit 1
           fi
+
+          if (( ${#zips[@]} != 1 )); then
+            echo "::error::Expected exactly one Production ZIP, found ${#zips[@]}."
+            exit 1
+          fi
+
+          verify_release_marker() {
+            local marker_path="$1"
+            MARKER_PATH="$marker_path" \
+            EXPECTED_CHANNEL="$CANDIDATE_CHANNEL" \
+            EXPECTED_SOURCE="$SOURCE_SHA" \
+            node <<'NODE'
+          const fs = require("fs");
+          const markerPath = process.env.MARKER_PATH;
+          if (!markerPath || !fs.existsSync(markerPath)) {
+            throw new Error(`Production package is missing ${markerPath || "bdih-release-build.json"}.`);
+          }
+          const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+          if (
+            marker.schemaVersion !== 1
+            || marker.channel !== process.env.EXPECTED_CHANNEL
+            || marker.sourceCommit !== process.env.EXPECTED_SOURCE
+          ) {
+            throw new Error(
+              `Production release marker does not match the approved channel and source: ${JSON.stringify(marker)}`,
+            );
+          }
+          NODE
+          }
+
+          verify_release_marker "$app_path/Contents/Resources/bdih-release-build.json"
+
+          packaged_zip_dir="$RUNNER_TEMP/production-draft-zip"
+          mkdir -p "$packaged_zip_dir"
+          ditto -x -k "${zips[0]}" "$packaged_zip_dir"
+          packaged_zip_app="$(find "$packaged_zip_dir" -maxdepth 2 -type d -name 'BDIH Launcher.app' -print -quit)"
+          if [[ -z "$packaged_zip_app" ]]; then
+            echo "::error::Production ZIP does not contain BDIH Launcher.app."
+            exit 1
+          fi
+          verify_release_marker "$packaged_zip_app/Contents/Resources/bdih-release-build.json"
 
       - name: Create unpublished Production draft
         id: draft
@@ -781,6 +825,8 @@ jobs:
       - name: Verify the signed app from the Draft ZIP
         env:
           MACOS_SIGNING_IDENTITY: BDIH Launcher Update Signing
+          CANDIDATE_CHANNEL: ${{ github.event.client_payload.channel }}
+          SOURCE_SHA: ${{ github.event.client_payload.source_commit }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -808,6 +854,27 @@ jobs:
           fi
           codesign -dr - "$app_path"
           bash scripts/verifyMacosSigningBridge.sh "$app_path"
+
+          MARKER_PATH="$app_path/Contents/Resources/bdih-release-build.json" \
+          EXPECTED_CHANNEL="$CANDIDATE_CHANNEL" \
+          EXPECTED_SOURCE="$SOURCE_SHA" \
+          node <<'NODE'
+          const fs = require("fs");
+          const markerPath = process.env.MARKER_PATH;
+          if (!markerPath || !fs.existsSync(markerPath)) {
+            throw new Error("Draft ZIP is missing bdih-release-build.json.");
+          }
+          const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+          if (
+            marker.schemaVersion !== 1
+            || marker.channel !== process.env.EXPECTED_CHANNEL
+            || marker.sourceCommit !== process.env.EXPECTED_SOURCE
+          ) {
+            throw new Error(
+              `Draft ZIP release marker does not match the approved channel and source: ${JSON.stringify(marker)}`,
+            );
+          }
+          NODE
 
       - name: Publish the verified Production Draft
         env:

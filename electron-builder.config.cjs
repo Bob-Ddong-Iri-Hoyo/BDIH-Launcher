@@ -6,7 +6,13 @@ const [owner, repo] = repository.split("/");
 
 const channel = process.env.UPDATE_CHANNEL || "latest";
 const releaseType = process.env.RELEASE_TYPE || "release";
-const releaseChannel = process.env.BDIH_RELEASE_CHANNEL || channel;
+const requestedReleaseChannel = (process.env.BDIH_RELEASE_CHANNEL || channel).trim().toLowerCase();
+const releaseChannel = requestedReleaseChannel === "latest" ? "stable" : requestedReleaseChannel;
+
+if (!["stable", "beta", "nightly"].includes(releaseChannel)) {
+  throw new Error(`Unsupported BDIH release channel: ${requestedReleaseChannel}`);
+}
+
 const isNightly = releaseChannel === "nightly";
 const requireCodeSigning = process.env.BDIH_REQUIRE_CODE_SIGNING === "true";
 const productName = isNightly ? "BDIH Launcher Nightly" : "BDIH Launcher";
@@ -14,6 +20,22 @@ const artifactName = isNightly
   ? "BDIH-Launcher-Nightly-${version}-${arch}.${ext}"
   : "BDIH-Launcher-${version}-${arch}.${ext}";
 const appId = isNightly ? "day.faby.bdih-launcher.nightly" : "day.faby.bdih-launcher";
+const releaseMarkerPath = path.resolve(
+  __dirname,
+  "node_modules",
+  ".cache",
+  "bdih-launcher",
+  "release-build.json",
+);
+
+if (!isNightly) {
+  fs.mkdirSync(path.dirname(releaseMarkerPath), { recursive: true });
+  fs.writeFileSync(releaseMarkerPath, `${JSON.stringify({
+    schemaVersion: 1,
+    channel: releaseChannel,
+    sourceCommit: process.env.BDIH_RELEASE_SOURCE_COMMIT || process.env.GITHUB_SHA || "local",
+  }, null, 2)}\n`);
+}
 
 function resolveBridgeRequirements() {
   const bridgeRoot = path.resolve(__dirname, "build/signing/bridge");
@@ -87,7 +109,12 @@ module.exports = {
         from: "build/nightly-build.json",
         to: "bdih-nightly-build.json",
       },
-    ] : []),
+    ] : [
+      {
+        from: releaseMarkerPath,
+        to: "bdih-release-build.json",
+      },
+    ]),
   ],
   detectUpdateChannel: true,
   generateUpdatesFilesForAllChannels: true,

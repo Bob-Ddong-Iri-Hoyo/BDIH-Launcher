@@ -14,7 +14,7 @@ import { PathAutocompleteInput } from "../../Component/PathAutocompleteInput";
 import { SelectMenu } from "../../Component/SelectMenu";
 import { StatusBadge } from "../../Component/StatusBadge";
 import { Box, Button, FieldLabel, InlineText, Input, Text } from "../../Component/Primitives";
-import { is_supported_locale, LOCALE_OPTIONS, SupportedLocale } from "../../I18n";
+import { FALLBACK_LOCALE, is_supported_locale, LOCALE_OPTIONS, SupportedLocale } from "../../I18n";
 import { ACCENT_COLOR_ITEMS, AccentColor, is_accent_color } from "../../Theme";
 import appIconImage from "../../../../resouces/app/icon/icon.png";
 
@@ -568,7 +568,8 @@ export function PreferenceView({
   }, []);
 
   const currentLanguage = i18n.language.split("-")[0];
-  const selectedLocale = locale ?? (is_supported_locale(currentLanguage) ? currentLanguage : "ko");
+  const selectedLocale = locale
+    ?? (is_supported_locale(currentLanguage) ? currentLanguage : FALLBACK_LOCALE);
   const localeOptions = LOCALE_OPTIONS.map((supportedLocale) => ({
     value: supportedLocale.value,
     label: I18N_RESOURCES[supportedLocale.value]?.translation.localeMeta?.nativeName

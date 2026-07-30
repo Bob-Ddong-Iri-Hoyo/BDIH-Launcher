@@ -86,6 +86,45 @@ test("electron-builder selects channel-specific active bridge requirements", () 
   }
 });
 
+test("electron-builder embeds the selected Production Stable or Beta marker", () => {
+  const workDirectory = mkdtempSync(join(tmpdir(), "bdih-release-marker-config-test-"));
+  const configPath = join(workDirectory, "electron-builder.config.cjs");
+
+  try {
+    copyFileSync(join(projectRoot, "electron-builder.config.cjs"), configPath);
+
+    for (const channel of ["stable", "beta"]) {
+      const result = spawnSync(process.execPath, [
+        "-e",
+        [
+          "const fs = require('fs');",
+          "const config = require(process.argv[1]);",
+          "const resource = config.extraResources.find((entry) => entry.to === 'bdih-release-build.json');",
+          "if (!resource) throw new Error('Missing Production release marker resource.');",
+          "process.stdout.write(fs.readFileSync(resource.from, 'utf8'));",
+        ].join(""),
+        configPath,
+      ], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          BDIH_RELEASE_CHANNEL: channel,
+          BDIH_RELEASE_SOURCE_COMMIT: "0123456789abcdef",
+        },
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), {
+        schemaVersion: 1,
+        channel,
+        sourceCommit: "0123456789abcdef",
+      });
+    }
+  } finally {
+    rmSync(workDirectory, { recursive: true, force: true });
+  }
+});
+
 test("prepares and activates a guarded macOS signing renewal", {
   skip: process.platform !== "darwin" ? "macOS code requirement tools are required" : false,
 }, () => {

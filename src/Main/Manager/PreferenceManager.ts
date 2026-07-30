@@ -7,6 +7,7 @@ import {
   get_default_bottle_prefix_path,
   get_default_dxmt_cache_path,
   get_default_wine_install_path,
+  get_production_update_channel,
   get_staging_update_channel,
   get_legacy_settings_path,
   constrain_update_test_data_path,
@@ -14,6 +15,9 @@ import {
   is_nightly_launcher_build,
   is_update_test_build,
 } from "../Environment/AppPaths";
+import { app } from "electron";
+import { is_supported_locale, normalize_locale } from "../../Common/Util/Locale";
+import type { SupportedLocale } from "../../Common/Util/Locale";
 
 export type LauncherPreference = LauncherPreferencePayload;
 
@@ -34,7 +38,7 @@ type AccentColorPreference = (typeof ACCENT_COLORS)[number];
 
 export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
-  language: "ko",
+  language: "en",
   accentColor: "rose",
   dataRootPath: DEFAULT_DATA_ROOT_PATH,
   wineInstallPath: DEFAULT_WINE_INSTALL_PATH,
@@ -42,7 +46,9 @@ export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
   dxmtCachePath: DEFAULT_DXMT_CACHE_PATH,
   gameInstallPath: path.join(DEFAULT_DATA_ROOT_PATH, "Games"),
   autoCheckUpdates: !is_update_test_build(),
-  updateChannel: is_nightly_launcher_build() ? "nightly" : get_staging_update_channel() ?? "stable",
+  updateChannel: is_nightly_launcher_build()
+    ? "nightly"
+    : get_staging_update_channel() ?? get_production_update_channel() ?? "stable",
   closeToTray: false,
   windowStartupSizeMode: "default",
   windowStartupCustomWidth: LAUNCHER_WINDOW_DEFAULT_SIZE.width,
@@ -65,6 +71,10 @@ export const DEFAULT_LAUNCHER_PREFERENCE: LauncherPreference = {
 export class PreferenceManager {
   private cache: LauncherPreference | null = null;
   private pendingWrite: Promise<void> = Promise.resolve();
+
+  constructor(
+    private readonly systemLocaleProvider: () => string | undefined = read_system_locale,
+  ) {}
 
   async getPreference(forceReload = false): Promise<LauncherPreference> {
     // `forceReload` bypasses the in-memory cache when callers know settings may
@@ -117,7 +127,7 @@ export class PreferenceManager {
           return legacyPreference;
         }
 
-        return DEFAULT_LAUNCHER_PREFERENCE;
+        return this.defaultPreference();
       }
 
       if (error instanceof SyntaxError) {
@@ -125,7 +135,7 @@ export class PreferenceManager {
         console.warn(
           `Invalid launcher settings were moved aside${backupPath ? ` to ${backupPath}` : ""}. Using defaults.`,
         );
-        return DEFAULT_LAUNCHER_PREFERENCE;
+        return this.defaultPreference();
       }
 
       throw error;
@@ -166,7 +176,7 @@ export class PreferenceManager {
 
     return {
       schemaVersion: SETTINGS_SCHEMA_VERSION,
-      language: this.stringOrDefault(record.language, "ko"),
+      language: this.localeOrDefault(record.language),
       accentColor: this.accentColorOrDefault(record.accentColor, "rose"),
       dataRootPath,
       wineInstallPath: get_default_wine_install_path(dataRootPath),
@@ -176,7 +186,10 @@ export class PreferenceManager {
       autoCheckUpdates: this.booleanOrDefault(record.autoCheckUpdates, !is_update_test_build()),
       updateChannel: is_nightly_launcher_build()
         ? "nightly"
-        : this.updateChannelOrDefault(record.updateChannel, get_staging_update_channel() ?? "stable"),
+        : this.updateChannelOrDefault(
+          record.updateChannel,
+          get_staging_update_channel() ?? get_production_update_channel() ?? "stable",
+        ),
       closeToTray: this.booleanOrDefault(record.closeToTray, false),
       windowStartupSizeMode: this.windowStartupSizeModeOrDefault(record.windowStartupSizeMode, "default"),
       windowStartupCustomWidth: this.integerOrDefault(
@@ -219,6 +232,25 @@ export class PreferenceManager {
 
   private stringOrDefault(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
+  }
+
+  private defaultPreference(): LauncherPreference {
+    return {
+      ...DEFAULT_LAUNCHER_PREFERENCE,
+      language: this.defaultLocale(),
+    };
+  }
+
+  private defaultLocale(): SupportedLocale {
+    return normalize_locale(this.systemLocaleProvider());
+  }
+
+  private localeOrDefault(value: unknown): SupportedLocale {
+    if (typeof value !== "string") {
+      return this.defaultLocale();
+    }
+
+    return is_supported_locale(value) ? value : normalize_locale(value);
   }
 
   private booleanOrDefault(value: unknown, fallback: boolean): boolean {
@@ -324,6 +356,14 @@ export class PreferenceManager {
       "code" in error &&
       (error as NodeJS.ErrnoException).code === "ENOENT"
     );
+  }
+}
+
+function read_system_locale(): string | undefined {
+  try {
+    return typeof app?.getLocale === "function" ? app.getLocale() : undefined;
+  } catch {
+    return undefined;
   }
 }
 

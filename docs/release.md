@@ -52,8 +52,8 @@ is tested:
    environment link to the exact TestProduction release.
 3. Approve `production-candidate-approval`.
 4. The workflow revalidates the latest Stable candidate, source commit,
-   `package.json`, signature, update metadata, and assets. It creates only a
-   Draft `v1.2.3`; the updater cannot see it.
+   `package.json`, signature, update metadata, and packaged Stable channel
+   marker. It creates only a Draft `v1.2.3`; the updater cannot see it.
 5. Inspect the Draft and the final publish job waiting in the same
    **Production Release** run.
 6. Verify the Production target, RC, source SHA, and Draft link again, then
@@ -157,7 +157,9 @@ highest attempt for that exact Beta target can pass approval.
 After testing, use the same two **Production Release** approval gates. The
 approved source is rebuilt as Production
 `1.2.3-beta.1`, with `beta-mac.yml`, GitHub prerelease status, and tag
-`v1.2.3-beta.1`. The `.staging.N` suffix never enters the Production version.
+`v1.2.3-beta.1`. Its ZIP also contains a verified Beta release marker so a new
+user profile defaults to the Beta update channel. The `.staging.N` suffix never
+enters the Production version. Existing saved channel choices remain unchanged.
 
 ## Version rule
 

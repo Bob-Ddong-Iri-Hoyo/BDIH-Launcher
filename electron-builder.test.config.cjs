@@ -54,7 +54,8 @@ module.exports = {
     version,
   },
   extraResources: [
-    ...(baseConfig.extraResources || []),
+    ...(baseConfig.extraResources || []).filter((resource) =>
+      resource?.to !== "bdih-release-build.json"),
     {
       from: isNightly ? "build/nightly-update-test-build.json" : "build/update-test-build.json",
       to: isNightly ? "bdih-nightly-update-test.json" : "bdih-update-test.json",

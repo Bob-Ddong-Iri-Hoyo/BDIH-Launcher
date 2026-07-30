@@ -194,7 +194,10 @@ the Stable RC must be tested again.
 The candidate approval job accepts only the highest published attempt for the
 exact Stable or Beta target. It rebuilds the exact candidate source with the
 Production identity, verifies its signature and channel update metadata,
-records SHA-256 checksums in `promotion-source.json`, and creates a Draft.
+embeds `bdih-release-build.json` with the selected Production channel, records
+SHA-256 checksums in `promotion-source.json`, and creates a Draft. Verification
+extracts the generated ZIP and rejects it unless the packaged marker identifies
+the approved Stable or Beta channel.
 The next job in the same run waits on the separate `production-release`
 environment. It downloads everything again, confirms the candidate is still
 current, checks provenance, checksums, tag target, and the signed app from the
@@ -219,6 +222,13 @@ in Settings just like Production. Generated update metadata for both channels
 lets Beta candidates update to later Beta candidates or a final Stable
 candidate. The TestProduction repository must remain public because packaged
 clients cannot safely contain a private-repository access token.
+
+Production uses the same first-run rule through
+`Contents/Resources/bdih-release-build.json`: a Production Beta package starts
+a new profile on Beta, while a Production Stable package starts it on Stable.
+An existing valid channel saved in `settings.json` always wins over the packaged
+marker, so installing another channel build does not silently undo a user's
+manual selection.
 
 When Stable switches to Beta, the app records that exact Stable version as its
 return target. A later Stable return reads update metadata directly from that

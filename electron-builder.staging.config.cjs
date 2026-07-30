@@ -51,7 +51,8 @@ module.exports = {
   },
   extraResources: [
     ...(baseConfig.extraResources || []).filter((resource) =>
-      resource?.to !== "bdih-nightly-build.json"),
+      resource?.to !== "bdih-nightly-build.json"
+      && resource?.to !== "bdih-release-build.json"),
     {
       from: markerPath,
       to: "bdih-staging-build.json",

@@ -11,6 +11,7 @@ const UPDATE_TEST_MARKER_FILE_NAME = "bdih-update-test.json";
 const NIGHTLY_UPDATE_TEST_MARKER_FILE_NAME = "bdih-nightly-update-test.json";
 const NIGHTLY_BUILD_MARKER_FILE_NAME = "bdih-nightly-build.json";
 const STAGING_BUILD_MARKER_FILE_NAME = "bdih-staging-build.json";
+const RELEASE_BUILD_MARKER_FILE_NAME = "bdih-release-build.json";
 const UPDATE_TEST_RELEASE_DIR_NAME = "Release";
 const UPDATE_TEST_PARENT_DIR_NAME = "tests";
 const UPDATE_TEST_STATE_DIR_NAME = "state";
@@ -34,6 +35,7 @@ const ENV_STAGING_BUILD = "BDIH_STAGING_BUILD";
 const ENV_STAGING_CHANNEL = "BDIH_STAGING_CHANNEL";
 
 export type StagingUpdateChannel = "stable" | "beta";
+export type ProductionUpdateChannel = "stable" | "beta";
 
 export interface UpdateTestRuntimePaths {
   releaseRoot: string;
@@ -148,6 +150,32 @@ export function get_staging_update_channel(): StagingUpdateChannel | undefined {
     const marker = JSON.parse(
       readFileSync(path.join(process.resourcesPath, STAGING_BUILD_MARKER_FILE_NAME), "utf8"),
     ) as { channel?: unknown };
+
+    return marker.channel === "beta" ? "beta" : "stable";
+  } catch {
+    return "stable";
+  }
+}
+
+export function get_production_update_channel(): ProductionUpdateChannel | undefined {
+  const environmentChannel = process.env[ENV_RELEASE_CHANNEL]?.trim().toLowerCase();
+
+  if (environmentChannel === "stable" || environmentChannel === "beta") {
+    return environmentChannel;
+  }
+
+  if (!is_packaged_environment() || typeof process.resourcesPath !== "string") {
+    return undefined;
+  }
+
+  const markerPath = path.join(process.resourcesPath, RELEASE_BUILD_MARKER_FILE_NAME);
+
+  if (!existsSync(markerPath)) {
+    return undefined;
+  }
+
+  try {
+    const marker = JSON.parse(readFileSync(markerPath, "utf8")) as { channel?: unknown };
 
     return marker.channel === "beta" ? "beta" : "stable";
   } catch {

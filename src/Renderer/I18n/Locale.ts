@@ -1,5 +1,12 @@
+import {
+  FALLBACK_LOCALE,
+  is_supported_locale,
+  normalize_locale,
+  SUPPORTED_LOCALES,
+} from "../../Common/Util/Locale";
+import type { SupportedLocale } from "../../Common/Util/Locale";
+
 export const LOCALE_STORAGE_KEY = "bdih.locale";
-export const FALLBACK_LOCALE = "ko";
 
 export const LOCALE_OPTIONS = [
   {
@@ -20,20 +27,10 @@ export const LOCALE_OPTIONS = [
   },
 ] as const;
 
-export type SupportedLocale = (typeof LOCALE_OPTIONS)[number]["value"];
-
-export const SUPPORTED_LOCALES = LOCALE_OPTIONS.map((locale) => locale.value) as SupportedLocale[];
-
-export function is_supported_locale(locale: string): locale is SupportedLocale {
-  return SUPPORTED_LOCALES.includes(locale as SupportedLocale);
-}
-
-export function normalize_locale(locale?: string): SupportedLocale {
-  const language = locale?.split("-")[0]?.toLowerCase();
-
-  if (language && is_supported_locale(language)) {
-    return language;
-  }
-
-  return FALLBACK_LOCALE;
-}
+export {
+  FALLBACK_LOCALE,
+  is_supported_locale,
+  normalize_locale,
+  SUPPORTED_LOCALES,
+};
+export type { SupportedLocale };
