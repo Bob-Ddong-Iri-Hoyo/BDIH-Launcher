@@ -1,13 +1,29 @@
-name: Publish Production Draft
+name: Production Publish Gate
 
 on:
-  repository_dispatch:
-    types:
-      - production_draft_created
-
-concurrency:
-  group: production-publish-${{ github.event.client_payload.target_version }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      candidate_tag:
+        required: true
+        type: string
+      candidate_version:
+        required: true
+        type: string
+      target_version:
+        required: true
+        type: string
+      channel:
+        required: true
+        type: string
+      production_tag:
+        required: true
+        type: string
+      source_commit:
+        required: true
+        type: string
+      draft_url:
+        required: true
+        type: string
 
 env:
   STAGING_REPOSITORY: Bob-Ddong-Iri-Hoyo/BDIH-Launcher-TestProduction
@@ -15,7 +31,7 @@ env:
 
 jobs:
   publish_production:
-    name: Publish ${{ github.event.client_payload.target_version }} from ${{ github.event.client_payload.candidate_version }} (${{ github.event.client_payload.channel }})
+    name: Publish ${{ inputs.target_version }} from ${{ inputs.candidate_version }} (${{ inputs.channel }})
     runs-on: macos-latest
     permissions:
       actions: read
@@ -23,7 +39,7 @@ jobs:
       deployments: write
     environment:
       name: production-release
-      url: ${{ github.event.client_payload.draft_url }}
+      url: ${{ inputs.draft_url }}
 
     steps:
       - name: Checkout trusted publication policy
@@ -58,12 +74,12 @@ jobs:
         id: validation
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CANDIDATE_TAG: ${{ github.event.client_payload.candidate_tag }}
-          CANDIDATE_VERSION: ${{ github.event.client_payload.candidate_version }}
-          TARGET_VERSION: ${{ github.event.client_payload.target_version }}
-          CANDIDATE_CHANNEL: ${{ github.event.client_payload.channel }}
-          PRODUCTION_TAG: ${{ github.event.client_payload.production_tag }}
-          SOURCE_SHA: ${{ github.event.client_payload.source_commit }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+          CANDIDATE_VERSION: ${{ inputs.candidate_version }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          CANDIDATE_CHANNEL: ${{ inputs.channel }}
+          PRODUCTION_TAG: ${{ inputs.production_tag }}
+          SOURCE_SHA: ${{ inputs.source_commit }}
         run: |
           set -euo pipefail
 
@@ -219,7 +235,7 @@ jobs:
       - name: Checkout the exact approved source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.client_payload.source_commit }}
+          ref: ${{ inputs.source_commit }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -265,11 +281,11 @@ jobs:
       - name: Publish the verified Production Draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PRODUCTION_TAG: ${{ github.event.client_payload.production_tag }}
-          TARGET_VERSION: ${{ github.event.client_payload.target_version }}
-          CANDIDATE_VERSION: ${{ github.event.client_payload.candidate_version }}
-          CANDIDATE_CHANNEL: ${{ github.event.client_payload.channel }}
-          SOURCE_SHA: ${{ github.event.client_payload.source_commit }}
+          PRODUCTION_TAG: ${{ inputs.production_tag }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          CANDIDATE_VERSION: ${{ inputs.candidate_version }}
+          CANDIDATE_CHANNEL: ${{ inputs.channel }}
+          SOURCE_SHA: ${{ inputs.source_commit }}
         run: |
           set -euo pipefail
 

@@ -39,15 +39,15 @@ metadata in the Stable RC and shows every changed file since that Beta in the
 run summary. This publishes `1.2.3-rc.1` to TestProduction. After the candidate
 is tested:
 
-1. Open the automatically queued **Approve Production Candidate** run.
+1. Open the automatically queued **Production Release** run.
 2. Verify the job title says `Draft 1.2.3 from 1.2.3-rc.1` and follow its
    environment link to the exact TestProduction release.
 3. Approve `production-candidate-approval`.
 4. The workflow revalidates the latest Stable candidate, source commit,
    `package.json`, signature, update metadata, and assets. It creates only a
    Draft `v1.2.3`; the updater cannot see it.
-5. Inspect the Draft and open the automatically queued **Publish Production Draft**
-   run.
+5. Inspect the Draft and the final publish job waiting in the same
+   **Production Release** run.
 6. Verify the Production target, RC, source SHA, and Draft link again, then
    approve `production-release`.
 7. The workflow downloads the Draft again, verifies SHA-256 checksums and the
@@ -57,15 +57,17 @@ The Production app is rebuilt from the RC's exact source commit because
 Staging and Production use different bundle identifiers and update providers.
 The Staging binary itself is never copied into Production.
 
-### How to use the two approval workflows
+### How to use the two approval gates
 
-Do not run **Approve Production Candidate** or **Publish Production Draft**
-manually. They have no `Run workflow` form. A promotable TestProduction
-candidate creates them automatically through `repository_dispatch`.
+A promotable TestProduction candidate starts **Production Release**
+automatically through `repository_dispatch`. The same workflow also has a
+manual `Run workflow` form that accepts an existing candidate tag. Use the
+manual form only to requeue a current candidate after a transient failure; it
+never rebuilds or mutates the TestProduction candidate.
 
-For **Approve Production Candidate**:
+For the first approval:
 
-1. Open **Actions → Approve Production Candidate** after the Staging build.
+1. Open **Actions → Production Release** after the Staging build.
 2. Open the run whose title contains the exact target, candidate, and channel.
 3. Follow the Environment link to the TestProduction release and inspect its
    source SHA. For Stable, inspect the Beta parent and the Beta→RC file diff.
@@ -74,10 +76,10 @@ For **Approve Production Candidate**:
 5. This builds and verifies Production assets but creates only an unpublished
    Draft.
 
-For **Publish Production Draft**:
+For the final approval:
 
-1. It appears automatically after the first workflow creates the Draft.
-2. Open the run and use its Environment link to inspect the exact Draft,
+1. It appears as the next waiting job in the same run after the Draft is created.
+2. Use its Environment link to inspect the exact Draft,
    candidate, channel, source SHA, and assets.
 3. Click **Review deployments**, select `production-release`, then choose
    **Approve and deploy**.
@@ -103,9 +105,11 @@ it; use another required reviewer.
 
 Do not use **Re-run jobs** to apply a workflow fix to an existing candidate:
 GitHub reruns the workflow stored at that candidate's original source commit.
-When its TestProduction Release or tag already exists, push the fix and create
-the next attempt. The same attempt number becomes reusable only if both the
-Release and tag are intentionally deleted.
+The manual **Production Release** form can requeue a current candidate only
+when its source contains the same `.github/workflows` state as current `main`.
+If promotion policy changed, push the fix and create the next TestProduction
+attempt. The same attempt number becomes reusable only if both the Release and
+tag are intentionally deleted.
 
 GitHub represents candidate state without a mutable custom status file:
 
@@ -139,8 +143,8 @@ This produces `1.2.3-beta.1.staging.1`. If it fails testing, keep the same
 target and publish attempt `2`, `3`, and so on. Only the highest attempt for
 that exact Beta target can pass approval.
 
-After testing, use the same **Approve Production Candidate** and **Publish
-Production Draft** approvals. The approved source is rebuilt as Production
+After testing, use the same two **Production Release** approval gates. The
+approved source is rebuilt as Production
 `1.2.3-beta.1`, with `beta-mac.yml`, GitHub prerelease status, and tag
 `v1.2.3-beta.1`. The `.staging.N` suffix never enters the Production version.
 
